@@ -1,0 +1,28 @@
+[package]
+name = "lexis"
+version = "0.1.0"
+edition = "2021"
+description = "Lexis: an offline GRE dictionary"
+
+# Its own workspace: the system webview libraries are only needed here.
+[workspace]
+
+[lib]
+name = "lexis_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+gredict-app = { path = "../../crates/app" }
+anyhow = "1"
+serde_json = "1"
+
+[profile.release]
+lto = true
+opt-level = "s"
+codegen-units = 1
+strip = true
+panic = "abort"

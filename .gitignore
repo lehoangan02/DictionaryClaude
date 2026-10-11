@@ -1,0 +1,12 @@
+# Copyrighted source material and anything derived from it — never commit
+private/
+# Downloaded dictionary dumps and built packs (large, reproducible via packer)
+data/raw/
+data/packs/
+target/
+node_modules/
+app/ui/dist/
+*.sqlite
+*.sqlite-*
+app/ui/node_modules/
+data/user/

@@ -1,0 +1,80 @@
+:root {
+  --navy: #0a2a5e;
+  --navy-2: #123a7a;
+  --blue: #0b57b5;
+  --accent: #e8590c;
+  --bg: #ffffff;
+  --panel: #f4f7fb;
+  --panel-2: #e9eff8;
+  --text: #1c2430;
+  --muted: #5f6b7a;
+  --line: #d9e1ec;
+  --good: #1b7f3b;
+  --bad: #c0392b;
+  --good-bg: #e6f4ea;
+  --bad-bg: #fbe9e7;
+  --radius: 10px;
+  --shadow: 0 6px 24px rgba(10, 42, 94, 0.14);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --navy: #0b1f44; --navy-2: #16346b; --blue: #6aa6ff; --accent: #ff8a4c;
+    --bg: #0f1623; --panel: #172033; --panel-2: #1e2a42; --text: #e6ebf3; --muted: #9aa7b8;
+    --line: #2a364d; --good: #5fd08a; --bad: #ff8b7a; --good-bg: #12301e; --bad-bg: #3a1c18;
+    --shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+    color-scheme: dark;
+  }
+}
+:root[data-theme='dark'] {
+  --navy: #0b1f44; --navy-2: #16346b; --blue: #6aa6ff; --accent: #ff8a4c;
+  --bg: #0f1623; --panel: #172033; --panel-2: #1e2a42; --text: #e6ebf3; --muted: #9aa7b8;
+  --line: #2a364d; --good: #5fd08a; --bad: #ff8b7a; --good-bg: #12301e; --bad-bg: #3a1c18;
+  --shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  color-scheme: dark;
+}
+
+/* One glyph (⍯, "different") from DejaVu Sans Mono (free licence), because many fonts lack it.
+   The unicode-range keeps it from affecting any other character. */
+@font-face {
+  font-family: 'Lexis Symbols';
+  src: url(data:font/woff2;base64,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) format('woff2');
+  unicode-range: U+236F;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--text); }
+body {
+  font: 16px/1.5 'Lexis Symbols', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+a { color: var(--blue); }
+.wrap { max-width: 900px; margin: 0 auto; padding: 0 16px; }
+.muted { color: var(--muted); }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; }
+.btn {
+  border: 1px solid var(--line); background: var(--panel); border-radius: 999px;
+  padding: 8px 16px; min-height: 40px;
+}
+.btn:hover { background: var(--panel-2); }
+.btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.ghost { background: transparent; }
+.btn.small { padding: 4px 12px; min-height: 32px; font-size: 14px; }
+.chip {
+  display: inline-block; border: 1px solid var(--line); background: var(--bg); border-radius: 999px;
+  padding: 2px 11px; font-size: 14px; margin: 2px 4px 2px 0; text-decoration: none; color: var(--blue);
+}
+button.chip:hover, a.chip:hover { background: var(--panel-2); }
+h2 { font-size: 20px; margin: 22px 0 10px; }
+input[type='text'], input[type='search'], input[type='number'], input[type='date'], textarea, select {
+  width: 100%; border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 9px 12px;
+}
+:focus-visible { outline: 3px solid color-mix(in srgb, var(--blue) 55%, transparent); outline-offset: 1px; }
+.empty { text-align: center; color: var(--muted); padding: 36px 12px; }
+.err { color: var(--bad); background: var(--bad-bg); border-radius: 8px; padding: 10px 14px; }
+
+/* Relation symbols (= ≈ >< ⍯) need a face that covers the APL block. */
+.symfont, .sym, .syms .btn b, .pill b { font-family: 'Lexis Symbols', ui-monospace, 'DejaVu Sans Mono', Menlo, Consolas, 'Noto Sans Mono', monospace; }

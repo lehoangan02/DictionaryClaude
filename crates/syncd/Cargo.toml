@@ -1,0 +1,27 @@
+[package]
+name = "gredict-syncd"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[lib]
+name = "gredict_syncd"
+path = "src/lib.rs"
+
+[[bin]]
+name = "gredict-syncd"
+path = "src/main.rs"
+
+[dependencies]
+gredict-app = { path = "../app" }
+anyhow.workspace = true
+clap.workspace = true
+rcgen.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+tiny_http.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+base64.workspace = true
