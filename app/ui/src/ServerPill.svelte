@@ -108,7 +108,7 @@
   .pend { background: var(--accent); border-radius: 999px; padding: 0 7px; font-size: 11px; font-weight: 700; }
   .vpn { font-size: 10px; font-weight: 700; border: 1px solid #ffb020; color: #ffb020; border-radius: 4px; padding: 0 4px; }
   .pop {
-    position: absolute; right: 0; top: calc(100% + 24px); width: min(390px, 92vw); background: var(--bg); color: var(--text);
+    position: fixed; right: max(20px, env(safe-area-inset-right)); top: 100px; width: min(390px, calc(100vw - 40px)); background: var(--bg); color: var(--text);
     border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 14px 16px; z-index: 40; font-size: 14px;
   }
   .pop p { margin: 6px 0; color: var(--muted); }
