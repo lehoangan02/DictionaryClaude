@@ -21,7 +21,6 @@ Kept current by whoever changes the app (Claude Code included): when you fix som
 - **Self-update (built, never run on a device):** Settings → About and a banner show a newer GitHub release, download it, verify the SHA-256 and install it (Mac: swaps the app bundle and reopens; Linux: replaces the AppImage; Android: hands the APK to the system installer, which asks once to allow installs from LadyBird). Tested against a stand-in for GitHub only.
 
 **Still open (reported by the owner)**
-- **Sound does not work on the phone:** neither recordings nor the speech fallback play on Android. Needs a look at `adb logcat` on the phone while pressing the speaker: check the web view's audio and `speechSynthesis` support and autoplay rules.
 - **Note reading, remaining work:** run page 2 through the reader and compare; show per-line confidence; the notes grammar still builds a relation from anything with `=`, so odd lines can produce odd relations.
 
 **Known defects and gaps**
@@ -34,7 +33,6 @@ Kept current by whoever changes the app (Claude Code included): when you fix som
 - **Many Rust tests skip on the Mac** (no `data/packs`, no `private/`); copy the packs from the box (see SETUP step 5) to run them all. The browser e2e test needs the same.
 - **Mobile UI** was fixed for the Settings screen (tap highlight, selection, tab-bar fade, wrapping rows); other screens have not been audited at phone width.
 - `quiz.rs:511` has a harmless "does not need to be mutable" compiler warning.
-- Sound uses the web view's speech and downloaded recordings; there is no offline speech fallback.
 
 ## Upcoming
 

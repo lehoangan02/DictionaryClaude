@@ -53,6 +53,9 @@ export async function speak(word: string, audio?: string) {
       return;
     } catch { /* fall through to speech */ }
   }
+  // Android: the system voice, through the app (the web view has none of its own).
+  const voice = (window as unknown as { LadyBirdVoice?: { speak(w: string): void } }).LadyBirdVoice;
+  if (voice) { voice.speak(word); return; }
   if ('speechSynthesis' in window) {
     const u = new SpeechSynthesisUtterance(word);
     u.lang = 'en-US';

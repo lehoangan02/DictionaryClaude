@@ -8,6 +8,10 @@ import android.provider.Settings
 import androidx.core.content.FileProvider
 import java.io.File
 import android.view.View
+import android.speech.tts.TextToSpeech
+import android.webkit.JavascriptInterface
+import android.webkit.WebView
+import java.util.Locale
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -23,6 +27,29 @@ class MainActivity : TauriActivity() {
       v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
       WindowInsetsCompat.CONSUMED
     }
+  }
+
+  private var tts: TextToSpeech? = null
+
+  /** The page asks for a spoken word here when no recording can be played. */
+  inner class Voice {
+    @JavascriptInterface
+    fun speak(word: String) {
+      tts?.speak(word, TextToSpeech.QUEUE_FLUSH, null, "word")
+    }
+  }
+
+  override fun onWebViewCreate(webView: WebView) {
+    super.onWebViewCreate(webView)
+    // Pronunciations play after a network fetch, so they no longer count as part of the tap.
+    webView.settings.mediaPlaybackRequiresUserGesture = false
+    tts = TextToSpeech(this) { status -> if (status == TextToSpeech.SUCCESS) tts?.language = Locale.US }
+    webView.addJavascriptInterface(Voice(), "LadyBirdVoice")
+  }
+
+  override fun onDestroy() {
+    tts?.shutdown()
+    super.onDestroy()
   }
 
   /** Hands a downloaded update to the system installer (called from Rust through JNI). */

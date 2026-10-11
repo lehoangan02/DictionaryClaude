@@ -131,6 +131,7 @@ for (let n = 0; n < 15; n++) {
   const btns = await m.$$('.ch');
   if (!btns.length) break;
   await btns[0].click(); // first option: some right, some wrong
+  await clickText(m, '.go', 'Check answer'); // answers are selected first, then checked
   try { await m.waitForSelector('.fb', { timeout: 5000 }); }
   catch { console.log('NO FEEDBACK. page shows:\n' + (await m.$eval('body', (e) => e.innerText.slice(0, 500)))); throw new Error('no feedback'); }
   await clickText(m, '.go', n < 14 ? 'Next' : 'See results');
