@@ -58,6 +58,17 @@ body {
 }
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
+
+/* Touch: no flash of a grey box when a control is tapped, no double-tap zoom delay, and app chrome
+   (buttons, labels, headings, the tab bar) is not selectable. Dictionary text and inputs still are. */
+* { -webkit-tap-highlight-color: transparent; }
+button, a, summary, label, [role='radio'], .btn, .chip { touch-action: manipulation; }
+button, summary, label, nav, h1, h2, h3, .btn, .chip, .top, .tabbar, .seg, .n, .ic {
+  -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
+}
+input, textarea { -webkit-user-select: text; user-select: text; }
+button:focus:not(:focus-visible) { outline: none; }
+@media (pointer: coarse) { textarea { resize: none; } }
 a { color: var(--blue); }
 .wrap { max-width: 900px; margin: 0 auto; padding: 0 16px; }
 .muted { color: var(--muted); }

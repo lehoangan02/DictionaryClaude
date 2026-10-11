@@ -193,17 +193,18 @@
   .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   .f { display: flex; flex-direction: column; gap: 4px; margin: 12px 0; font-size: 13px; color: var(--muted); }
   .f input, .f textarea { font-size: 15px; }
-  code { background: var(--panel-2); border-radius: 4px; padding: 1px 6px; }
+  code { background: var(--panel-2); border-radius: 4px; padding: 1px 6px; font-size: 0.85em; overflow-wrap: anywhere; }
   .msg { margin-top: 10px; }
   .chk { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
   button:disabled { opacity: 0.35; }
   .order { list-style: none; margin: 10px 0; padding: 0; }
-  .order li { display: flex; align-items: center; gap: 10px; padding: 8px 4px; border-top: 1px solid var(--line); }
+  .order li { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; padding: 8px 4px; border-top: 1px solid var(--line); }
   .order li:first-child { border-top: 0; }
   .order li.off .nm { opacity: 0.45; }
   .n { width: 26px; height: 26px; border-radius: 50%; background: var(--blue-soft); color: var(--blue); display: grid; place-items: center; font-weight: 700; font-size: 13px; flex: none; }
-  .nm { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .nm { flex: 1 1 150px; display: flex; flex-direction: column; min-width: 0; }
   .mv { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--blue); display: grid; place-items: center; box-shadow: 0 1px 3px rgba(16, 40, 80, 0.08); }
+  .nm + .mv { margin-left: auto; }
   .mv:hover:not(:disabled) { background: var(--blue-soft); }
   .sw { position: relative; width: 44px; height: 26px; flex: none; }
   .sw input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 1; }
