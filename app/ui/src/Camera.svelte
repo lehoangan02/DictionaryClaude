@@ -13,9 +13,15 @@
       .getUserMedia({ video: { facingMode: 'environment', width: { ideal: 2560 }, height: { ideal: 1440 } }, audio: false })
       .then((s) => { stream = s; video.srcObject = s; return video.play(); })
       .then(() => { ready = true; })
-      .catch(() => { error = 'No camera is available, or access was refused. Allow it in System Settings → Privacy & Security → Camera, or use “Add photos”.'; });
+      .catch((e) => { error = `The camera could not be opened (${e?.name ?? 'error'}). Allow LadyBird in System Settings → Privacy & Security → Camera, or choose a photo instead.`; });
     return () => stream?.getTracks().forEach((t) => t.stop());
   });
+
+  function picked(e: Event) {
+    const f = (e.target as HTMLInputElement).files?.[0];
+    if (f) onshot(f);
+    onclose();
+  }
 
   function shoot() {
     const c = document.createElement('canvas');
@@ -32,7 +38,11 @@
   {#if error}<p class="err">{error}</p>{/if}
   <div class="bar">
     <button class="btn" onclick={onclose}>Cancel</button>
-    <button class="btn primary" disabled={!ready} onclick={shoot}>Take photo</button>
+    {#if error}
+      <label class="btn primary">Choose a photo<input type="file" accept="image/*" onchange={picked} hidden /></label>
+    {:else}
+      <button class="btn primary" disabled={!ready} onclick={shoot}>Take photo</button>
+    {/if}
   </div>
 </div>
 

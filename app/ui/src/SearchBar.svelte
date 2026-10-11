@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { call } from './lib/api';
   import { app, open } from './lib/store.svelte';
   import Icon from './Icon.svelte';
@@ -42,8 +43,12 @@
     else if (e.key === 'Escape') { focused = false; }
   }
 
-  // Clicking a word elsewhere updates the box too.
-  $effect(() => { if (app.word && app.word !== q) { q = app.word; sugg = []; } else if (!app.word && !focused) { q = ''; } });
+  // Clicking a word elsewhere updates the box too. Only a change of the current word may do this:
+  // if the effect also depended on what is typed, every edit would be put straight back.
+  $effect(() => {
+    const w = app.word;
+    untrack(() => { if (w) { if (w !== q) { q = w; sugg = []; } } else if (!focused) q = ''; });
+  });
 </script>
 
 <div class="sb">
