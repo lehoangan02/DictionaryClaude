@@ -30,7 +30,6 @@ Kept current by whoever changes the app (Claude Code included): when you fix som
 - **Auto-enroll trusts the home network:** anyone on the home Wi-Fi (a guest, say) can enroll a device while the server allows it. Mitigations: `--no-auto-enroll`, 20 per hour, log lines, `gredict-syncd devices` / `revoke`. Idea: an approval step or a time window.
 - **Unpairing on purpose turns auto-pair off** until "Pair now" is pressed (by design); there is no per-device list or revoke button in the app yet.
 - **Release flow:** the v0.6.0 tag was cut before the Mac fixes (camera entitlement, search edit fix, plus icon). The Mac DMG on that release was built from a later commit by hand; ship v0.6.1 so the tag matches.
-- **Ubuntu box runs an older `gredict-syncd`** until it is pulled, rebuilt and restarted, so `/v1/enroll` does not exist there yet and auto-pair cannot work.
 - **APK signing key lives only on the Ubuntu box** (`~/.lexis-keys/`): test builds from the Mac use a separate application id and debug signing so they never replace the real app. Back the key up.
 - **Many Rust tests skip on the Mac** (no `data/packs`, no `private/`); copy the packs from the box (see SETUP step 5) to run them all. The browser e2e test needs the same.
 - **Mobile UI** was fixed for the Settings screen (tap highlight, selection, tab-bar fade, wrapping rows); other screens have not been audited at phone width.
@@ -41,7 +40,7 @@ Kept current by whoever changes the app (Claude Code included): when you fix som
 
 **Next up**
 - **Self-updating app (owner request, high priority):** devices must update themselves; nobody should download a release from GitHub by hand. Sketch: the sync server already has `latest.json` per release in `~/lexis-releases`; serve it (and the files) to paired devices over the pinned-TLS channel, show "Update available" in Settings with one button (and optionally update on its own at home), verify the SHA-256 and a signature before installing. Mac: Tauri's updater plugin with a signed manifest, or replace the app bundle from the verified DMG; Linux: swap the AppImage; Android: download the APK and hand it to the system installer (needs the "install unknown apps" permission once; the APK must keep the same signing key). Unpaired devices could fall back to GitHub releases.
-1. Release v0.6.1 from the Ubuntu box (AppImage + signed APK), letting the release-mac workflow attach the DMG; update and restart `gredict-syncd` there.
+1. Release v0.6.1 from the Ubuntu box (AppImage + signed APK), letting the release-mac workflow attach the DMG.
 2. Real-device test pass on the Mac and the S24 Ultra, recording what the NPU actually uses.
 3. Keep SSH from the Mac to the box working (key login is set up; see SETUP "Which machine is which").
 
