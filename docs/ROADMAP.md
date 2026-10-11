@@ -17,7 +17,6 @@ Kept current by whoever changes the app (Claude Code included): when you fix som
 - **Unpairing on purpose turns auto-pair off** until "Pair now" is pressed (by design); there is no per-device list or revoke button in the app yet.
 - **Release flow:** the v0.6.0 tag was cut before the Mac fixes (camera entitlement, search edit fix, plus icon). The Mac DMG on that release was built from a later commit by hand; ship v0.6.1 so the tag matches.
 - **Ubuntu box runs an older `gredict-syncd`** until it is pulled, rebuilt and restarted, so `/v1/enroll` does not exist there yet and auto-pair cannot work.
-- **SSH from the Mac to the Ubuntu box is refused with a valid key** because `/home/lhan` is group-writable (`drwxrwx--- lhan:lhan_shared`, shared with `lhan02`), which sshd's `StrictModes` rejects. Options: `chmod g-w /home/lhan` (breaks lhan02 creating files directly in the home root) or a root-owned `AuthorizedKeysFile` via a drop-in in `/etc/ssh/sshd_config.d/` (no change to sharing). Until then, login works only with the password.
 - **APK signing key lives only on the Ubuntu box** (`~/.lexis-keys/`): test builds from the Mac use a separate application id and debug signing so they never replace the real app. Back the key up.
 - **Many Rust tests skip on the Mac** (no `data/packs`, no `private/`); copy the packs from the box (see SETUP step 5) to run them all. The browser e2e test needs the same.
 - **Mobile UI** was fixed for the Settings screen (tap highlight, selection, tab-bar fade, wrapping rows); other screens have not been audited at phone width.
@@ -29,7 +28,7 @@ Kept current by whoever changes the app (Claude Code included): when you fix som
 **Next up**
 1. Release v0.6.1 from the Ubuntu box (AppImage + signed APK), letting the release-mac workflow attach the DMG; update and restart `gredict-syncd` there.
 2. Real-device test pass on the Mac and the S24 Ultra, recording what the NPU actually uses.
-3. Sort out SSH access to the box (see above) so releases and server updates can be run from the Mac.
+3. Keep SSH from the Mac to the box working (key login is set up; see SETUP "Which machine is which").
 
 **Planned (from `docs/PLAN.md`)**
 - Bluetooth LE sync between Mac and phone (`btleplug` on the Mac, a Kotlin plugin on Android); LAN peer-to-peer discovery via mDNS (`_gredict._tcp`) as a fallback if the server's address changes.
