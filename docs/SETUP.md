@@ -96,7 +96,21 @@ The packer refuses to write the Barron's database if any unit, exercise or answe
 
 ## 5. The Mac (M2 MacBook Air)
 
-**Easiest:** download `LadyBird-<version>-macos-arm64.dmg` from the GitHub release, drag the app to Applications and open it (if macOS says it is damaged: `xattr -dr com.apple.quarantine /Applications/LadyBird.app`). On the home Wi-Fi it pairs with the server by itself; skip to step 6. To build from source instead:
+**Easiest: install the DMG from the GitHub release.** In Terminal:
+
+```bash
+pkill -x ladybird; rm -rf /Applications/LadyBird.app          # replace any old copy
+cd ~/Downloads
+gh release download v<version> -R lehoangan02/DictionaryClaude -p '*macos-arm64.dmg' --clobber
+hdiutil attach -nobrowse LadyBird-<version>-macos-arm64.dmg
+cp -R /Volumes/LadyBird/LadyBird.app /Applications/ && hdiutil detach /Volumes/LadyBird
+xattr -dr com.apple.quarantine /Applications/LadyBird.app      # without this macOS says the app is "damaged"
+open /Applications/LadyBird.app
+```
+
+The app is ad-hoc signed (no paid Apple account, so no notarization). On first use macOS asks for **Local Network** (needed to reach the server at 192.168.1.7; if you refuse, pairing fails with "No route to host", and you can change it in System Settings → Privacy & Security → Local Network) and **Camera** (Take photo). On the home Wi-Fi the app pairs with the server by itself, which needs the server running the current `gredict-syncd` (`git pull`, rebuild, `sudo systemctl restart gredict-syncd`); skip to step 6. Merriam-Webster works straight away, even before any dictionary is downloaded. `scripts/release-mac.sh v<version>` rebuilds and replaces the release's DMG.
+
+To build from source instead:
 
 1. Install Xcode command line tools (`xcode-select --install`), Rust (`rustup`), Node 20+.
 2. Get the code: `git clone https://github.com/lehoangan02/DictionaryClaude && cd DictionaryClaude`.
