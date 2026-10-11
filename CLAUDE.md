@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Machines (owner's standing decision, 2026-10-11)
+
+**The Mac (M2 MacBook Air, this checkout) is the machine the owner works on from now on.** Develop, test, commit and run `scripts/release-mac.sh` here (Rust, Node, `gh`, `tauri-cli` and, for the phone, the Android SDK/NDK are installed on it). The Ubuntu box (`192.168.1.7`, `lhan.duckdns.org`) runs `gredict-syncd`, builds the Linux AppImage and the signed Android APK (`scripts/release.sh`), and holds the packs, Barron's and the APK signing key (`~/.lexis-keys/`, never copy it into git). **Whenever something needs the Ubuntu side, SSH into it yourself instead of asking the owner to do it there**: `ssh -p 22 lhan@lhan.duckdns.org` on the home network, `ssh -p 2222 lhan@lhan.duckdns.org` from elsewhere; the repo is at `~/Documents/AILab/DictionaryClaude`. Pull before working there, push from the Mac, and tell the owner what you ran. The Mac's SSH key must be authorized on the box (`ssh-copy-id`); if login is refused, say so and ask the owner to run it once with `!`.
+
 ## Source of truth
 
 - `docs/REQUIREMENTS.md` holds the owner's original request (verbatim) plus agreed decisions. **Re-read it before starting each phase. Never edit it without the owner's explicit permission**: propose the change and ask first.

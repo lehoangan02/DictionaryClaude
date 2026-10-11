@@ -180,3 +180,7 @@ Dictionary packs are not part of a release: the server offers them. After rebuil
 ## 10. Publishing
 
 The repository is public (`github.com/lehoangan02/DictionaryClaude`). Never commit `private/`, `data/`, pairing codes, API keys or anything quoted from Barron's. The local branch `checkpoints-archive` must never be pushed (see `CLAUDE.md`).
+
+## Which machine is which
+
+Day-to-day work happens on the Mac (this repo checkout, `gh` signed in, `scripts/release-mac.sh`). The Ubuntu box is reached over SSH when needed: `ssh -p 22 lhan@lhan.duckdns.org` at home, `ssh -p 2222 lhan@lhan.duckdns.org` elsewhere. Authorize the Mac's key once with `ssh-copy-id -p 22 lhan@lhan.duckdns.org`. After pushing from the Mac, update the server with `ssh -p 22 lhan@lhan.duckdns.org 'cd ~/Documents/AILab/DictionaryClaude && git pull && . ~/.cargo/env && cargo build --release -p gredict-syncd && sudo systemctl restart gredict-syncd'` (the `sudo` step needs a terminal; run it with `ssh -t`).
