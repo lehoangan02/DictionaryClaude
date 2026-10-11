@@ -102,7 +102,26 @@ pub fn merge_thesaurus(entry: &mut Entry, v: &Value) {
     }
 }
 
+/// Keys shipped with the app (the owner chose to publish them), so every device
+/// starts with Merriam-Webster already set up.
+const DEFAULT_KEYS: &str = include_str!("../defaults/mw.json");
+
 impl Api {
+    /// Fills in the shipped keys on a device that has none, unless the person
+    /// removed them on purpose. The app shells call this; tests do not.
+    pub fn seed_defaults(&self) {
+        if self.mw_key("collegiate").is_some() || self.setting("mw.removed").as_deref() == Some("1") {
+            return;
+        }
+        if let Ok(v) = serde_json::from_str::<Value>(DEFAULT_KEYS) {
+            for k in ["collegiate", "thesaurus"] {
+                if let Some(key) = v[k].as_str().filter(|k| !k.is_empty()) {
+                    let _ = self.set_setting(&format!("mw.{k}"), key);
+                }
+            }
+        }
+    }
+
     fn mw_key(&self, which: &str) -> Option<String> {
         self.setting(&format!("mw.{which}")).filter(|k| !k.trim().is_empty())
     }
@@ -135,8 +154,11 @@ impl Api {
             if let Some(v) = args.get(k).and_then(Value::as_str) {
                 if v.trim().is_empty() {
                     self.db.lock().unwrap().execute("DELETE FROM settings WHERE k=?", [format!("mw.{k}")])?;
+                    // Removed on purpose: do not bring the shipped keys back at the next start.
+                    self.set_setting("mw.removed", "1")?;
                 } else {
                     self.set_setting(&format!("mw.{k}"), v.trim())?;
+                    self.db.lock().unwrap().execute("DELETE FROM settings WHERE k='mw.removed'", [])?;
                 }
             }
         }

@@ -138,7 +138,7 @@
 <section class="card">
   <h3>Dictionaries on this device</h3>
   <ul>
-    {#each app.sources as s (s.id)}<li><b>{s.name}</b> <span class="muted">{s.entries.toLocaleString()} entries</span></li>{/each}
+    {#each app.sources as s (s.id)}<li><b>{s.name}</b> <span class="muted">{s.entries != null ? `${s.entries.toLocaleString()} entries` : 'looked up online when you open a word'}</span></li>{/each}
   </ul>
   <p class="muted small">Wiktionary is CC BY-SA 4.0, WordNet is CC BY 4.0; Webster 1913 and the Moby thesaurus are public domain. Barron's material stays private on your devices.</p>
 </section>

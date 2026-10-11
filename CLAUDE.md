@@ -21,7 +21,7 @@ Planned layout (see `docs/PLAN.md`):
 ## Hard rules
 
 - **No scraping** of Oxford, Merriam-Webster or Cambridge. Dictionary content comes only from open datasets (Wiktionary/kaikki, Open English WordNet, GCIDE, Moby, CMUdict) and the official MW API, cached.
-- **Merriam-Webster API terms:** non-commercial, 1,000 queries/day per reference work, at most two reference works, and *no automated or recorded queries* (their section 5(a)). So MW is looked up only when the user opens a word in that tab, never pre-fetched in bulk; the key stays in `settings` and is never logged or returned to the UI; the MW logo is required (drop the official file at `app/ui/public/mw-logo.png`; it is not ours to generate).
+- **Merriam-Webster API terms:** non-commercial, 1,000 queries/day per reference work, at most two reference works, and *no automated or recorded queries* (their section 5(a)). So MW is looked up only when the user opens a word in that tab, never pre-fetched in bulk; the key is kept in `settings` and is never logged or returned to the UI; the official MW logos (`app/ui/public/mw-logo-*.png`, downloaded unmodified from their brand page) must stay visible on MW entries. The owner chose to ship the two free keys in `crates/app/defaults/mw.json` (public repo); app shells call `seed_defaults()`, tests do not.
 - **Barron's material is copyrighted.** The PDF and everything derived from it live in `private/` (gitignored). Never commit, publish or embed it in distributable builds.
 - **The UI mimics the Oxford Learner's look without Oxford names or logos.**
 - **User data references words by normalized lemma key, never by pack row IDs**, so dictionary packs stay swappable.

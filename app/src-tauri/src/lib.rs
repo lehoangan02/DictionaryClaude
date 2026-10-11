@@ -47,6 +47,7 @@ pub fn run() {
     tauri::Builder::default()
         .setup(move |app| {
             let api = Arc::new(Api::open(config(app.handle()))?);
+            api.seed_defaults();
             gredict_app::spawn_background_sync(api.clone(), Duration::from_secs(300));
             if agent {
                 // No window: only the sync loop keeps running.

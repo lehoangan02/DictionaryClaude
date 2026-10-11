@@ -6,7 +6,7 @@ export const app = $state({
   tab: 'search' as Tab,
   word: '',
   source: 'wiktionary',
-  sources: [] as { id: string; name: string; entries: number }[],
+  sources: [] as { id: string; name: string; entries: number | null }[],
   theme: (localStorage.getItem('theme') ?? 'system') as 'system' | 'light' | 'dark',
   // Bumped when history/notes change so dependent views refresh.
   version: 0,

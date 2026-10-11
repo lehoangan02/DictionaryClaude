@@ -48,7 +48,7 @@
   <section class="home">
     <h1>Look up any English word</h1>
     <p class="muted">
-      {app.sources.map((s) => `${s.name} (${s.entries.toLocaleString()})`).join(' · ')} — fully offline.
+      {app.sources.filter((s) => s.entries != null).map((s) => `${s.name} (${s.entries!.toLocaleString()})`).join(' · ')} — fully offline{app.sources.some((s) => s.entries == null) ? '; Merriam-Webster looks words up online and keeps them' : ''}.
     </p>
     <p class="muted">Try <button class="chip" onclick={() => open('loquacious')}>loquacious</button>
       <button class="chip" onclick={() => open('abate')}>abate</button>
@@ -177,7 +177,8 @@
 
       {#if data.source.id === 'mw'}
         <p class="attr">
-          <img src="./mw-logo.png" alt="Merriam-Webster" height="28" onerror={(e) => ((e.currentTarget as HTMLElement).style.display = 'none')} />
+          <img class="mwl light" src="./mw-logo-light.png" alt="Merriam-Webster" width="50" height="50" />
+          <img class="mwl dark" src="./mw-logo-dark.png" alt="" aria-hidden="true" width="50" height="50" />
           Definitions from <b>Merriam-Webster's Collegiate® Dictionary</b> and <b>Thesaurus</b>, © Merriam-Webster, Inc.
         </p>
       {/if}
@@ -249,6 +250,10 @@
   .rel b { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; margin-right: 6px; }
   .forms { color: var(--muted); font-size: 14px; display: flex; flex-wrap: wrap; gap: 4px 16px; }
   .forms em { font-style: normal; font-size: 12px; }
+  .mwl.dark { display: none; }
+  @media (prefers-color-scheme: dark) { :global(:root:not([data-theme='light'])) .mwl.light { display: none; } :global(:root:not([data-theme='light'])) .mwl.dark { display: inline; } }
+  :global(:root[data-theme='dark']) .mwl.light { display: none; }
+  :global(:root[data-theme='dark']) .mwl.dark { display: inline; }
   .attr { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; color: var(--muted); font-size: 13px; margin: 18px 0 0; }
   .origin { margin: 24px 0; background: var(--panel); border-radius: 8px; padding: 10px 14px; }
   .origin summary { cursor: pointer; font-weight: 600; }

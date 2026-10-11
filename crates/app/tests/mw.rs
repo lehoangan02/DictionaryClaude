@@ -139,3 +139,24 @@ fn suggestions_bad_keys_and_the_daily_limit() {
     let st: Value = api.call("mw_status", json!({})).unwrap();
     assert!(st["used_today"].as_i64().unwrap() >= 950);
 }
+
+#[test]
+fn shipped_keys_fill_in_automatically_and_removal_sticks() {
+    let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let Some((api, _m)) = setup("defaults") else { return };
+    assert!(!names(&api).contains(&"mw".to_string()), "a bare Api has no keys");
+    api.seed_defaults();
+    assert!(names(&api).contains(&"mw".to_string()), "the app shells start with Merriam-Webster set up");
+    let st = api.call("mw_status", json!({})).unwrap();
+    assert_eq!((st["configured"].clone(), st["thesaurus"].clone()), (json!(true), json!(true)));
+    assert!(!st.to_string().contains("97e9e4a1"), "keys are still never sent to the UI");
+
+    // Removing them on purpose is respected on the next start.
+    api.call("mw_config", json!({"collegiate": "", "thesaurus": ""})).unwrap();
+    api.seed_defaults();
+    assert!(!names(&api).contains(&"mw".to_string()));
+    // Typing a key of your own brings it back, and it wins over the shipped one.
+    api.call("mw_config", json!({"collegiate": "MINE"})).unwrap();
+    api.seed_defaults();
+    assert!(names(&api).contains(&"mw".to_string()));
+}
