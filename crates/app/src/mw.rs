@@ -56,7 +56,14 @@ pub fn map_collegiate(word: &str, v: &Value) -> Result<Result<Entry, Vec<String>
     }
     let mut blocks = Vec::new();
     let mut syl: Option<String> = None;
-    for e in arr.iter().filter(|e| e.is_object()) {
+    // MW also returns neighbours ("japery" brings "jape"); keep the entries for
+    // this very word, else those that list it as an inflected form.
+    let want = word.trim().to_lowercase();
+    let objs: Vec<&Value> = arr.iter().filter(|e| e.is_object()).collect();
+    let headed: Vec<&Value> = objs.iter().copied().filter(|e| e["hwi"]["hw"].as_str().is_some_and(|h| h.replace('*', "").to_lowercase() == want)).collect();
+    let stemmed: Vec<&Value> = objs.iter().copied().filter(|e| e["meta"]["stems"].as_array().is_some_and(|a| a.iter().any(|x| x.as_str().is_some_and(|x| x.to_lowercase() == want)))).collect();
+    let chosen = if !headed.is_empty() { headed } else if !stemmed.is_empty() { stemmed } else { objs };
+    for e in chosen {
         let senses: Vec<Sense> = e["shortdef"].as_array().into_iter().flatten().filter_map(Value::as_str).map(|d| Sense { gloss: plain(d), ..Default::default() }).collect();
         if senses.is_empty() {
             continue;
@@ -246,6 +253,18 @@ pub(crate) const CACHE_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS mw(kind TEXT N
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn neighbours_are_dropped() {
+        let v = json!([
+            {"hwi": {"hw": "jape", "prs": [{"mw": "ˈjāp"}]}, "fl": "verb", "shortdef": ["to joke"]},
+            {"hwi": {"hw": "jap*ery"}, "fl": "noun", "shortdef": ["jesting talk"]}
+        ]);
+        let e = map_collegiate("japery", &v).unwrap().unwrap();
+        assert_eq!(e.blocks.len(), 1);
+        assert_eq!(e.blocks[0].pos, "noun");
+        assert!(e.blocks[0].sounds.is_empty());
+    }
 
     #[test]
     fn strips_markup() {

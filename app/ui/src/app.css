@@ -118,8 +118,11 @@ button:not(:disabled):active, .btn:not(:disabled):active { transform: scale(0.97
 .fadein { animation: fadein var(--t) var(--ease) backwards; }
 
 /* Placeholders while something loads. */
-@keyframes shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
-.skel { border-radius: 8px; background: linear-gradient(90deg, var(--panel) 25%, var(--panel-2) 50%, var(--panel) 75%); background-size: 200% 100%; animation: shimmer 1.4s linear infinite; }
+@keyframes shimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+/* Time-based, transform-only: smooth at 60, 75 and 120 Hz alike (the sweep runs on the compositor). */
+.skel { position: relative; overflow: hidden; border-radius: 8px; background: var(--panel); }
+.skel::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, var(--panel-2), transparent); animation: shimmer 1.4s linear infinite; will-change: transform; }
+.rise, .fadein { animation-fill-mode: backwards; }
 
 /* The score ring fills from zero. */
 @property --p { syntax: '<number>'; inherits: false; initial-value: 0; }
