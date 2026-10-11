@@ -1,0 +1,49 @@
+# Builds the macOS (Apple silicon) app for a release and attaches it.
+# Runs when scripts/release.sh publishes a release, or by hand for an existing tag.
+name: release-mac
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to attach the Mac build to (for example v0.4.0)
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    runs-on: macos-14
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri
+      - name: Build the interface
+        run: |
+          npm --prefix app/ui ci
+          npm --prefix app/ui run build
+      - name: Build the app (dictionaries are downloaded inside the app, so none are bundled)
+        working-directory: app/src-tauri
+        run: |
+          cargo install tauri-cli --version "^2" --locked
+          cargo tauri build --bundles dmg --config '{"bundle":{"resources":null},"build":{"beforeBuildCommand":""}}'
+      - name: Attach to the release
+        run: |
+          VERSION="${TAG#v}"
+          DMG="$(ls app/src-tauri/target/release/bundle/dmg/*.dmg | head -n 1)"
+          cp "$DMG" "LadyBird-${VERSION}-macos-arm64.dmg"
+          shasum -a 256 "LadyBird-${VERSION}-macos-arm64.dmg" > "LadyBird-${VERSION}-macos-arm64.dmg.sha256"
+          gh release upload "$TAG" "LadyBird-${VERSION}-macos-arm64.dmg" "LadyBird-${VERSION}-macos-arm64.dmg.sha256" --clobber
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
