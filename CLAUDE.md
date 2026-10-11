@@ -35,6 +35,10 @@ The owner wants git checkpoints. Commit at the end of each milestone (a parser f
 
 The repo is published at https://github.com/lehoangan02/DictionaryClaude (public). Work on `main`; push only when the owner asks. The local branch `checkpoints-archive` holds the original 18 checkpoint commits and must **never be pushed**: their early test fixtures quoted the Barron's book (since replaced with invented text). Never put book text, answer keys or passages in tests, docs or commit messages.
 
+## Releases (standing rule from the owner)
+
+Every time the app changes, package it and publish it as a GitHub release. **The owner left versioning to Claude:** use `0.MINOR.PATCH` (new feature or visible redesign: bump MINOR; fix: bump PATCH). Run `scripts/release.sh <version> --publish` from a clean, committed tree: it tests, bumps `app/src-tauri/tauri.conf.json` and `Cargo.toml`, builds the AppImage, saves it and `latest.json` under `~/lexis-releases`, tags `v<version>`, pushes and creates the GitHub release. Only Linux x86_64 is built here (the Mac and phone build from source). Releases never contain Barron's (`private/` is not bundled).
+
 ## Commands
 
 Rust is installed with rustup (`. ~/.cargo/env`). The UI is Svelte 5 + Vite in `app/ui`.
