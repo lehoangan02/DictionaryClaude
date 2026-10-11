@@ -10,6 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - `docs/REQUIREMENTS.md` holds the owner's original request (verbatim) plus agreed decisions. **Re-read it before starting each phase. Never edit it without the owner's explicit permission**: propose the change and ask first.
 - `docs/PLAN.md` is the approved implementation plan (architecture, phases, verification). Keep it in sync when the plan changes with approval.
+- `docs/ROADMAP.md` lists known issues, unverified things and upcoming features. Update it whenever you fix, find or plan something, so the owner never has to remind you.
 
 ## Project
 
