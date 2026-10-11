@@ -123,7 +123,19 @@ An Android build exists and has been run on the Android emulator (pairing, synci
 
 Building the APK yourself (done on the Ubuntu machine, `scripts/release.sh` does it for every release): Android SDK command-line tools plus `platforms;android-34` and an NDK (`sdkmanager "ndk;27.2.12479018"`), `rustup target add aarch64-linux-android`, then `cd app/src-tauri && cargo tauri android build --apk --target aarch64`. The APK is signed with a key kept in `~/.lexis-keys/` (never in git): **back that folder up**, because a phone only accepts updates signed by the same key.
 
-Not yet built: the NPU runtime (QNN on the Snapdragon) and Bluetooth sync. Sound uses the phone's web view (recordings) with no offline speech fallback yet.
+On-device AI: see section 6b. Not yet built: Bluetooth sync. Sound uses the phone's web view (recordings) with no offline speech fallback yet.
+
+## 6b. On-device AI (NPU → GPU → CPU)
+
+One runtime (`core::ai`, ONNX Runtime) runs the small embedding model (bge-small, 35 MB) that makes quiz-session search work by meaning. Download it in **Settings → Downloads → Meaning search (AI model)**; **Settings → On-device AI** then shows the hardware actually in use and a **Test it** button (it reports the backend and the speed).
+
+| Device | Order tried | Status |
+|---|---|---|
+| Mac (Apple silicon) | CoreML (Neural Engine, then GPU) → CPU | built by CI; **not yet run on a real Mac** |
+| Android | NNAPI (the phone's NPU/DSP/GPU as its driver decides) → CPU | runs on the Android emulator (NNAPI path, CPU-class speed there); **not yet run on the S24 Ultra** |
+| Linux | CPU | tested (about 7 ms per batch) |
+
+Please run **Test it** on the Mac and the phone and tell me what it reports: if it says CPU there, the NPU was not used and the reason is shown under it. The Snapdragon-specific QNN provider is not included (it needs Qualcomm's SDK); NNAPI is the route to the Hexagon NPU. `LEXIS_AI_BACKEND=cpu` forces the CPU.
 
 ## 7. Optional accounts and keys
 
