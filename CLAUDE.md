@@ -33,6 +33,8 @@ Planned layout (see `docs/PLAN.md`):
 
 The owner wants git checkpoints. Commit at the end of each milestone (a parser finished, a phase step working), with tests passing and only source files staged: `private/`, `data/raw/` and build output are gitignored and must stay out. Name commits `Checkpoint N: <what works>`.
 
+The repo is published at https://github.com/lehoangan02/DictionaryClaude (public). Work on `main`; push only when the owner asks. The local branch `checkpoints-archive` holds the original 18 checkpoint commits and must **never be pushed**: their early test fixtures quoted the Barron's book (since replaced with invented text). Never put book text, answer keys or passages in tests, docs or commit messages.
+
 ## Commands
 
 Rust is installed with rustup (`. ~/.cargo/env`). The UI is Svelte 5 + Vite in `app/ui`.
