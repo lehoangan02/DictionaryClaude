@@ -93,6 +93,18 @@ async fn speak_text(word: String) -> Result<(), String> {
     }
 }
 
+/// Reopens the Api when its packs changed, so every search sees them.
+fn reopen_if_needed(state: &State) -> anyhow::Result<()> {
+    if state.api().take_reload() {
+        let fresh = Arc::new(Api::open(state.1.clone())?);
+        gredict_app::spawn_background_sync(fresh.clone(), Duration::from_secs(300));
+        let warm = fresh.clone();
+        std::thread::spawn(move || warm.warm_counts());
+        *state.0.write().unwrap() = fresh;
+    }
+    Ok(())
+}
+
 #[tauri::command]
 async fn call(state: tauri::State<'_, State>, cmd: String, args: Option<Value>) -> Result<Value, String> {
     let api = state.api();
@@ -101,14 +113,8 @@ async fn call(state: tauri::State<'_, State>, cmd: String, args: Option<Value>) 
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| format!("{e:#}"))?;
-    if out["reload"] == true {
-        // A dictionary arrived or left: reopen so every search sees it.
-        let fresh = Arc::new(Api::open(state.1.clone()).map_err(|e| format!("{e:#}"))?);
-        gredict_app::spawn_background_sync(fresh.clone(), Duration::from_secs(300));
-        let warm = fresh.clone();
-        std::thread::spawn(move || warm.warm_counts());
-        *state.0.write().unwrap() = fresh;
-    }
+    // A dictionary arrived or left (by hand here, or by the background setup): reopen.
+    reopen_if_needed(&state).map_err(|e| format!("{e:#}"))?;
     Ok(out)
 }
 
@@ -156,6 +162,15 @@ pub fn run() {
             let warm = api.clone();
             std::thread::spawn(move || warm.warm_counts());
             app.manage(State(std::sync::RwLock::new(api), cfg));
+            // Dictionaries downloaded by the background setup need the Api reopened too.
+            let handle = app.handle().clone();
+            std::thread::spawn(move || loop {
+                std::thread::sleep(Duration::from_secs(3));
+                let state = handle.state::<State>();
+                if let Err(e) = reopen_if_needed(&state) {
+                    eprintln!("LadyBird could not reopen its data: {e:#}");
+                }
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![call, play_audio, speak_text])

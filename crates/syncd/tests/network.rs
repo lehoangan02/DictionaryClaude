@@ -322,3 +322,35 @@ fn a_device_joins_by_itself_on_the_home_port_only() {
     phone.call("sync_unpair", json!({})).unwrap();
     assert_eq!(phone.call("server_status", json!({})).unwrap()["auto"], false);
 }
+
+#[test]
+fn a_paired_device_sets_up_its_dictionaries_by_itself_at_home_and_waits_when_away() {
+    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = tmp("autosrv");
+    let packs = dir.join("packs");
+    std::fs::create_dir_all(&packs).unwrap();
+    let mut body = b"SQLite format 3\0".to_vec();
+    body.extend((0..500_000u32).map(|i| (i % 253) as u8));
+    std::fs::write(packs.join("wordnet.pack"), &body).unwrap();
+    let tls = ensure_tls(&dir.join("tls"), &["127.0.0.1".into(), "localhost".into()]).unwrap();
+    let (lan, wan) = (free_port(), free_port());
+    let api = Arc::new(Api::open_headless_serving(&dir, &packs).unwrap());
+    serve(api, Arc::new(Tokens::new(&dir)), dir.join("private"), &tls, &[format!("127.0.0.1:{lan}"), format!("127.0.0.1:{wan}")]).unwrap();
+    let s = Server { api: Arc::new(Api::open_headless(&dir.join("x")).unwrap()), lan, wan, dir: dir.clone(), tokens: Tokens::new(&dir), cert: tls.cert_pem };
+
+    let phone = Api::open(Config { data_dir: tmp("autophone"), packs_dir: tmp("none"), private_dir: None }).unwrap();
+    phone.call("sync_pair", json!({"code": code(&s, "phone", Some(lan), Some(wan))})).unwrap();
+    let have = |a: &Api| a.call("packs_list", json!({})).unwrap()["packs"].as_array().unwrap().iter().any(|p| p["id"] == "wordnet" && p["downloaded"] == true);
+
+    // Away from home (the remote port): nothing big is downloaded by itself.
+    std::env::set_var("LEXIS_WIFI", "SomewhereElse");
+    phone.packs_auto();
+    assert!(!have(&phone), "no automatic downloads away from home");
+
+    // At home: it fetches what the server has, and asks the shell to reopen once.
+    std::env::set_var("LEXIS_WIFI", "Anan");
+    phone.packs_auto();
+    assert!(have(&phone));
+    assert!(phone.take_reload());
+    assert!(!phone.take_reload());
+}

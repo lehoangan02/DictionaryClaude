@@ -86,6 +86,61 @@ impl Api {
         }
     }
 
+    /// True once after packs changed; the shell then reopens the Api so searches see them.
+    pub fn take_reload(&self) -> bool {
+        self.reload.swap(false, std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Keeps this device's dictionaries in step with the server without anyone
+    /// pressing anything: downloads what is missing and what has a newer copy.
+    /// Only over the home network (the packs are hundreds of megabytes and the
+    /// remote route might be mobile data); failures are retried after ten minutes.
+    pub fn packs_auto(&self) {
+        if self.setting("packs.auto").as_deref() == Some("0") {
+            return;
+        }
+        let now = crate::userdb::now_ms();
+        if self.setting("packs.auto.fail").and_then(|v| v.parse::<i64>().ok()).is_some_and(|t| now - t < 600_000) {
+            return;
+        }
+        let Some(p) = self.pairing() else { return };
+        let (route, ..) = self.choose_route(&p);
+        if route != Some(crate::net::Route::Lan) {
+            return;
+        }
+        let run = || -> Result<()> {
+            let mut changed = false;
+            let finish = |changed: bool| {
+                if changed {
+                    self.reload.store(true, std::sync::atomic::Ordering::SeqCst);
+                }
+            };
+            let list = self.packs_catalog()?;
+            for pk in list["packs"].as_array().into_iter().flatten() {
+                let id = pk["id"].as_str().unwrap_or("");
+                let missing = pk["downloaded"] != true && pk["built_in"] != true && pk["on_server"] == true;
+                let stale = pk["downloaded"] == true && pk["update"] == true;
+                if missing || stale {
+                    if let Err(e) = self.pack_install_with(id, false) {
+                        finish(changed);
+                        return Err(e);
+                    }
+                    changed = true;
+                }
+            }
+            finish(changed);
+            Ok(())
+        };
+        match run() {
+            Ok(()) => {
+                let _ = self.db.lock().unwrap().execute("DELETE FROM settings WHERE k='packs.auto.fail'", []);
+            }
+            Err(_) => {
+                let _ = self.set_setting("packs.auto.fail", &now.to_string());
+            }
+        }
+    }
+
     fn own_packs(&self) -> PathBuf {
         self.data_dir.join("packs")
     }
@@ -155,6 +210,11 @@ impl Api {
     }
 
     pub(crate) fn pack_install(&self, id: &str) -> Result<Value> {
+        self.pack_install_with(id, true)
+    }
+
+    /// `signal` asks the shell to reopen right away; a batch signals once at its end.
+    fn pack_install_with(&self, id: &str, signal: bool) -> Result<Value> {
         let (_, _, _, _, files) = KNOWN.iter().find(|k| k.0 == id).ok_or_else(|| anyhow!("unknown dictionary"))?;
         if self.pack_progress.lock().unwrap().contains_key(id) {
             bail!("already downloading");
@@ -177,7 +237,10 @@ impl Api {
         })();
         self.pack_progress.lock().unwrap().remove(id);
         result?;
-        Ok(json!({"installed": id, "reload": true}))
+        if signal {
+            self.reload.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+        Ok(json!({"installed": id, "reload": signal}))
     }
 
     fn download_file(&self, id: &str, file: &str, info: &Value, done_before: u64) -> Result<()> {
@@ -257,6 +320,7 @@ impl Api {
             let _ = std::fs::remove_file(self.own_packs().join(format!("{f}.part")));
             let _ = self.db.lock().unwrap().execute("DELETE FROM settings WHERE k=?", [format!("packs.sha.{f}")]);
         }
+        self.reload.store(true, std::sync::atomic::Ordering::SeqCst);
         Ok(json!({"removed": id, "reload": true}))
     }
 }

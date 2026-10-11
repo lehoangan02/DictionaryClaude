@@ -23,7 +23,7 @@ use crate::pairing::Pairing;
 use crate::userdb::now_ms;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Route {
+pub(crate) enum Route {
     Lan,
     Wan,
 }
@@ -37,7 +37,7 @@ impl Route {
     }
 }
 
-struct Probe {
+pub(crate) struct Probe {
     route: Route,
     ok: bool,
     ms: u128,
@@ -302,7 +302,7 @@ impl Api {
     }
 
     /// Verifies the routes the rules allow, concurrently, and picks one.
-    fn choose_route(&self, p: &Pairing) -> (Option<Route>, Vec<Probe>, Option<String>, bool) {
+    pub(crate) fn choose_route(&self, p: &Pairing) -> (Option<Route>, Vec<Probe>, Option<String>, bool) {
         let ssid = wifi_name();
         let vpn = vpn_active();
         let homes: Vec<String> = self.setting("sync.home_ssids").unwrap_or_else(|| "Anan,Anan 5g".into()).split(',').map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty()).collect();
@@ -479,7 +479,10 @@ pub fn spawn_background_sync(api: Arc<Api>, every: Duration) -> std::thread::Joi
             // Photos waiting to be read (or agents at work) on the server: look often.
             if api.dirty.load(Ordering::SeqCst) || api.waiting_on_server() || last.elapsed() >= every {
                 // Failures (offline, server down) are normal; try again next round.
-                let _ = api.sync_now();
+                if api.sync_now().is_ok() {
+                    // Fetch (or refresh) the dictionaries by itself, on the home network.
+                    api.packs_auto();
+                }
                 last = Instant::now();
             }
         }

@@ -56,6 +56,8 @@ pub struct Api {
     /// Bundled packs (read-only) and the downloaded ones in `<data>/packs`.
     pub(crate) packs_dir: PathBuf,
     pub(crate) pack_progress: Mutex<HashMap<String, (u64, u64)>>,
+    /// Set when a pack was added or removed: the shell should reopen the Api.
+    pub(crate) reload: std::sync::atomic::AtomicBool,
     pub(crate) moby: Option<Mutex<Thesaurus>>,
     /// Hot-swappable: a paired device receives the parsed book from the server.
     pub(crate) barrons: RwLock<Option<Arc<Barrons>>>,
@@ -96,7 +98,7 @@ impl Api {
         let db = userdb::open(&data_dir.join("user.sqlite"))?;
         let device = Self::device_id(&db)?;
         let fuzzy_paths = [data_dir.join("none.fst"), data_dir.join("none.fst")];
-        Ok(Api { sources: Vec::new(), packs_dir: packs_dir.to_path_buf(), pack_progress: Default::default(), moby: None, barrons: RwLock::new(None), private_dir: None, db: Mutex::new(db), device, rng: Mutex::new(now_ms() as u64 | 1), data_dir: data_dir.to_path_buf(), cache: Mutex::new(open_cache(data_dir)?), pron: None, dirty: Default::default(), fuzzy: OnceLock::new(), ai: OnceLock::new(), fuzzy_paths, barrons_syn: RwLock::new(None) })
+        Ok(Api { sources: Vec::new(), packs_dir: packs_dir.to_path_buf(), pack_progress: Default::default(), reload: Default::default(), moby: None, barrons: RwLock::new(None), private_dir: None, db: Mutex::new(db), device, rng: Mutex::new(now_ms() as u64 | 1), data_dir: data_dir.to_path_buf(), cache: Mutex::new(open_cache(data_dir)?), pron: None, dirty: Default::default(), fuzzy: OnceLock::new(), ai: OnceLock::new(), fuzzy_paths, barrons_syn: RwLock::new(None) })
     }
 
     fn device_id(db: &Connection) -> Result<String> {
@@ -136,7 +138,7 @@ impl Api {
             p.exists().then(|| Pronunciations::open(&p)).transpose()?.map(Mutex::new)
         };
         let fuzzy_paths = [find("wiktionary.fst"), cfg.data_dir.join("wiktionary.fst")];
-        Ok(Api { sources, packs_dir: cfg.packs_dir.clone(), pack_progress: Default::default(), moby, barrons: RwLock::new(barrons), private_dir: cfg.private_dir, db: Mutex::new(db), device, rng: Mutex::new(now_ms() as u64 | 1), data_dir: cfg.data_dir.clone(), cache: Mutex::new(open_cache(&cfg.data_dir)?), pron, dirty: Default::default(), fuzzy: OnceLock::new(), ai: OnceLock::new(), fuzzy_paths, barrons_syn: RwLock::new(None) })
+        Ok(Api { sources, packs_dir: cfg.packs_dir.clone(), pack_progress: Default::default(), reload: Default::default(), moby, barrons: RwLock::new(barrons), private_dir: cfg.private_dir, db: Mutex::new(db), device, rng: Mutex::new(now_ms() as u64 | 1), data_dir: cfg.data_dir.clone(), cache: Mutex::new(open_cache(&cfg.data_dir)?), pron, dirty: Default::default(), fuzzy: OnceLock::new(), ai: OnceLock::new(), fuzzy_paths, barrons_syn: RwLock::new(None) })
     }
 
     pub fn call(&self, cmd: &str, args: Value) -> Result<Value> {
