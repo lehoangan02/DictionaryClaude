@@ -10,19 +10,19 @@ Kept current by whoever changes the app (Claude Code included): when you fix som
 - **NPU on the Mac:** CoreML (Neural Engine) path never run.
 - **Android "Take photo":** relies on the file input's `capture` attribute inside the Android web view; not confirmed on the phone.
 
-**Bugs reported by the owner on 2026-10-11 (not fixed yet)**
-- **Note reading does not work** (highest priority). The server's OCR (tesseract) cannot read the owner's cursive notes: it produced garbage and the notes grammar built false relations from it. Reference pages and the expected text: `docs/OCR-SAMPLES.md`. Ideas: send photos to a vision-capable reader (the manually triggered Claude/agy agents already see the photo; make that the main path and keep tesseract only as a rough first pass), try a handwriting model (TrOCR, PaddleOCR) on the box, pre-process (EXIF/auto-rotate, deskew, shadow removal, contrast), show per-line confidence and do not generate relations from low-confidence lines. Acceptance: page 1 and page 2 of the samples read back with at most a few wrong words.
-- **Camera screen on the Mac is unusable:** the live video fills the window, so the **Take photo** button is pushed off screen and there is no X button; only Escape closes it. Fix: keep the video within the window (`max-height`/`min-height: 0`, controls overlaid at the bottom), add an obvious X in the top corner, and rotate or offer a rotate button for a sideways notebook (the preview and the read photo came out rotated 90 degrees).
-- **Settings cards touch each other:** the "On-device AI" card sits directly under the "Downloads" card with no gap (and no shadow separation), because the card's component has no margin of its own (`section { margin: 14px 0 }` lives in `Settings.svelte` only). Give every card a shared margin in `app.css` or wrap them in a stack. Check Settings at phone width as well.
+**Fixed on 2026-10-11, waiting for the owner's check on the real apps**
+- **Note reading:** the server now reads photos with a local vision model (Ollama `qwen2.5vl:3b`, tesseract only as fallback). Tested end to end from a clean client on the owner's page 1: the 18 lines came back right (see `docs/OCR-SAMPLES.md`), about 3 minutes cold and under a minute warm, on the box's CPU. Page 2 (Vietnamese words, brackets, arrows) has not been run through it yet.
+- **Camera screen (Mac):** video fits the window, X button, Rotate button; falls back to a file picker.
+- **Settings cards** keep a gap; **About** card shows the version; the search **Clear** button works on touch (pointer events). The earlier phone report may have been the old APK; confirm on the new one.
+- **Quizzes:** answers are chosen first and submitted with "Check answer"; "Pause & exit" keeps the session and the Quizzes screen lists it with a Resume button (progress and misses restored).
+- **History** merges consecutive rows of the same word and lists every dictionary used.
+- **Examples** highlight the headword and common endings.
+- **Selectable text:** the whole app is non-selectable except definitions, examples, passages, quiz questions, notes and inputs.
+- **Self-update (built, never run on a device):** Settings → About and a banner show a newer GitHub release, download it, verify the SHA-256 and install it (Mac: swaps the app bundle and reopens; Linux: replaces the AppImage; Android: hands the APK to the system installer, which asks once to allow installs from LadyBird). Tested against a stand-in for GitHub only.
 
-- **Quiz answers submit on the first tap:** let the person select (and change) an answer first, then confirm with a Submit button, for every quiz style.
-- **Quizzes cannot be paused and resumed:** a quiz in progress should be saved (session state, current item, answers so far) so the person can leave and continue later, from any device ideally (the session already syncs); list unfinished quizzes on the Quizzes screen.
-- **History repeats a word:** consecutive entries for the same word, especially when looked up in different dictionaries one after another, should be combined into one row (keep the latest time, list the sources it was opened in).
-- **Search box cannot be edited on the phone:** the "can't backspace / the X does not clear" bug is still there on mobile after the desktop fix (`SearchBar.svelte` effect). Reproduce on the S24 Ultra (Android web view: check the `input` event, IME composition, and the Clear button's `onmousedown` handler, which touch screens may never fire; use `pointerdown`/`click`).
-- **No version shown in the app:** add the app version (and the server version when paired) to Settings, and in the status panel.
-- **Sound does not work on the phone:** neither recordings nor the speech fallback play on Android; check the web view's audio and `speechSynthesis` support, autoplay rules, and whether audio files are fetched from the downloaded cache.
-- **Long examples hide the word:** highlight the headword (and its inflections) inside example sentences so it can be found at a glance.
-- **Too much text is selectable:** functional and navigational text (tabs, section and card headings, labels, panel titles, status pills, buttons, quiz chrome) must not be selectable or open the system selection bubble; only dictionary content (definitions, examples, notes) and inputs should be. The first pass covered buttons, labels, headings and the tab bar; audit every screen on desktop and phone.
+**Still open (reported by the owner)**
+- **Sound does not work on the phone:** neither recordings nor the speech fallback play on Android. Needs a look at `adb logcat` on the phone while pressing the speaker: check the web view's audio and `speechSynthesis` support and autoplay rules.
+- **Note reading, remaining work:** run page 2 through the reader and compare; show per-line confidence; the notes grammar still builds a relation from anything with `=`, so odd lines can produce odd relations.
 
 **Known defects and gaps**
 - **macOS is not notarized** (no paid Apple account): the app is ad-hoc signed, so macOS shows a one-time "unidentified developer" prompt and a freshly downloaded copy needs `xattr -dr com.apple.quarantine /Applications/LadyBird.app`.
@@ -39,7 +39,7 @@ Kept current by whoever changes the app (Claude Code included): when you fix som
 ## Upcoming
 
 **Next up**
-- **Self-updating app (owner request, high priority):** devices must update themselves; nobody should download a release from GitHub by hand. Sketch: the sync server already has `latest.json` per release in `~/lexis-releases`; serve it (and the files) to paired devices over the pinned-TLS channel, show "Update available" in Settings with one button (and optionally update on its own at home), verify the SHA-256 and a signature before installing. Mac: Tauri's updater plugin with a signed manifest, or replace the app bundle from the verified DMG; Linux: swap the AppImage; Android: download the APK and hand it to the system installer (needs the "install unknown apps" permission once; the APK must keep the same signing key). Unpaired devices could fall back to GitHub releases.
+- **Self-update, device check:** run the update on the Mac, a Linux AppImage and the phone with a real newer release (needs the release process to publish v0.6.2+).
 1. Release v0.6.1 from the Ubuntu box (AppImage + signed APK), letting the release-mac workflow attach the DMG.
 2. Real-device test pass on the Mac and the S24 Ultra, recording what the NPU actually uses.
 3. Keep SSH from the Mac to the box working (key login is set up; see SETUP "Which machine is which").
