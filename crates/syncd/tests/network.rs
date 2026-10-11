@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use gredict_app::{Api, Config};
-use gredict_syncd::{ensure_tls, serve, Pairing, Tokens};
+use gredict_syncd::{ensure_tls, serve, serve_enrolling, Enroll, Pairing, Tokens};
 use serde_json::{json, Value};
 
 /// These tests set a process-wide env var (the pretend Wi-Fi name), so they
@@ -284,4 +284,41 @@ fn a_device_downloads_dictionaries_from_the_server_resumes_and_checks_them() {
     assert_eq!(list["packs"].as_array().unwrap().iter().find(|p| p["id"] == "wordnet").unwrap()["downloaded"], false);
     // Only pack files are offered; a bad name is refused.
     assert!(phone.call("pack_install", json!({"id": "../../etc/passwd"})).is_err());
+}
+
+#[test]
+fn a_device_joins_by_itself_on_the_home_port_only() {
+    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    std::env::set_var("LEXIS_WIFI", "Anan");
+    let dir = tmp("auto-server");
+    std::fs::create_dir_all(&dir).unwrap();
+    let tls = ensure_tls(&dir.join("tls"), &["127.0.0.1".into(), "localhost".into()]).unwrap();
+    let (lan, wan) = (format!("127.0.0.1:{}", free_port()), format!("127.0.0.1:{}", free_port()));
+    let server = Arc::new(Api::open_headless(&dir).unwrap());
+    let enroll = Some((Arc::new(Enroll::new(&lan, &wan, &tls.cert_pem)), lan.clone()));
+    serve_enrolling(server, Arc::new(Tokens::new(&dir)), dir.join("none"), &tls, &[lan.clone(), wan.clone()], enroll).unwrap();
+
+    // The internet-facing port never enrols, whoever asks.
+    let outside = Api::open_headless(&tmp("auto-outside")).unwrap();
+    outside.call("sync_set_autopair_host", json!({"host": wan})).unwrap();
+    assert!(outside.call("sync_autopair", json!({})).is_err());
+    assert_eq!(outside.call("server_status", json!({})).unwrap()["paired"], false);
+
+    // The home port does, and the result is a working pairing.
+    let phone = Api::open_headless(&tmp("auto-phone")).unwrap();
+    phone.call("sync_set_autopair_host", json!({"host": lan})).unwrap();
+    assert_eq!(phone.call("sync_autopair", json!({})).unwrap()["paired"], true);
+    phone.call("note_save", json!({"body": "abate = lessen"})).unwrap();
+    assert_eq!(phone.call("sync_now", json!({})).unwrap()["route"], "lan");
+
+    // A second device with a similar name gets its own token; nobody is replaced.
+    let tablet = Api::open_headless(&tmp("auto-tablet")).unwrap();
+    tablet.call("sync_set_autopair_host", json!({"host": lan})).unwrap();
+    tablet.call("sync_autopair", json!({})).unwrap();
+    assert_eq!(Tokens::new(&dir).list().len(), 2);
+    phone.call("sync_now", json!({})).unwrap();
+
+    // Unpairing on purpose turns automatic pairing off.
+    phone.call("sync_unpair", json!({})).unwrap();
+    assert_eq!(phone.call("server_status", json!({})).unwrap()["auto"], false);
 }

@@ -162,7 +162,7 @@ The importer runs golden tests against known pages, such as Unit 1 and the Unit 
 - **Storage:** `user.sqlite` holds history, notes, sessions, attempts, FSRS state and settings. Every mutation is also appended to an `oplog` with a hybrid logical clock and a device ID.
 - **Merge rules:** last-writer-wins per field, add-wins sets, and idempotent op application.
 - **Transports:**
-  1. `syncd` on Ubuntu at `lhan.duckdns.org:<port>`: HTTPS with a Let's Encrypt certificate via the DuckDNS DNS-01 challenge. Devices pair with a token by scanning a QR code.
+  1. `syncd` on Ubuntu at `lhan.duckdns.org:<port>`: HTTPS with a Let's Encrypt certificate via the DuckDNS DNS-01 challenge. Devices pair with a token by scanning a QR code, or by themselves: on a known home Wi-Fi a new device asks the LAN port (`/v1/enroll`, private source addresses only, never the internet port, 20 per hour, logged) for its token and pins the certificate it gets back. Unpairing on purpose turns this off until "Pair now" is pressed.
   2. LAN peer-to-peer: devices on the same Wi-Fi or a phone hotspot find each other via mDNS.
   3. Bluetooth LE between Mac and phone, built last: `btleplug` on the Mac and a Kotlin Tauri plugin on Android.
 - **Background triggers:**

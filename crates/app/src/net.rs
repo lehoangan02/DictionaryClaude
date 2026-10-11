@@ -44,6 +44,9 @@ struct Probe {
     error: Option<String>,
 }
 
+/// Where a new device looks for the server on the home network.
+const DEFAULT_LAN: &str = "192.168.1.7:25";
+
 pub(crate) fn agent(cert_pem: &str, timeout: Duration) -> Result<ureq::Agent> {
     let cert = Certificate::from_pem(cert_pem.as_bytes()).map_err(|e| anyhow!("bad server certificate: {e}"))?;
     let tls = TlsConfig::builder().root_certs(RootCerts::new_with_certs(&[cert])).build();
@@ -218,7 +221,61 @@ impl Api {
 
     pub(crate) fn sync_unpair(&self) -> Result<Value> {
         self.db.lock().unwrap().execute("DELETE FROM settings WHERE k LIKE 'sync.%'", [])?;
+        // Someone who unpairs on purpose must not be paired again behind their back.
+        self.set_setting("autopair.off", "1")?;
         Ok(json!({"paired": false}))
+    }
+
+    /// On a known home Wi-Fi with no VPN: the only place a device may look for the
+    /// server unprompted (192.168.x.x elsewhere belongs to someone else's network).
+    fn at_home(&self) -> bool {
+        let homes: Vec<String> = self.setting("sync.home_ssids").unwrap_or_else(|| "Anan,Anan 5g".into()).split(',').map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty()).collect();
+        wifi_name().map_or(false, |s| homes.contains(&s.to_lowercase())) && !vpn_active()
+    }
+
+    /// Whether the background loop should try to pair this device by itself now.
+    pub(crate) fn autopair_due(&self) -> bool {
+        self.pairing().is_none() && self.setting("autopair.off").as_deref() != Some("1") && self.at_home()
+    }
+
+    fn device_label(&self) -> String {
+        let host = if cfg!(target_os = "android") { None } else { Command::new("hostname").output().ok().filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()) };
+        let base: String = host.filter(|h| !h.is_empty()).unwrap_or_else(|| std::env::consts::OS.to_string());
+        let base = base.split('.').next().unwrap_or("device");
+        format!("{base}-{}", self.device.chars().filter(|c| c.is_ascii_alphanumeric()).take(4).collect::<String>())
+    }
+
+    /// Pairs with the server on the home network without a code: asks its LAN port to
+    /// enrol this device, then pins the certificate it hands back. The first contact
+    /// cannot be verified (there is nothing to pin yet), which is why the background
+    /// loop only does this on a known home Wi-Fi; the button does it on request.
+    /// The result is checked with the new token over the pinned certificate before it is kept.
+    pub(crate) fn sync_autopair(&self) -> Result<Value> {
+        if let Some(p) = self.pairing() {
+            return Ok(json!({"paired": true, "name": p.name}));
+        }
+        let host = self.setting("autopair.host").unwrap_or_else(|| DEFAULT_LAN.to_string());
+        let tls = TlsConfig::builder().disable_verification(true).build();
+        let first: ureq::Agent = ureq::Agent::config_builder().tls_config(tls).timeout_global(Some(Duration::from_millis(4000))).http_status_as_error(false).build().into();
+        let mut resp = first
+            .post(&format!("https://{host}/v1/enroll"))
+            .header("Content-Type", "application/json")
+            .send(serde_json::to_vec(&json!({"name": self.device_label()}))?)
+            .map_err(|e| anyhow!("could not reach the server at {host} ({e}). Is this device on the home Wi-Fi?"))?;
+        let status = resp.status().as_u16();
+        let v: Value = serde_json::from_str(&resp.body_mut().read_to_string()?).unwrap_or(Value::Null);
+        if status != 200 {
+            bail!("{}", v["error"].as_str().map(str::to_string).unwrap_or_else(|| format!("the server answered {status}")));
+        }
+        let code = v["code"].as_str().ok_or_else(|| anyhow!("the server did not send a pairing"))?;
+        let p = Pairing::decode(code)?;
+        let check = verify(&p, Route::Lan, Duration::from_millis(4000));
+        if !check.ok {
+            bail!("the server's answer did not check out: {}", check.error.unwrap_or_default());
+        }
+        let out = self.sync_pair(code)?;
+        self.db.lock().unwrap().execute("DELETE FROM settings WHERE k='autopair.off'", [])?;
+        Ok(out)
     }
 
     /// Verifies the routes the rules allow, concurrently, and picks one.
@@ -271,7 +328,9 @@ impl Api {
 
     /// Status for the header pill and the sync settings.
     pub(crate) fn server_status(&self, probe: bool) -> Result<Value> {
-        let Some(p) = self.pairing() else { return Ok(json!({"paired": false})) };
+        let Some(p) = self.pairing() else {
+            return Ok(json!({"paired": false, "auto": self.setting("autopair.off").as_deref() != Some("1")}));
+        };
         let pending = self.pending_changes()?;
         let last = self.setting("sync.last").and_then(|s| serde_json::from_str::<Value>(&s).ok());
         let mut out = json!({"paired": true, "name": p.name, "pending": pending, "last_sync": last, "lan": p.lan, "wan": p.wan});
@@ -379,10 +438,19 @@ pub fn spawn_background_sync(api: Arc<Api>, every: Duration) -> std::thread::Joi
     drop(api);
     std::thread::spawn(move || {
         let mut last = Instant::now() - every;
+        let mut last_try = Instant::now() - Duration::from_secs(60);
         loop {
             std::thread::sleep(Duration::from_secs(15));
             let Some(api) = weak.upgrade() else { return };
             if api.pairing().is_none() {
+                // Not paired: on the home Wi-Fi, join by ourselves (at most once a minute).
+                if last_try.elapsed() >= Duration::from_secs(60) && api.autopair_due() {
+                    last_try = Instant::now();
+                    if api.sync_autopair().is_ok() {
+                        let _ = api.sync_now();
+                        last = Instant::now();
+                    }
+                }
                 continue;
             }
             // Photos waiting to be read (or agents at work) on the server: look often.

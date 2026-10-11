@@ -23,6 +23,18 @@
     catch (e) { msg = (e as Error).message; }
     busy = false;
   }
+  // Not paired yet: the app finds the server on the home Wi-Fi by itself; this button asks it to look right now.
+  async function autoPair() {
+    busy = true; msg = '';
+    try { await call('sync_autopair'); await load(); bump(); msg = 'Paired. Syncing…'; await syncNow(); }
+    catch (e) { msg = (e as Error).message; }
+    busy = false;
+  }
+  $effect(() => {
+    if (status.paired) return;
+    const t = setInterval(() => { load().then(() => { if (status.paired) bump(); }).catch(() => {}); }, 5000);
+    return () => clearInterval(t);
+  });
   async function syncNow() {
     busy = true;
     try { const r = await call('sync_now'); msg = `Synced via ${r.route === 'lan' ? 'home network' : 'remote port'}: sent ${r.pushed}, received ${r.pulled}.`; bump(); }
@@ -123,12 +135,19 @@
       <div class="row"><input type="text" bind:value={ssids} /><button class="btn small" onclick={saveSsids}>Save</button></div>
     </label>
   {:else}
-    <p class="muted">On the server run <code>gredict-syncd pair {'<device name>'}</code> and paste the code it prints.</p>
-    <label class="f">Pairing code
-      <textarea rows="3" bind:value={code} placeholder="lexis1:…" spellcheck="false"></textarea></label>
-    <label class="f">Home Wi-Fi names
-      <input type="text" bind:value={ssids} /></label>
-    <button class="btn primary" disabled={busy || !code.trim()} onclick={pair}>Pair</button>
+    <p class="muted">{status.auto === false
+      ? 'Automatic pairing is off because you unpaired this device.'
+      : 'This device pairs itself with your server as soon as it is on the home Wi-Fi.'}</p>
+    <button class="btn primary" disabled={busy} onclick={autoPair}>{busy ? 'Looking…' : 'Pair now'}</button>
+    <details class="alt">
+      <summary>Pair with a code instead</summary>
+      <p class="muted">On the server run <code>gredict-syncd pair {'<device name>'}</code> and paste the code it prints.</p>
+      <label class="f">Pairing code
+        <textarea rows="3" bind:value={code} placeholder="lexis1:…" spellcheck="false"></textarea></label>
+      <label class="f">Home Wi-Fi names
+        <input type="text" bind:value={ssids} /></label>
+      <button class="btn" disabled={busy || !code.trim()} onclick={pair}>Pair with code</button>
+    </details>
   {/if}
   {#if msg}<p class="msg">{msg}</p>{/if}
 </section>
@@ -197,6 +216,8 @@
   .f input, .f textarea { font-size: 15px; }
   code { background: var(--panel-2); border-radius: 4px; padding: 1px 6px; font-size: 0.85em; overflow-wrap: anywhere; }
   .msg { margin-top: 10px; }
+  .alt { margin-top: 14px; }
+  .alt summary { color: var(--blue); padding: 6px 0; }
   .chk { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
   button:disabled { opacity: 0.35; }
   .order { list-style: none; margin: 10px 0; padding: 0; }

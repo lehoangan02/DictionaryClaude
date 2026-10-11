@@ -4,7 +4,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 use gredict_app::Api;
-use gredict_syncd::{ensure_tls, serve, Pairing, Tokens};
+use gredict_syncd::{ensure_tls, serve_enrolling, Enroll, Pairing, Tokens};
 
 #[derive(Parser)]
 #[command(about = "LadyBird sync server")]
@@ -35,6 +35,14 @@ enum Cmd {
         /// Port for devices elsewhere (forward this one on the router).
         #[arg(long, default_value = "0.0.0.0:5025")]
         wan: String,
+        /// Addresses handed to devices that join by themselves on the home network.
+        #[arg(long, default_value = "192.168.1.7:25")]
+        advertise_lan: String,
+        #[arg(long, default_value = "lhan.duckdns.org:5025")]
+        advertise_wan: String,
+        /// Do not let devices on the home network join without a code.
+        #[arg(long)]
+        no_auto_enroll: bool,
     },
     /// Create a device token and print its pairing code.
     Pair {
@@ -55,13 +63,13 @@ fn main() -> Result<()> {
     std::fs::create_dir_all(&cli.data)?;
     let tokens = Tokens::new(&cli.data);
     match cli.cmd {
-        Cmd::Serve { lan, wan } => {
+        Cmd::Serve { lan, wan, advertise_lan, advertise_wan, no_auto_enroll } => {
             let tls = ensure_tls(&cli.data.join("tls"), &cli.sans)?;
             let api = Arc::new(Api::open_headless_serving(&cli.data, &cli.packs.clone().unwrap_or_else(|| cli.data.join("packs")))?);
             // Reads photographed notes (OCR) and serves agent requests.
             gredict_app::spawn_job_runner(api.clone(), std::time::Duration::from_secs(5));
             let mut addrs = Vec::new();
-            for a in [lan, wan] {
+            for a in [lan.clone(), wan] {
                 // Ports below 1024 need CAP_NET_BIND_SERVICE; keep serving the others.
                 match std::net::TcpListener::bind(&a) {
                     Ok(l) => {
@@ -73,7 +81,9 @@ fn main() -> Result<()> {
             }
             anyhow::ensure!(!addrs.is_empty(), "no address could be bound");
             eprintln!("lexis-syncd listening on {}", addrs.join(", "));
-            for h in serve(api, Arc::new(tokens), cli.private.clone(), &tls, &addrs)? {
+            // Only the home-network port ever enrols devices on its own.
+            let enroll = (!no_auto_enroll && addrs.contains(&lan)).then(|| (Arc::new(Enroll::new(&advertise_lan, &advertise_wan, &tls.cert_pem)), lan.clone()));
+            for h in serve_enrolling(api, Arc::new(tokens), cli.private.clone(), &tls, &addrs, enroll)? {
                 let _ = h.join();
             }
         }

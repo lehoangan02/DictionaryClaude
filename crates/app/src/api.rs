@@ -217,6 +217,11 @@ impl Api {
             "sync_pull" => self.sync_pull(n("cursor", 0), n("limit", 2000) as usize),
             "sync_pair" => self.sync_pair(&req("code")?),
             "sync_unpair" => self.sync_unpair(),
+            "sync_autopair" => self.sync_autopair(),
+            "sync_set_autopair_host" => {
+                self.set_setting("autopair.host", &req("host")?)?;
+                Ok(json!({"ok": true}))
+            }
             "sync_set_home_ssids" => {
                 self.set_setting("sync.home_ssids", &req("ssids")?)?;
                 Ok(json!({"ok": true}))
