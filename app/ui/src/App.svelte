@@ -63,13 +63,20 @@
     <!-- Each screen slides up into place when you switch to it. -->
     {#key app.tab}
       <div class="view" in:enter={{ y: 14, duration: 260 }}>
-        {#if app.tab === 'search' && !app.sources.some((x) => x.id !== 'mw')}
+        {#if app.tab === 'search' && app.sources.length === 0}
           <div class="card empty">
             <h2>Get your dictionaries</h2>
             <p class="muted">This device has no dictionaries yet. Pair it with your server and download them in Settings, which keeps the app itself small.</p>
             <button class="btn primary" onclick={() => (app.tab = 'settings')}>Open Settings</button>
           </div>
         {:else if app.tab === 'search'}
+          <!-- Merriam-Webster works on its own over the internet; the offline dictionaries are a download. -->
+          {#if !app.sources.some((x) => x.id !== 'mw')}
+            <div class="card nodict">
+              <span class="muted">Looking words up in Merriam-Webster over the internet. Download the offline dictionaries in Settings.</span>
+              <button class="btn small" onclick={() => (app.tab = 'settings')}>Settings</button>
+            </div>
+          {/if}
           <EntryView />
         {:else if app.tab === 'history'}
           <History />
@@ -135,5 +142,6 @@
     .tabbar button { transition: background-color var(--t) var(--ease), color var(--t) var(--ease), transform var(--t-fast) var(--ease); }
     .tabbar button.on { color: var(--blue); background: var(--blue-soft); font-weight: 700; }
   }
+.nodict { display: flex; align-items: center; gap: 12px; justify-content: space-between; margin: 0 0 14px; padding: 10px 14px; font-size: 14px; }
 .empty { margin: 24px 0; display: grid; gap: 12px; justify-items: start; text-align: left; } .empty :global(h2), .empty :global(p) { margin: 0; }
 </style>

@@ -160,3 +160,21 @@ fn shipped_keys_fill_in_automatically_and_removal_sticks() {
     api.seed_defaults();
     assert!(names(&api).contains(&"mw".to_string()));
 }
+
+#[test]
+fn works_on_a_device_with_no_dictionary_downloaded_yet() {
+    let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = std::env::temp_dir().join(format!("gredict-mw-nopack-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let api = Api::open_headless(&dir).unwrap();
+    let m = mock();
+    std::env::set_var("LEXIS_MW_BASE", format!("http://127.0.0.1:{}/api", m.port));
+    // Without keys there is nothing to look in, and the message says how to fix that.
+    assert!(api.call("entry", json!({"word": "loquacious", "source": "mw"})).unwrap_err().to_string().contains("no dictionaries"));
+    api.call("mw_config", json!({"collegiate": "KEY1"})).unwrap();
+    assert_eq!(names(&api), vec!["mw"]);
+    assert_eq!(api.call("search", json!({"q": "loq"})).unwrap()["suggestions"], json!([]));
+    let e = api.call("entry", json!({"word": "loquacious", "source": "mw"})).unwrap();
+    assert_eq!(e["source"]["id"], "mw");
+    assert!(e["entry"]["blocks"][0]["pos"] == "adjective");
+}

@@ -152,6 +152,15 @@ impl Api {
         let a = |k: &str| args.get(k).and_then(Value::as_str).map(str::to_string);
         let n = |k: &str, d: i64| args.get(k).and_then(Value::as_i64).unwrap_or(d);
         if self.sources.is_empty() && matches!(cmd, "search" | "entry") {
+            // Merriam-Webster is looked up online and needs no pack, so it works on a device that has none yet.
+            if self.mw_configured() {
+                if cmd == "search" {
+                    return Ok(json!({"suggestions": [], "did_you_mean": []}));
+                }
+                if a("source").as_deref() == Some("mw") {
+                    return self.entry_mw(&req_word(&args)?, &lemma::key(&req_word(&args)?), args.get("record").and_then(Value::as_bool).unwrap_or(true));
+                }
+            }
             bail!("no dictionaries are installed yet: open Settings → Dictionaries to download them");
         }
         let req = |k: &str| a(k).ok_or_else(|| anyhow!("missing argument `{k}`"));
@@ -639,3 +648,7 @@ fn bounded_levenshtein(a: &str, b: &str, max: usize) -> Option<usize> {
     (prev[b.len()] <= max).then_some(prev[b.len()])
 }
 
+
+fn req_word(args: &Value) -> Result<String> {
+    args.get("word").and_then(Value::as_str).map(str::to_string).ok_or_else(|| anyhow!("missing argument `word`"))
+}
