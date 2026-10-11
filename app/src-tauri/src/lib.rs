@@ -23,6 +23,7 @@ impl State {
 static PLAY_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// Decodes and plays an MP3/Ogg recording through the system audio output.
+#[cfg(not(target_os = "android"))]
 pub fn play_bytes(bytes: Vec<u8>) -> Result<(), String> {
     let gen = PLAY_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
     let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
@@ -47,6 +48,7 @@ pub fn play_bytes(bytes: Vec<u8>) -> Result<(), String> {
 }
 
 /// Says a word with the system's speech program when no recording is available.
+#[cfg(not(target_os = "android"))]
 pub fn say(word: &str) -> Result<(), String> {
     let word: String = word.chars().filter(|c| c.is_alphanumeric() || " '-".contains(*c)).collect();
     let candidates: &[(&str, &[&str])] = if cfg!(target_os = "macos") {
@@ -67,7 +69,14 @@ async fn play_audio(state: tauri::State<'_, State>, url: String) -> Result<(), S
     let api = state.api();
     tauri::async_runtime::spawn_blocking(move || {
         let bytes = api.audio_bytes(&url).map_err(|e| format!("{e:#}"))?;
-        play_bytes(bytes)
+        #[cfg(not(target_os = "android"))]
+        return play_bytes(bytes);
+        #[cfg(target_os = "android")]
+        {
+            // Android's web view plays audio itself; the page never asks for this.
+            let _ = bytes;
+            Err("native playback is not used on Android".to_string())
+        }
     })
     .await
     .map_err(|e| e.to_string())?
@@ -75,7 +84,13 @@ async fn play_audio(state: tauri::State<'_, State>, url: String) -> Result<(), S
 
 #[tauri::command]
 async fn speak_text(word: String) -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(move || say(&word)).await.map_err(|e| e.to_string())?
+    #[cfg(not(target_os = "android"))]
+    return tauri::async_runtime::spawn_blocking(move || say(&word)).await.map_err(|e| e.to_string())?;
+    #[cfg(target_os = "android")]
+    {
+        let _ = word;
+        Err("speech is done by the web view on Android".to_string())
+    }
 }
 
 #[tauri::command]
@@ -109,6 +124,7 @@ fn config(app: &tauri::AppHandle) -> Config {
     Config { data_dir: data, packs_dir: packs, private_dir: Some(private) }
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let agent = std::env::args().any(|a| a == "--agent");
     if std::env::args().any(|a| a == "--install-agent") {

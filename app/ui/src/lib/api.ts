@@ -27,4 +27,4 @@ export async function native<T = unknown>(cmd: string, args: Record<string, unkn
   return (await tauri.invoke(cmd, args)) as T;
 }
 
-export const isDesktopApp = !!tauri;
+export const isDesktopApp = !!tauri && !/Android/i.test(navigator.userAgent);

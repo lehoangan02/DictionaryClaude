@@ -12,11 +12,12 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 VERSION="${1:-}"; shift || true
-PUBLISH=0; TESTS=1; NOTES=""
+PUBLISH=0; TESTS=1; ANDROID=1; NOTES=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --publish) PUBLISH=1 ;;
     --skip-tests) TESTS=0 ;;
+    --no-android) ANDROID=0 ;;
     --notes) NOTES="$2"; shift ;;
     *) echo "unknown option $1" >&2; exit 2 ;;
   esac
@@ -56,6 +57,24 @@ step "building the AppImage (this takes a few minutes)"
 BUILT="app/src-tauri/target/release/bundle/appimage/LadyBird_${VERSION}_amd64.AppImage"
 [ -f "$BUILT" ] || { echo "ERROR: the build did not produce $BUILT" >&2; exit 1; }
 
+APK=""
+if [ "$ANDROID" = 1 ] && [ -d "$HOME/Android/Sdk/ndk" ] && [ -f "$HOME/.lexis-keys/ladybird.jks" ]; then
+  step "building the Android APK (arm64, signed with the LadyBird key)"
+  export ANDROID_HOME="$HOME/Android/Sdk" NDK_HOME="$(ls -d "$HOME"/Android/Sdk/ndk/* | tail -n 1)"
+  export JAVA_HOME="${JAVA_HOME:-$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")}"
+  BT="$(ls -d "$ANDROID_HOME"/build-tools/* | tail -n 1)"
+  (cd app/src-tauri && cargo tauri android build --apk --target aarch64 2>&1 | tail -n 2)
+  RAW="app/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk"
+  [ -f "$RAW" ] || { echo "ERROR: the Android build did not produce an APK" >&2; exit 1; }
+  "$BT/zipalign" -f -p 4 "$RAW" /tmp/lb-aligned.apk
+  mkdir -p "$OUT"
+  APK="LadyBird-${VERSION}-android-arm64.apk"
+  "$BT/apksigner" sign --ks "$HOME/.lexis-keys/ladybird.jks" --ks-pass "file:$HOME/.lexis-keys/ladybird.pass" --out "$OUT/$APK" /tmp/lb-aligned.apk
+  rm -f /tmp/lb-aligned.apk "$OUT/$APK.idsig"
+else
+  echo "NOTE: skipping the Android APK (no NDK or signing key here)"
+fi
+
 step "saving the release files"
 mkdir -p "$OUT"
 FILE="LadyBird-${VERSION}-x86_64.AppImage"
@@ -73,7 +92,7 @@ ${CHANGES:-- (no changes recorded)}
 chmod +x $FILE && ./$FILE
 \`\`\`
 Check the download with \`sha256sum -c $FILE.sha256\`. The app carries its dictionaries (Wiktionary, CC BY-SA 4.0; WordNet, CC BY 4.0; Webster 1913, Moby and CMUdict, public domain). It does not contain Barron's.
-macOS and Android are built from source: see docs/SETUP.md."
+Android (arm64, for example the Galaxy S24 Ultra): install the .apk and download dictionaries in Settings → Downloads after pairing with your server. macOS is built from source: see docs/SETUP.md."
 printf '%s\n' "$BODY" > "$OUT/$TAG.md"
 python3 - "$OUT" "$VERSION" "$FILE" "$SUM" <<'PY'
 import json, sys, os, time
@@ -92,6 +111,6 @@ git tag -a "$TAG" -m "LadyBird $VERSION"
 if [ "$PUBLISH" = 1 ]; then
   step "publishing to GitHub"
   git push -q origin "$BRANCH" "$TAG"
-  gh release create "$TAG" "$OUT/$FILE" "$OUT/$FILE.sha256" --title "LadyBird $VERSION" --notes-file "$OUT/$TAG.md"
+  gh release create "$TAG" "$OUT/$FILE" "$OUT/$FILE.sha256" ${APK:+"$OUT/$APK"} --title "LadyBird $VERSION" --notes-file "$OUT/$TAG.md"
 fi
 step "done $TAG ($(du -h "$OUT/$FILE" | cut -f1))"

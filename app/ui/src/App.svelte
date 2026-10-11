@@ -130,5 +130,5 @@
     .tabbar button { transition: background-color var(--t) var(--ease), color var(--t) var(--ease), transform var(--t-fast) var(--ease); }
     .tabbar button.on { color: var(--blue); background: var(--blue-soft); font-weight: 700; }
   }
-.empty { margin: 24px 0; display: grid; gap: 12px; justify-items: start; }
+.empty { margin: 24px 0; display: grid; gap: 12px; justify-items: start; text-align: left; } .empty :global(h2), .empty :global(p) { margin: 0; }
 </style>

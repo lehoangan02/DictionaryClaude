@@ -34,10 +34,10 @@
   }
 </script>
 
-<section class="card rise" style="--i:1">
+<section class="card rise" style="--i:3">
   <h3>Downloads</h3>
   {#if !list.paired}
-    <p class="muted small">Pair with your server below, then the dictionaries it holds can be downloaded here, for example on a phone that came without them.</p>
+    <p class="muted small">Pair with your server above, then the dictionaries it holds can be downloaded here, for example on a phone that came without them.</p>
   {:else}
     <p class="muted small">Dictionaries come from your own server. {#if list.checked}Checked {when(list.checked)}.{/if}</p>
   {/if}
@@ -73,9 +73,9 @@
 
 <style>
   .packs { list-style: none; margin: 8px 0 12px; padding: 0; display: grid; gap: 4px; }
-  .packs li { display: flex; gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+  .packs li { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
   .packs li:first-child { border-top: 0; }
-  .info { flex: 1; display: grid; gap: 2px; min-width: 0; }
+  .info { flex: 1 1 220px; display: grid; gap: 2px; min-width: 0; }
   .bar { height: 6px; border-radius: 3px; background: var(--panel-2); overflow: hidden; margin-top: 4px; }
   .bar i { display: block; height: 100%; background: var(--blue); transform-origin: left; transition: transform var(--t) linear; }
 </style>

@@ -108,7 +108,6 @@
   <p class="muted small">Wiktionary is CC BY-SA 4.0, WordNet is CC BY 4.0; Webster 1913 and the Moby thesaurus are public domain. Barron's material stays private on your devices.</p>
 </section>
 
-<PackManager />
 
 <section class="card rise" style="--i:2">
   <h3>Sync server</h3>
@@ -132,6 +131,8 @@
   {/if}
   {#if msg}<p class="msg">{msg}</p>{/if}
 </section>
+
+<PackManager />
 
 <section class="card rise" style="--i:3">
   <h3>Merriam-Webster</h3>

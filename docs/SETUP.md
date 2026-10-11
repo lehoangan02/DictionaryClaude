@@ -60,7 +60,7 @@ cargo tauri build                                        # AppImage under target
 The build was run from `app/src-tauri` (the pre-build step expects that). Install or update the launcher after a rebuild:
 
 ```bash
-cp target/release/bundle/appimage/LadyBird_0.1.0_amd64.AppImage ~/Applications/LadyBird.AppImage
+cp target/release/bundle/appimage/LadyBird_<version>_amd64.AppImage ~/Applications/LadyBird.AppImage
 ```
 
 The launcher starts it with `WEBKIT_DISABLE_DMABUF_RENDERER=1`, which avoids a blank window with some NVIDIA setups; remove that variable in `~/.local/share/applications/ladybird.desktop` if everything renders fine without it. The AppImage carries the dictionary packs. Optional background sync with no window, started at login:
@@ -113,13 +113,17 @@ Not yet built or tested on a Mac: the on-device NPU runtime (CoreML).
 
 ## 6. The phone (Galaxy S24 Ultra)
 
-The Android build has **not been attempted** (it needs Android Studio, the NDK and a device). The steps, when you want to try:
+An Android build exists and has been run on the Android emulator (pairing, syncing, downloading dictionaries, looking words up). It has not yet been run on the real phone.
 
-1. Install Android Studio, the Android SDK and NDK; `rustup target add aarch64-linux-android`.
-2. `cd app/src-tauri && cargo tauri android init && cargo tauri android build --apk`.
-3. The packs (340 MB) are too large to bundle comfortably; copy `data/packs/*` onto the phone (the app looks in its data folder, or set `LEXIS_PACKS`). A smaller "lite" pack is a good next step.
-4. Pair with the `phone` code (send it to yourself privately, not by a public channel).
-5. Not yet built: the NPU runtime (QNN on the Snapdragon) and Bluetooth sync.
+1. On the phone open the latest release at https://github.com/lehoangan02/DictionaryClaude/releases and download `LadyBird-<version>-android-arm64.apk`. Allow "install unknown apps" for your browser when Android asks.
+2. Open LadyBird. It starts without dictionaries (the app is only about 10 MB).
+3. On the Ubuntu machine create a code: `/usr/local/bin/gredict-syncd --data /var/lib/lexis-syncd pair phone`. Send it to yourself privately and paste it in **Settings → Sync server → Pairing code**, then **Pair**.
+4. **Settings → Downloads**: press **Download** on Wiktionary, WordNet, Webster 1913 and the rest (about 340 MB in all, resumable; on the home Wi-Fi it takes under a minute). Barron's arrives with the first sync.
+5. Updates: new APKs install over the old one (they are signed with the same key).
+
+Building the APK yourself (done on the Ubuntu machine, `scripts/release.sh` does it for every release): Android SDK command-line tools plus `platforms;android-34` and an NDK (`sdkmanager "ndk;27.2.12479018"`), `rustup target add aarch64-linux-android`, then `cd app/src-tauri && cargo tauri android build --apk --target aarch64`. The APK is signed with a key kept in `~/.lexis-keys/` (never in git): **back that folder up**, because a phone only accepts updates signed by the same key.
+
+Not yet built: the NPU runtime (QNN on the Snapdragon) and Bluetooth sync. Sound uses the phone's web view (recordings) with no offline speech fallback yet.
 
 ## 7. Optional accounts and keys
 
@@ -139,6 +143,12 @@ The Android build has **not been attempted** (it needs Android Studio, the NDK a
 | Photos stay "Waiting to be read" | the server reads them (Tesseract); check `journalctl -u gredict-syncd` |
 | Pronunciation download pauses | Wikimedia rate limit: it resumes by itself |
 
-## 9. Publishing
+## 9. Releases
+
+`scripts/release.sh <version> --publish` tests, builds the Linux AppImage and the Android APK, tags `v<version>` and creates the GitHub release (needs `gh auth login` once). The version is chosen by Claude as `0.MINOR.PATCH`. Files are also kept in `~/lexis-releases`.
+
+Dictionary packs are not part of a release: the server offers them. After rebuilding packs run `sudo deploy/install-syncd.sh` to copy them to `/var/lib/lexis-syncd/packs`; devices see updates under **Settings → Downloads → Check the server**.
+
+## 10. Publishing
 
 The repository is public (`github.com/lehoangan02/DictionaryClaude`). Never commit `private/`, `data/`, pairing codes, API keys or anything quoted from Barron's. The local branch `checkpoints-archive` must never be pushed (see `CLAUDE.md`).

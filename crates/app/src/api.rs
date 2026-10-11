@@ -381,7 +381,7 @@ impl Api {
 
     fn entry_mw(&self, word: &str, key: &str, record: bool) -> Result<Value> {
         let mut out = json!({
-            "key": key, "source": {"id": "mw", "name": "Merriam-Webster"}, "found_in": [], "ipa_fallback": null,
+            "key": key, "source": {"id": "mw", "name": "Merriam-Webster"}, "found_in": self.sources.iter().filter(|s| s.pack.lock().unwrap().get(key).ok().flatten().is_some()).map(|s| s.id).collect::<Vec<_>>(), "ipa_fallback": null,
             "barrons": self.barrons().and_then(|b| b.entries.get(key).cloned()), "thesaurus": self.thesaurus(key)?, "entry": null,
         });
         match self.mw_entry(word) {
