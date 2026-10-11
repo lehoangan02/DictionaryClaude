@@ -21,11 +21,14 @@ echo "STEP: building the interface"
 (cd app/ui && npm ci >/dev/null && npm run build 2>&1 | tail -n 1)
 
 echo "STEP: building the app (dictionaries are downloaded inside the app, so none are bundled)"
-(cd app/src-tauri && cargo tauri build --bundles dmg --config '{"bundle":{"resources":null},"build":{"beforeBuildCommand":""}}' 2>&1 | tail -n 3)
+# CI=true makes the DMG step skip its Finder (AppleScript) prettifying, which fails without a desktop session.
+(cd app/src-tauri && CI=true cargo tauri build --bundles dmg --config '{"bundle":{"resources":null},"build":{"beforeBuildCommand":""}}' 2>&1 | tail -n 3)
 
-APP="app/src-tauri/target/release/bundle/macos/LadyBird.app"
-codesign --verify --deep --strict "$APP" || { echo "ERROR: the app is not signed" >&2; exit 1; }
 DMG="$(ls app/src-tauri/target/release/bundle/dmg/*.dmg | head -n 1)"
+# The .app folder is removed once it is inside the DMG, so check the signature in there.
+MNT="$(mktemp -d)"; hdiutil attach -nobrowse -readonly -mountpoint "$MNT" "$DMG" >/dev/null
+trap 'hdiutil detach "$MNT" >/dev/null 2>&1 || true' EXIT
+codesign --verify --deep --strict "$MNT/LadyBird.app" || { echo "ERROR: the app in the DMG is not signed" >&2; exit 1; }
 
 OUT="${LEXIS_RELEASES:-$HOME/lexis-releases}"; mkdir -p "$OUT"
 FILE="LadyBird-${VERSION}-macos-arm64.dmg"

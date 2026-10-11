@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSCameraUsageDescription</key>
+  <string>LadyBird uses the camera to photograph your handwritten notes.</string>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>LadyBird talks to your sync server on the home network to keep your notes and quizzes in step.</string>
+</dict>
+</plist>

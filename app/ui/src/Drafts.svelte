@@ -4,6 +4,7 @@
   import { app, bump } from './lib/store.svelte';
   import { shrink } from './lib/image';
   import DraftReview from './DraftReview.svelte';
+  import Camera from './Camera.svelte';
   import { flip } from 'svelte/animate';
   import { grow, flipDur } from './lib/motion';
 
@@ -26,12 +27,19 @@
     return () => clearInterval(t);
   });
 
-  async function add(e: Event) {
-    const input = e.target as HTMLInputElement;
+  // Phones open the camera from a file input; a computer needs a camera of its own.
+  const desktopCamera = !matchMedia('(pointer: coarse)').matches && !!navigator.mediaDevices?.getUserMedia;
+  let camera = $state(false);
+
+  async function addFiles(files: File[]) {
     error = '';
     try {
-      for (const f of Array.from(input.files ?? [])) picked.push({ url: await shrink(f) });
+      for (const f of files) picked.push({ url: await shrink(f) });
     } catch { error = 'That photo could not be read. Try a JPEG or PNG.'; }
+  }
+  async function add(e: Event) {
+    const input = e.target as HTMLInputElement;
+    await addFiles(Array.from(input.files ?? []));
     input.value = '';
   }
 
@@ -53,6 +61,10 @@
     : d.agent_status === 'done' && d.status === 'needs_review' ? 'Agents finished' : LABEL[d.status] ?? d.status;
 </script>
 
+{#if camera}
+  <Camera onshot={(f) => addFiles([f])} onclose={() => (camera = false)} />
+{/if}
+
 {#if open}
   <DraftReview id={open} onclose={() => { open = null; load(); }} />
 {:else}
@@ -60,7 +72,11 @@
     <h3>Photograph your notes</h3>
     <p class="muted small">Take or choose photos of handwritten notes. The server reads them; you check the result before anything is saved.</p>
     <div class="row">
-      <label class="btn">📷 Take photo<input type="file" accept="image/*" capture="environment" onchange={add} hidden /></label>
+      {#if desktopCamera}
+        <button class="btn" onclick={() => (camera = true)}>📷 Take photo</button>
+      {:else}
+        <label class="btn">📷 Take photo<input type="file" accept="image/*" capture="environment" onchange={add} hidden /></label>
+      {/if}
       <label class="btn">🖼️ Add photos<input type="file" accept="image/*" multiple onchange={add} hidden /></label>
     </div>
     {#if picked.length}

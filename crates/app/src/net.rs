@@ -44,6 +44,14 @@ struct Probe {
     error: Option<String>,
 }
 
+/// Whether this device's own address on the route to `host` (an `ip:port`) shares the
+/// first three bytes with it, i.e. both sit on the same home /24. Sends nothing.
+fn on_subnet_of(host: &str) -> bool {
+    let Ok(server) = host.parse::<std::net::SocketAddr>() else { return false };
+    let (std::net::IpAddr::V4(srv), Some(local)) = (server.ip(), std::net::UdpSocket::bind("0.0.0.0:0").ok().and_then(|u| u.connect(server).ok().map(|_| u)).and_then(|u| u.local_addr().ok())) else { return false };
+    matches!(local.ip(), std::net::IpAddr::V4(l) if l.octets()[..3] == srv.octets()[..3])
+}
+
 /// Where a new device looks for the server on the home network.
 const DEFAULT_LAN: &str = "192.168.1.7:25";
 
@@ -226,11 +234,19 @@ impl Api {
         Ok(json!({"paired": false}))
     }
 
-    /// On a known home Wi-Fi with no VPN: the only place a device may look for the
-    /// server unprompted (192.168.x.x elsewhere belongs to someone else's network).
+    /// Where a device may look for the server unprompted: on a known home Wi-Fi, or,
+    /// when the system will not tell us the Wi-Fi name (macOS hides it from apps), on
+    /// the server's own subnet. Never with a VPN up, and never on a Wi-Fi known to be
+    /// someone else's (192.168.x.x there belongs to a stranger).
     fn at_home(&self) -> bool {
+        if vpn_active() {
+            return false;
+        }
         let homes: Vec<String> = self.setting("sync.home_ssids").unwrap_or_else(|| "Anan,Anan 5g".into()).split(',').map(|s| s.trim().to_lowercase()).filter(|s| !s.is_empty()).collect();
-        wifi_name().map_or(false, |s| homes.contains(&s.to_lowercase())) && !vpn_active()
+        match wifi_name() {
+            Some(s) => homes.contains(&s.to_lowercase()),
+            None => on_subnet_of(self.setting("autopair.host").as_deref().unwrap_or(DEFAULT_LAN)),
+        }
     }
 
     /// Whether the background loop should try to pair this device by itself now.
@@ -261,7 +277,14 @@ impl Api {
             .post(&format!("https://{host}/v1/enroll"))
             .header("Content-Type", "application/json")
             .send(serde_json::to_vec(&json!({"name": self.device_label()}))?)
-            .map_err(|e| anyhow!("could not reach the server at {host} ({e}). Is this device on the home Wi-Fi?"))?;
+            .map_err(|e| {
+                let hint = if cfg!(target_os = "macos") && format!("{e}").contains("No route to host") {
+                    " macOS may be blocking local network access: allow LadyBird in System Settings → Privacy & Security → Local Network."
+                } else {
+                    ""
+                };
+                anyhow!("could not reach the server at {host} ({e}). Is this device on the home Wi-Fi?{hint}")
+            })?;
         let status = resp.status().as_u16();
         let v: Value = serde_json::from_str(&resp.body_mut().read_to_string()?).unwrap_or(Value::Null);
         if status != 200 {

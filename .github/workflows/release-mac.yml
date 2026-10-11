@@ -39,7 +39,11 @@ jobs:
           cargo install tauri-cli --version "^2" --locked
           cargo tauri build --bundles dmg --config '{"bundle":{"resources":null},"build":{"beforeBuildCommand":""}}'
       - name: Check the app is signed (an unsigned download is reported as damaged)
-        run: codesign --verify --deep --strict app/src-tauri/target/release/bundle/macos/LadyBird.app
+        run: |
+          MNT="$(mktemp -d)"
+          hdiutil attach -nobrowse -readonly -mountpoint "$MNT" app/src-tauri/target/release/bundle/dmg/*.dmg
+          codesign --verify --deep --strict "$MNT/LadyBird.app"
+          hdiutil detach "$MNT"
       - name: Attach to the release
         run: |
           VERSION="${TAG#v}"
