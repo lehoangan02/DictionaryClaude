@@ -9,6 +9,7 @@ cleanup() { for p in "${PIDS[@]}"; do kill "$p" 2>/dev/null || true; done; rm -r
 trap cleanup EXIT
 (cd app/ui && npm run build >/dev/null)
 export LEXIS_WIFI=Anan   # pretend to be on the home network
+export LEXIS_OCR=tesseract   # fast and hermetic; the vision model is checked by hand
 # Tests must never spend agent quota: any agent request goes to harmless stand-ins.
 mkdir -p "$DATA/bin"
 printf '#!/bin/sh\necho {\"status\":\"ERROR\",\"error\":\"test stand-in\"}\nexit 3\n' > "$DATA/bin/agent"; chmod +x "$DATA/bin/agent"
