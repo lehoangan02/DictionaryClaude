@@ -2,6 +2,12 @@
 
 Everything that needs a person (a router, your Mac, your phone, accounts) is here. Passwords and pairing codes are **never** stored in this repository.
 
+## 0. Status on the Ubuntu machine (done on 2026-10-11)
+
+Done: build libraries installed; sync server installed as a service and verified on ports 25 and 5025 (also on the LAN address); pairing codes created in `~/lexis-pairing/`; the desktop app built (`~/Applications/Lexis.AppImage`, 310 MB, packs inside) with an app-menu launcher called **Lexis**; the app is already paired with the server and has received the Barron's quizzes (data in `~/.local/share/dev.lexis.gre`).
+
+Still needs a person: the router forward for 5025 (section 2), the Mac (section 5), the phone (section 6), and the optional keys (section 7).
+
 ## 1. What is already running on the Ubuntu machine
 
 The sync server is installed as a systemd service (`gredict-syncd`), starts at boot, and listens on:
@@ -51,11 +57,19 @@ cd app/src-tauri && cargo tauri icon icons/source.png    # once: makes the icon 
 cargo tauri build                                        # AppImage under target/release/bundle/appimage/
 ```
 
-Run the AppImage; it carries the dictionary packs. Optional background sync with no window, started at login:
+The build was run from `app/src-tauri` (the pre-build step expects that). Install or update the launcher after a rebuild:
 
 ```bash
-./Lexis*.AppImage --install-agent
+cp target/release/bundle/appimage/Lexis_0.1.0_amd64.AppImage ~/Applications/Lexis.AppImage
 ```
+
+The launcher starts it with `WEBKIT_DISABLE_DMABUF_RENDERER=1`, which avoids a blank window with some NVIDIA setups; remove that variable in `~/.local/share/applications/lexis.desktop` if everything renders fine without it. The AppImage carries the dictionary packs. Optional background sync with no window, started at login:
+
+```bash
+~/Applications/Lexis.AppImage --install-agent
+```
+
+Recorded pronunciations play through GStreamer; the plugins (`gstreamer1.0-plugins-base`, `-good`, `-libav`) are installed here. If a recording does not play, the app falls back to the browser's speech voice, if the system has one.
 
 During development you can instead run `./target/release/gredict-server` and open http://127.0.0.1:8787.
 
