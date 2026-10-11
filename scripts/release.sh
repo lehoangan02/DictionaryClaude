@@ -63,6 +63,7 @@ if [ "$ANDROID" = 1 ] && [ -d "$HOME/Android/Sdk/ndk" ] && [ -f "$HOME/.lexis-ke
   export ANDROID_HOME="$HOME/Android/Sdk" NDK_HOME="$(ls -d "$HOME"/Android/Sdk/ndk/* | tail -n 1)"
   export JAVA_HOME="${JAVA_HOME:-$(dirname "$(dirname "$(readlink -f "$(command -v java)")")")}"
   BT="$(ls -d "$ANDROID_HOME"/build-tools/* | tail -n 1)"
+  scripts/fetch-ort-android.sh
   (cd app/src-tauri && cargo tauri android build --apk --target aarch64 2>&1 | tail -n 2)
   RAW="app/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk"
   [ -f "$RAW" ] || { echo "ERROR: the Android build did not produce an APK" >&2; exit 1; }

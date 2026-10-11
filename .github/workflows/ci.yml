@@ -1,0 +1,16 @@
+# Compiles and tests the Rust crates on a Mac, which is where the CoreML (Neural Engine) code is built.
+name: ci
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  mac:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build and test the core and app crates
+        run: cargo test -p gredict-core -p gredict-app --no-fail-fast

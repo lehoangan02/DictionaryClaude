@@ -2,6 +2,7 @@
 //! transport-agnostic command surface used by the Tauri shell and the dev server.
 
 pub mod api;
+mod ai;
 mod audio;
 mod drafts;
 mod jobs;

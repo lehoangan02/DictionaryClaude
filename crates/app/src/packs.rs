@@ -20,8 +20,11 @@ const KNOWN: &[(&str, &str, &str, &str, &[&str])] = &[
     ("wordnet", "WordNet", "Princeton-style word senses with synonym groups. Open English WordNet 2024.", "CC BY 4.0", &["wordnet.pack"]),
     ("gcide", "Webster 1913", "The classic unabridged Webster, rich in literary words (GCIDE).", "GPL / public domain", &["gcide.pack"]),
     ("moby", "Moby Thesaurus", "Broad synonym lists that feed the GRE thesaurus.", "Public domain", &["moby.pack"]),
+    ("ai", "Meaning search (AI model)", "A small language model (bge-small) that lets search find quiz sessions by meaning. It runs on this device, on the Neural Engine or phone NPU when there is one.", "MIT", &["bge-small-en-v1.5-q.onnx", "bge-small-en-v1.5-tokenizer.json"]),
     ("cmudict", "Pronunciations (CMU)", "IPA for words the dictionaries give none for.", "BSD", &["cmudict.pack"]),
 ];
+
+const SOURCES_FILES: &[(&str, &str)] = &[("wiktionary", "wiktionary.pack"), ("wordnet", "wordnet.pack"), ("gcide", "gcide.pack")];
 
 /// Where a pack file is read from: a downloaded copy wins over a bundled one.
 pub(crate) fn locate(data_dir: &Path, bundled: &Path, file: &str) -> PathBuf {
@@ -30,7 +33,7 @@ pub(crate) fn locate(data_dir: &Path, bundled: &Path, file: &str) -> PathBuf {
 }
 
 fn safe_name(f: &str) -> bool {
-    !f.is_empty() && f.len() < 64 && f.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c)) && !f.starts_with('.') && (f.ends_with(".pack") || f.ends_with(".fst"))
+    !f.is_empty() && f.len() < 64 && f.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c)) && !f.starts_with('.') && (f.ends_with(".pack") || f.ends_with(".fst") || f.ends_with(".onnx") || f.ends_with(".json"))
 }
 
 static HASHES: Mutex<Option<HashMap<(String, u64, u64), String>>> = Mutex::new(None);
@@ -58,7 +61,31 @@ fn file_sha(path: &Path) -> Result<String> {
     Ok(sum)
 }
 
+/// A pack's entry count remembered from the last time it was counted
+/// (keyed by file size, so a replaced pack is counted again). 0 if unknown.
+pub(crate) fn cached_count(db: &rusqlite::Connection, path: &Path) -> u64 {
+    let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    let key = format!("packcount.{}.{size}", path.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default());
+    db.query_row("SELECT v FROM settings WHERE k=?", [key], |r| r.get::<_, String>(0)).ok().and_then(|v| v.parse().ok()).unwrap_or(0)
+}
+
 impl Api {
+    /// Counts the entries of any pack not yet counted. Scans the whole file, so
+    /// run it on a background thread after the app is up.
+    pub fn warm_counts(&self) {
+        for s in &self.sources {
+            if s.entries.load(std::sync::atomic::Ordering::Relaxed) > 0 {
+                continue;
+            }
+            let Ok(n) = s.pack.lock().unwrap().len() else { continue };
+            s.entries.store(n, std::sync::atomic::Ordering::Relaxed);
+            let file = SOURCES_FILES.iter().find(|(id, _)| *id == s.id).map(|x| x.1).unwrap_or("");
+            let path = locate(&self.data_dir, &self.packs_dir, file);
+            let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            let _ = self.set_setting(&format!("packcount.{file}.{size}"), &n.to_string());
+        }
+    }
+
     fn own_packs(&self) -> PathBuf {
         self.data_dir.join("packs")
     }
@@ -140,7 +167,7 @@ impl Api {
             let mut done_before = 0u64;
             for f in files.iter() {
                 let Some(info) = remote["files"].as_array().and_then(|a| a.iter().find(|x| x["file"] == *f)).cloned() else {
-                    if *f == files[0] { bail!("the server does not have this dictionary") }
+                    if *f == files[0] { bail!("the server does not have this download") }
                     continue; // an optional extra (the typo index) the server lacks
                 };
                 self.download_file(id, f, &info, done_before)?;

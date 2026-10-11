@@ -105,6 +105,8 @@ async fn call(state: tauri::State<'_, State>, cmd: String, args: Option<Value>) 
         // A dictionary arrived or left: reopen so every search sees it.
         let fresh = Arc::new(Api::open(state.1.clone()).map_err(|e| format!("{e:#}"))?);
         gredict_app::spawn_background_sync(fresh.clone(), Duration::from_secs(300));
+        let warm = fresh.clone();
+        std::thread::spawn(move || warm.warm_counts());
         *state.0.write().unwrap() = fresh;
     }
     Ok(out)
@@ -136,8 +138,13 @@ pub fn run() {
     }
     tauri::Builder::default()
         .setup(move |app| {
+            eprintln!("LadyBird setup begins");
             let cfg = config(app.handle());
-            let api = Arc::new(Api::open(cfg.clone())?);
+            eprintln!("LadyBird data {:?} packs {:?}", cfg.data_dir, cfg.packs_dir);
+            let api = Arc::new(Api::open(cfg.clone()).map_err(|e| {
+                eprintln!("LadyBird could not start: {e:#}");
+                e
+            })?);
             api.seed_defaults();
             gredict_app::spawn_background_sync(api.clone(), Duration::from_secs(300));
             if agent {
@@ -146,6 +153,8 @@ pub fn run() {
                     w.hide()?;
                 }
             }
+            let warm = api.clone();
+            std::thread::spawn(move || warm.warm_counts());
             app.manage(State(std::sync::RwLock::new(api), cfg));
             Ok(())
         })

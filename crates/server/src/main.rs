@@ -78,6 +78,7 @@ fn main() -> Result<()> {
     let server = Server::http((a.bind.as_str(), a.port)).map_err(|e| anyhow::anyhow!("{e}"))?;
     api.seed_defaults();
     // A paired device keeps itself in sync without anyone opening a sync screen.
+    { let warm = api.clone(); std::thread::spawn(move || warm.warm_counts()); }
     gredict_app::spawn_background_sync(api.clone(), std::time::Duration::from_secs(300));
     eprintln!("gredict-server on http://{}:{}", a.bind, a.port);
     let dist = Arc::new(a.dist);

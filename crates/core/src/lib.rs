@@ -1,5 +1,6 @@
 //! Domain logic shared by the app, the packer and the sync server.
 
+pub mod ai;
 pub mod entry;
 pub mod fuzzy;
 pub mod ipa;

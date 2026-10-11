@@ -12,3 +12,14 @@ serde_json.workspace = true
 unicode-normalization = "0.1"
 zstd = "0.13"
 fst = { version = "0.4", features = ["levenshtein"] }
+tokenizers = { version = "0.21", default-features = false, features = ["fancy-regex"] }
+ndarray = "0.16"
+
+# Prebuilt ONNX Runtime downloads on desktop; Apple adds the Neural Engine provider.
+[target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))'.dependencies]
+ort = { version = "=2.0.0-rc.10", default-features = false, features = ["std", "ndarray", "download-binaries"] }
+[target.'cfg(target_os = "macos")'.dependencies]
+ort = { version = "=2.0.0-rc.10", default-features = false, features = ["std", "ndarray", "download-binaries", "coreml"] }
+# Android: libonnxruntime.so (with the NNAPI provider) ships inside the APK and is loaded at run time.
+[target.'cfg(target_os = "android")'.dependencies]
+ort = { version = "=2.0.0-rc.10", default-features = false, features = ["std", "ndarray", "load-dynamic", "nnapi"] }

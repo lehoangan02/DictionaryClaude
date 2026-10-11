@@ -536,6 +536,27 @@ impl Api {
             }
         }
         scored.sort_by(|a, b| b.1.total_cmp(&a.1));
+        // Meaning search (when the AI model is installed): fuse the keyword
+        // ranking with the semantic one, so "stubborn" also finds sessions
+        // about obdurate words that no synonym list links.
+        if !terms.is_empty() {
+            let semantic = self.semantic_sessions(&terms.join(" "));
+            if !semantic.is_empty() {
+                let mut fused: Vec<(String, f64)> = Vec::new();
+                let mut add = |id: &str, w: f64| match fused.iter_mut().find(|(i, _)| i == id) {
+                    Some(e) => e.1 += w,
+                    None => fused.push((id.to_string(), w)),
+                };
+                for (rank, (id, _)) in scored.iter().enumerate() {
+                    add(id, 1.0 / (60.0 + rank as f64));
+                }
+                for (rank, (id, _)) in semantic.iter().enumerate() {
+                    add(id, 1.0 / (60.0 + rank as f64));
+                }
+                fused.sort_by(|a, b| b.1.total_cmp(&a.1));
+                scored = fused;
+            }
+        }
 
         let db = self.db.lock().unwrap();
         let mut out = Vec::new();

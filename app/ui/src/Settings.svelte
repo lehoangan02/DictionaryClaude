@@ -3,6 +3,7 @@
   import { app, setTheme, bump, orderedSources, saveOrder } from './lib/store.svelte';
   import Icon from './Icon.svelte';
   import PackManager from './PackManager.svelte';
+  import AiCard from './AiCard.svelte';
   import { flip } from 'svelte/animate';
   import { flipDur } from './lib/motion';
   import { when } from './lib/format';
@@ -98,7 +99,7 @@
       <li class:off={!r.shown} animate:flip={{ duration: flipDur() }}>
         <span class="n">{i + 1}</span>
         <span class="nm"><b>{r.name}</b>
-          <span class="muted small">{r.entries != null ? `${r.entries.toLocaleString()} entries` : 'looked up online when you open a word'}</span></span>
+          <span class="muted small">{r.id === 'mw' ? 'looked up online when you open a word' : r.entries != null ? `${r.entries.toLocaleString()} entries` : ''}</span></span>
         <button class="mv" disabled={i === 0} onclick={() => move(i, -1)} aria-label="Move {r.name} up"><Icon name="up" size={22} /></button>
         <button class="mv" disabled={i === rows.length - 1} onclick={() => move(i, 1)} aria-label="Move {r.name} down"><Icon name="down" size={22} /></button>
         <label class="sw" title="Show this dictionary"><input type="checkbox" checked={r.shown} onchange={() => toggle(i)} /><span></span></label>
@@ -133,8 +134,9 @@
 </section>
 
 <PackManager />
+<AiCard />
 
-<section class="card rise" style="--i:3">
+<section class="card rise" style="--i:4">
   <h3>Merriam-Webster</h3>
   <p class="muted small">
     Optional. Uses Merriam-Webster's free API for personal, non-commercial use (1,000 lookups a day per reference). Get free keys for
@@ -158,7 +160,7 @@
   {#if mwMsg}<p class="msg small">{mwMsg}</p>{/if}
 </section>
 
-<section class="card rise" style="--i:4">
+<section class="card rise" style="--i:6">
   <h3>Pronunciation</h3>
   <p class="muted small">Recordings play from this device once downloaded; until then the app speaks the word. Download the Barron's words so they work without internet.</p>
   <div class="row">
@@ -173,7 +175,7 @@
   {#if dl.note}<p class="muted small">{dl.note}</p>{/if}
 </section>
 
-<section class="card rise" style="--i:5">
+<section class="card rise" style="--i:7">
   <h3>Appearance</h3>
   <div class="seg" role="radiogroup" aria-label="Theme">
     {#each ['system', 'light', 'dark'] as t}

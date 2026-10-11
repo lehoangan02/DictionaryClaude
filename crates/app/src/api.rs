@@ -34,7 +34,8 @@ pub(crate) struct Source {
     pub(crate) id: &'static str,
     pub(crate) name: &'static str,
     pub(crate) pack: Mutex<Pack>,
-    pub(crate) entries: u64,
+    /// 0 until counted (counting scans the whole pack, so it is done off the startup path).
+    pub(crate) entries: std::sync::atomic::AtomicU64,
 }
 
 /// Known pack files in display order.
@@ -70,6 +71,7 @@ pub struct Api {
     /// Set by commands that change synced data; the background loop reads it.
     pub(crate) dirty: std::sync::atomic::AtomicBool,
     fuzzy: OnceLock<Option<Fuzzy>>,
+    pub(crate) ai: OnceLock<std::result::Result<Arc<gredict_core::ai::Embedder>, String>>,
     fuzzy_paths: [PathBuf; 2],
     /// Synonym sets of every Barron's word, built on first use.
     barrons_syn: RwLock<Option<Arc<HashMap<String, (HashSet<String>, HashSet<String>)>>>>,
@@ -94,7 +96,7 @@ impl Api {
         let db = userdb::open(&data_dir.join("user.sqlite"))?;
         let device = Self::device_id(&db)?;
         let fuzzy_paths = [data_dir.join("none.fst"), data_dir.join("none.fst")];
-        Ok(Api { sources: Vec::new(), packs_dir: packs_dir.to_path_buf(), pack_progress: Default::default(), moby: None, barrons: RwLock::new(None), private_dir: None, db: Mutex::new(db), device, rng: Mutex::new(now_ms() as u64 | 1), data_dir: data_dir.to_path_buf(), cache: Mutex::new(open_cache(data_dir)?), pron: None, dirty: Default::default(), fuzzy: OnceLock::new(), fuzzy_paths, barrons_syn: RwLock::new(None) })
+        Ok(Api { sources: Vec::new(), packs_dir: packs_dir.to_path_buf(), pack_progress: Default::default(), moby: None, barrons: RwLock::new(None), private_dir: None, db: Mutex::new(db), device, rng: Mutex::new(now_ms() as u64 | 1), data_dir: data_dir.to_path_buf(), cache: Mutex::new(open_cache(data_dir)?), pron: None, dirty: Default::default(), fuzzy: OnceLock::new(), ai: OnceLock::new(), fuzzy_paths, barrons_syn: RwLock::new(None) })
     }
 
     fn device_id(db: &Connection) -> Result<String> {
@@ -118,7 +120,7 @@ impl Api {
             let p = find(file);
             if p.exists() {
                 let pack = Pack::open(&p)?;
-                let entries = pack.len()?;
+                let entries = std::sync::atomic::AtomicU64::new(crate::packs::cached_count(&db, &p));
                 sources.push(Source { id, name, pack: Mutex::new(pack), entries });
             }
         }
@@ -134,7 +136,7 @@ impl Api {
             p.exists().then(|| Pronunciations::open(&p)).transpose()?.map(Mutex::new)
         };
         let fuzzy_paths = [find("wiktionary.fst"), cfg.data_dir.join("wiktionary.fst")];
-        Ok(Api { sources, packs_dir: cfg.packs_dir.clone(), pack_progress: Default::default(), moby, barrons: RwLock::new(barrons), private_dir: cfg.private_dir, db: Mutex::new(db), device, rng: Mutex::new(now_ms() as u64 | 1), data_dir: cfg.data_dir.clone(), cache: Mutex::new(open_cache(&cfg.data_dir)?), pron, dirty: Default::default(), fuzzy: OnceLock::new(), fuzzy_paths, barrons_syn: RwLock::new(None) })
+        Ok(Api { sources, packs_dir: cfg.packs_dir.clone(), pack_progress: Default::default(), moby, barrons: RwLock::new(barrons), private_dir: cfg.private_dir, db: Mutex::new(db), device, rng: Mutex::new(now_ms() as u64 | 1), data_dir: cfg.data_dir.clone(), cache: Mutex::new(open_cache(&cfg.data_dir)?), pron, dirty: Default::default(), fuzzy: OnceLock::new(), ai: OnceLock::new(), fuzzy_paths, barrons_syn: RwLock::new(None) })
     }
 
     pub fn call(&self, cmd: &str, args: Value) -> Result<Value> {
@@ -155,7 +157,7 @@ impl Api {
         let req = |k: &str| a(k).ok_or_else(|| anyhow!("missing argument `{k}`"));
         match cmd {
             "sources" => {
-                let mut v: Vec<Value> = self.sources.iter().map(|s| json!({"id": s.id, "name": s.name, "entries": s.entries})).collect();
+                let mut v: Vec<Value> = self.sources.iter().map(|s| json!({"id": s.id, "name": s.name, "entries": Some(s.entries.load(std::sync::atomic::Ordering::Relaxed)).filter(|n| *n > 0)})).collect();
                 // Merriam-Webster is looked up live (and kept), so it has no entry count.
                 if self.mw_configured() {
                     v.push(json!({"id": "mw", "name": "Merriam-Webster", "entries": null}));
@@ -166,6 +168,8 @@ impl Api {
             "packs_catalog" => self.packs_catalog(),
             "pack_install" => self.pack_install(&req("id")?),
             "pack_remove" => self.pack_remove(&req("id")?),
+            "ai_status" => self.ai_status(),
+            "ai_test" => self.ai_test(),
             "pack_progress" => Ok(self.pack_progress_now()),
             "mw_status" => self.mw_status(),
             "mw_config" => self.mw_config(&args),

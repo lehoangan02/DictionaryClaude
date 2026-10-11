@@ -5,10 +5,15 @@ const tauri = (window as unknown as { __TAURI_INTERNALS__?: Tauri }).__TAURI_INT
 
 export async function call<T = any>(cmd: string, args: Record<string, unknown> = {}): Promise<T> {
   if (tauri) {
-    try {
-      return (await tauri.invoke('call', { cmd, args })) as T;
-    } catch (e) {
-      throw new Error(typeof e === 'string' ? e : (e as Error).message);
+    // The page can load a moment before the Rust side has finished opening its data.
+    for (let tries = 0; ; tries++) {
+      try {
+        return (await tauri.invoke('call', { cmd, args })) as T;
+      } catch (e) {
+        const msg = typeof e === 'string' ? e : (e as Error).message;
+        if (/not managed/.test(msg) && tries < 120) { await new Promise((r) => setTimeout(r, 250)); continue; }
+        throw new Error(msg);
+      }
     }
   }
   const r = await fetch(`/api/${cmd}`, {
