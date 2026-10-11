@@ -211,6 +211,7 @@ for (let n = 1; n <= 20; n++) {
     await clickText(m, '.go', 'Check answer');
   } else {
     await (await m.$('.ch')).click();
+    await clickText(m, '.go', 'Check answer');
   }
   try { await m.waitForSelector('.fb', { timeout: 4000 }); }
   catch { console.log(`NO FEEDBACK at pretest question ${n}:\n` + (await m.$eval('body', (e) => e.innerText.slice(0, 700)))); throw new Error('stuck'); }
