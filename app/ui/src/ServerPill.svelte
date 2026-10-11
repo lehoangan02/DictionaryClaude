@@ -68,9 +68,9 @@
         <dl>
           <dt>Status</dt>
           <dd class={tone}>{st.online ? `Online via ${st.route === 'lan' ? 'home network' : 'remote port'}` : 'Not reachable'}
-            {#if st.latency_ms != null}<span class="muted"> · {st.latency_ms} ms</span>{/if}</dd>
+            {#if st.latency_ms != null}<span class="muted lat"> · {st.latency_ms}&nbsp;ms</span>{/if}</dd>
           <dt>Server</dt><dd>{st.name}</dd>
-          <dt>Waiting to send</dt><dd>{st.pending ?? 0} change{st.pending === 1 ? '' : 's'}</dd>
+          <dt>To send</dt><dd>{st.pending ?? 0} change{st.pending === 1 ? '' : 's'}</dd>
           <dt>Last sync</dt><dd>{st.last_sync ? when(st.last_sync.at) : 'never'}</dd>
           {#if st.ssid}<dt>Wi-Fi</dt><dd>{st.ssid}</dd>{/if}
         </dl>
@@ -99,12 +99,13 @@
   .pend { background: var(--accent); border-radius: 999px; padding: 0 7px; font-size: 11px; font-weight: 700; }
   .vpn { font-size: 10px; font-weight: 700; border: 1px solid #ffb020; color: #ffb020; border-radius: 4px; padding: 0 4px; }
   .pop {
-    position: absolute; right: 0; top: calc(100% + 8px); width: min(330px, 88vw); background: var(--bg); color: var(--text);
+    position: absolute; right: 0; top: calc(100% + 8px); width: min(390px, 92vw); background: var(--bg); color: var(--text);
     border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); padding: 12px 14px; z-index: 40; font-size: 14px;
   }
   .pop p { margin: 6px 0; color: var(--muted); }
   dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 8px 0; }
   dt { color: var(--muted); } dd { margin: 0; }
+  .lat { white-space: nowrap; }
   dd.green { color: var(--good); } dd.red { color: var(--bad); }
   .warn { background: #fff4d6; color: #5d4300 !important; border-radius: 8px; padding: 6px 10px; }
   :global([data-theme='dark']) .warn { background: #3d3210; color: #ffd98a !important; }

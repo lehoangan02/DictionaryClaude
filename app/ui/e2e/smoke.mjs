@@ -171,6 +171,7 @@ if (BASE_B && process.env.PAIR_A) {
   await a.waitForFunction(() => document.querySelectorAll('.nt').length >= 1);
   await a.click('.pill');
   await a.waitForSelector('.pop');
+  await a.screenshot({ path: `${OUT}/server-popover.png`, clip: { x: 500, y: 0, width: 500, height: 380 } });
   await clickText(a, '.pop button', 'Sync now');
   await a.waitForFunction(() => /Synced: sent/.test(document.querySelector('.pop')?.textContent ?? ''), { timeout: 20000 });
   ok(true, 'device A synced a note to the server');
