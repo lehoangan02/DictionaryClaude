@@ -41,5 +41,6 @@ The desktop/mobile shell lives in `app/src-tauri` and needs the WebKitGTK develo
 
 ## Documents
 
+- [`docs/SETUP.md`](docs/SETUP.md): everything that needs a person: the sync server, router, Mac, phone, accounts and keys.
 - [`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md): the original request and the decisions made.
 - [`docs/PLAN.md`](docs/PLAN.md): architecture, status and what is not built yet.

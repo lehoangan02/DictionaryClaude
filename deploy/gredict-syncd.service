@@ -5,13 +5,18 @@ Wants=network-online.target
 
 [Service]
 User=lhan
-ExecStart=/usr/local/bin/gredict-syncd --data /var/lib/lexis-syncd serve --lan 0.0.0.0:25 --wan 0.0.0.0:5025
-# Ports below 1024 (the home-network port 25) need this capability; nothing else is granted.
+Environment=HOME=/home/lhan
+Environment=PATH=/home/lhan/.local/bin:/usr/local/bin:/usr/bin:/bin
+# The agents are optional and only ever run when the person asks in the app.
+Environment=LEXIS_CLAUDE_BIN=/home/lhan/.local/bin/claude
+Environment=LEXIS_AGY_BIN=/home/lhan/.local/bin/agy
+Environment=LEXIS_OCR=tesseract
+Environment=LEXIS_AGENT_CAP=8
+ExecStart=/usr/local/bin/gredict-syncd --data /var/lib/lexis-syncd --private /var/lib/lexis-syncd/private serve --lan 0.0.0.0:25 --wan 0.0.0.0:5025
+# Ports below 1024 (the home-network port 25) need this one capability; nothing else is granted.
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 NoNewPrivileges=yes
-ProtectSystem=strict
-ProtectHome=yes
 PrivateTmp=yes
 StateDirectory=lexis-syncd
 Restart=on-failure
