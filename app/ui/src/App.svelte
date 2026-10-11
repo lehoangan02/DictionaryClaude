@@ -11,6 +11,7 @@
   import Icon from './Icon.svelte';
   import Logo from './Logo.svelte';
   import SetupNotice from './SetupNotice.svelte';
+  import Update from './Update.svelte';
   import { call } from './lib/api';
   import { bump } from './lib/store.svelte';
   import { enter, softFade } from './lib/motion';
@@ -72,6 +73,7 @@
     <div class="skel" style="height:44px;width:60%;margin:30px auto"></div>
     <div class="skel" style="height:18px;width:80%;margin:12px auto"></div>
   {:else}
+    <Update banner />
     <!-- Each screen slides up into place when you switch to it. -->
     {#key app.tab}
       <div class="view" in:enter={{ y: 14, duration: 260 }}>

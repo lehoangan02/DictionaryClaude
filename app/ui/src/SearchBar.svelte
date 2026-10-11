@@ -58,7 +58,7 @@
     aria-label="Search" bind:value={q} oninput={onInput} onkeydown={key}
     onfocus={() => (focused = true)} onblur={() => setTimeout(() => (focused = false), 140)}
   />
-  {#if q}<button class="x fadein" onmousedown={(e) => { e.preventDefault(); clear(); }} aria-label="Clear"><Icon name="close" size={18} /></button>{/if}
+  {#if q}<button class="x fadein" onpointerdown={(e) => { e.preventDefault(); clear(); }} onclick={clear} aria-label="Clear"><Icon name="close" size={18} /></button>{/if}
   {#if focused && (sugg.length || did.length)}
     <ul class="dd" role="listbox" transition:drop>
       {#each sugg as s, i (s.key)}

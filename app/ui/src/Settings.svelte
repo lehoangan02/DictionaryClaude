@@ -1,14 +1,17 @@
 <script lang="ts">
-  import { call } from './lib/api';
+  import { call, native } from './lib/api';
   import { app, setTheme, bump, orderedSources, saveOrder } from './lib/store.svelte';
   import Icon from './Icon.svelte';
   import PackManager from './PackManager.svelte';
+  import Update from './Update.svelte';
   import AiCard from './AiCard.svelte';
   import { flip } from 'svelte/animate';
   import { flipDur } from './lib/motion';
   import { when } from './lib/format';
 
   let status = $state<any>({ paired: false });
+  let version = $state('');
+  $effect(() => { native<string>('app_version').then((v) => (version = v ?? 'web')).catch(() => (version = '')); });
   let code = $state('');
   let ssids = $state('Anan, Anan 5g');
   let msg = $state('');
@@ -154,6 +157,13 @@
 
 <PackManager />
 <AiCard />
+
+<section class="card rise" style="--i:6">
+  <h3>About</h3>
+  <p>LadyBird {version ? `version ${version}` : ''}</p>
+  <p class="muted small">Offline GRE dictionary, thesaurus and quizzes.</p>
+  <Update bind:version />
+</section>
 
 <section class="card rise" style="--i:4">
   <h3>Merriam-Webster</h3>

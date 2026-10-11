@@ -90,3 +90,26 @@ export function passageParts(passage: string): { n?: number; text: string }[] {
   }
   return out.filter((p) => p.n !== undefined || p.text);
 }
+
+/** Splits a sentence so the headword (and its usual endings) can be highlighted. */
+export function highlight(text: string, word: string): { t: string; hit: boolean }[] {
+  const w = word.trim();
+  if (!w || !text) return [{ t: text, hit: false }];
+  const esc = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const alts = [`${esc(w)}(?:s|es|ed|d|ing|ly|ness|ity|er|est|ment|ments)?`];
+  const last = w.at(-1)!;
+  if (w.endsWith('e')) alts.push(`${esc(w.slice(0, -1))}(?:ing|ed|ation|ations|ity)`);
+  if (w.endsWith('y')) alts.push(`${esc(w.slice(0, -1))}(?:ies|ied|ily|iness)`);
+  if (/[bdglmnprt]$/.test(w)) alts.push(`${esc(w)}${last}(?:ed|ing|er)`);
+  let re: RegExp;
+  try { re = new RegExp(`(?<![\\p{L}])(?:${alts.join('|')})(?![\\p{L}])`, 'giu'); } catch { return [{ t: text, hit: false }]; }
+  const out: { t: string; hit: boolean }[] = [];
+  let at = 0;
+  for (const m of text.matchAll(re)) {
+    if (m.index! > at) out.push({ t: text.slice(at, m.index), hit: false });
+    out.push({ t: m[0], hit: true });
+    at = m.index! + m[0].length;
+  }
+  if (at < text.length) out.push({ t: text.slice(at), hit: false });
+  return out.length ? out : [{ t: text, hit: false }];
+}

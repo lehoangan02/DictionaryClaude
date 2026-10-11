@@ -6,7 +6,7 @@
   import { flip } from 'svelte/animate';
   import { item as leave, flipDur } from './lib/motion';
 
-  type Sess = { id: string; kind: string; title: string; started: number; ended: number | null; total: number; correct: number };
+  type Sess = { id: string; kind: string; title: string; started: number; ended: number | null; total: number; correct: number; answered: number };
   let cat = $state<any>(null);
   let sessions = $state<Sess[]>([]);
   let q = $state('');
@@ -46,6 +46,12 @@
   });
   const startNotes = () => start({ kind: 'notes', count: noteCount, session_date: noteDate || undefined });
   const startUnit = (ids: string[]) => start({ kind: 'barrons', quiz_ids: ids });
+  async function resume(id: string) {
+    busy = true; error = '';
+    try { live = await call('quiz_resume', { session_id: id }); review = null; }
+    catch (e) { error = (e as Error).message; }
+    finally { busy = false; }
+  }
   async function openReview(id: string) { review = await call('session_get', { id }); live = null; }
   async function remove(id: string) { await call('session_delete', { id }); await loadSessions(); }
   function done() { live = null; loadSessions(); }
@@ -90,8 +96,9 @@
       <div class="srow" animate:flip={{ duration: flipDur() }} out:leave>
         <button class="st" onclick={() => openReview(s.id)}>
           <b>{s.title}</b>
-          <span class="muted">{when(s.started)}{s.ended ? '' : ' · unfinished'}</span>
+          <span class="muted">{when(s.started)}{s.ended ? '' : ` · paused at ${s.answered} of ${s.total}`}</span>
         </button>
+        {#if !s.ended}<button class="btn small primary" disabled={busy} onclick={() => resume(s.id)}>Resume</button>{/if}
         <span class="score" class:perfect={s.ended && s.correct === s.total}>{s.correct}/{s.total}<small>{pct(s.correct, s.total)}%</small></span>
         <button class="ic" onclick={() => remove(s.id)} aria-label="Delete session">✕</button>
       </div>

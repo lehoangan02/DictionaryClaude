@@ -1,7 +1,7 @@
 <script lang="ts">
   import { call } from './lib/api';
   import { app, open, setSource, orderedSources } from './lib/store.svelte';
-  import { posLabel, pronunciations, speak } from './lib/format';
+  import { highlight, posLabel, pronunciations, speak } from './lib/format';
   import Thesaurus from './Thesaurus.svelte';
   import HistoryNav from './HistoryNav.svelte';
   import Icon from './Icon.svelte';
@@ -125,7 +125,7 @@
             <span class="muted">Unit {data.barrons[0].unit}</span></div>
           {#each data.barrons as b}
             <p><i>{posLabel(b.pos.replace('.', ''))}</i> {b.definition}</p>
-            {#each (b.examples ?? []).slice(0, 2) as ex}<p class="ex">{ex}</p>{/each}
+            {#each (b.examples ?? []).slice(0, 2) as ex}<p class="ex">{@render hl(ex, entry.word)}</p>{/each}
           {/each}
           <button class="btn small" onclick={() => { app.quizUnit = data.barrons[0].unit; app.tab = 'quiz'; }}>Practice unit {data.barrons[0].unit} →</button>
         </aside>
@@ -168,13 +168,13 @@
                 {#if s.examples?.length}
                   {@const ex = split(s.examples)}
                   <ul class="exs">
-                    {#each ex.shown as e}<li>{e.text}{#if e.by}<span class="by"> — {e.by}</span>{/if}</li>{/each}
+                    {#each ex.shown as e}<li>{@render hl(e.text, entry.word)}{#if e.by}<span class="by"> — {e.by}</span>{/if}</li>{/each}
                   </ul>
                   {#if ex.more.length}
                     <div class="quotes">
                       <Disclosure label="{ex.more.length} more example{ex.more.length > 1 ? 's' : ''}">
                         <ul class="exs">
-                          {#each ex.more as e}<li>{e.text}{#if e.by}<span class="by"> — {e.by}</span>{/if}</li>{/each}
+                          {#each ex.more as e}<li>{@render hl(e.text, entry.word)}{#if e.by}<span class="by"> — {e.by}</span>{/if}</li>{/each}
                         </ul>
                       </Disclosure>
                     </div>
@@ -224,7 +224,10 @@
   </div>
 {/if}
 
+{#snippet hl(text: string, word: string)}{#each highlight(text, word) as p}{#if p.hit}<mark class="hl">{p.t}</mark>{:else}{p.t}{/if}{/each}{/snippet}
+
 <style>
+  .hl { background: color-mix(in srgb, var(--accent) 28%, transparent); color: inherit; border-radius: 3px; padding: 0 2px; font-weight: 600; }
   .home { text-align: center; padding: 56px 0 24px; }
   h1 { font-size: 30px; margin: 0 0 8px; }
   .dim { opacity: 0.55; transition: opacity 0.15s; }

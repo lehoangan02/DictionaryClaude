@@ -78,9 +78,56 @@ pub fn normalize_symbols(text: &str) -> String {
     out.join("\n").trim().to_string()
 }
 
+/// What the vision model is told. Handwriting is the point, so it is asked for a literal copy.
+const VISION_PROMPT: &str = "This is a photo of a page from a student's handwritten vocabulary notebook. \
+Transcribe every line exactly as written, one note per line, in reading order, keeping the writer's own spelling. \
+A line that is indented under another continues that line: join it onto the line above. \
+Write the relation symbols the way they are used: = (same meaning), ≈ (similar), >< (opposite), ≠ (different). \
+Keep colons, brackets, slashes, Vietnamese words and abbreviations like sth as written. \
+Output only the transcription, with no comments, no numbering and no markdown.";
+
+/// Reads a photo with a local vision model served by Ollama (`ollama:<model>`).
+fn ocr_ollama(model: &str, image: &Path) -> Result<String> {
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(std::fs::read(image)?);
+    let base = std::env::var("LEXIS_OLLAMA").unwrap_or_else(|_| "http://127.0.0.1:11434".into());
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(900)))
+        .timeout_connect(Some(Duration::from_secs(3)))
+        .http_status_as_error(false)
+        .build()
+        .into();
+    let body = json!({
+        "model": model, "stream": false, "keep_alive": "10m",
+        "options": {"temperature": 0, "num_predict": 2048},
+        "messages": [{"role": "user", "content": VISION_PROMPT, "images": [b64]}],
+    });
+    let mut resp = agent.post(&format!("{base}/api/chat")).header("Content-Type", "application/json").send(serde_json::to_vec(&body)?).map_err(|e| anyhow!("Ollama is not reachable ({e})"))?;
+    let status = resp.status().as_u16();
+    let v: Value = serde_json::from_str(&resp.body_mut().read_to_string()?).unwrap_or(Value::Null);
+    if status != 200 {
+        bail!("Ollama said: {}", v["error"].as_str().unwrap_or("an error"));
+    }
+    let text = v["message"]["content"].as_str().unwrap_or("").trim().trim_start_matches("```").trim_end_matches("```").trim().to_string();
+    if text.is_empty() {
+        bail!("the vision model returned nothing");
+    }
+    Ok(text)
+}
+
 fn ocr_one(engine: &str, image: &Path) -> Result<String> {
     match engine {
         "none" => bail!("OCR is turned off"),
+        // The default: a local vision model reads handwriting far better than tesseract,
+        // which stays as the fallback when Ollama or the model is missing.
+        "auto" => {
+            let model = std::env::var("LEXIS_OCR_MODEL").unwrap_or_else(|_| "qwen2.5vl:3b".into());
+            ocr_ollama(&model, image).or_else(|e| {
+                eprintln!("vision OCR unavailable ({e:#}); using tesseract");
+                ocr_one("tesseract", image)
+            })
+        }
+        e if e.starts_with("ollama:") => ocr_ollama(&e[7..], image),
         "tesseract" => {
             let mut c = Command::new("tesseract");
             c.arg(image).arg("stdout").args(["-l", "eng", "--psm", "6"]);
@@ -291,7 +338,7 @@ impl Api {
         self.draft_set(id, "status='processing'", params![now_ms(), id])?;
         let d = self.draft_get(id)?;
         let photos = self.draft_photos(&d);
-        let engine = self.env_or("LEXIS_OCR", "tesseract");
+        let engine = self.env_or("LEXIS_OCR", "auto");
         let (mut pages, mut error) = (Vec::new(), String::new());
         if photos.is_empty() {
             error = "the photos have not arrived on the server yet".into();

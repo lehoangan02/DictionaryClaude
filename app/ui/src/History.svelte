@@ -6,6 +6,8 @@
   import { item as leave, flipDur } from './lib/motion';
 
   type H = { id: string; ts: number; key: string; word: string; source: string; starred: boolean };
+  // One row per run of the same word, however many dictionaries it was opened in.
+  type M = H & { ids: string[]; sources: string[] };
   let q = $state('');
   let starred = $state(false);
   let rows = $state<H[]>([]);
@@ -17,17 +19,24 @@
   }
   $effect(() => { void q; void starred; void app.version; load(); });
 
-  async function star(h: H) { await call('history_star', { id: h.id, starred: h.starred ? 0 : 1 }); await load(); }
-  async function del(h: H) { await call('history_delete', { id: h.id }); await load(); }
+  async function star(h: M) { for (const id of h.ids) await call('history_star', { id, starred: h.starred ? 0 : 1 }); await load(); }
+  async function del(h: M) { for (const id of h.ids) await call('history_delete', { id }); await load(); }
   let confirmClear = $state(false);
   async function clear() { await call('history_clear'); confirmClear = false; bump(); await load(); }
 
   // Group by day like a browser history.
   const groups = $derived.by(() => {
-    const out: { day: string; items: H[] }[] = [];
+    const out: { day: string; items: M[] }[] = [];
     for (const h of rows) {
       const day = new Date(h.ts).toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
-      if (out.at(-1)?.day === day) out.at(-1)!.items.push(h); else out.push({ day, items: [h] });
+      if (out.at(-1)?.day !== day) out.push({ day, items: [] });
+      const items = out.at(-1)!.items;
+      const prev = items.at(-1);
+      if (prev && prev.key === h.key) {
+        prev.ids.push(h.id);
+        if (!prev.sources.includes(h.source)) prev.sources.push(h.source);
+        prev.starred = prev.starred || h.starred;
+      } else items.push({ ...h, ids: [h.id], sources: [h.source] });
     }
     return out;
   });
@@ -52,7 +61,7 @@
     {#each g.items as h (h.id)}
       <li animate:flip={{ duration: flipDur() }} out:leave>
         <button class="w" onclick={() => open(h.word)}>{h.word}</button>
-        <span class="muted t">{new Date(h.ts).toLocaleTimeString(undefined, { timeStyle: 'short' })} · {h.source}</span>
+        <span class="muted t">{new Date(h.ts).toLocaleTimeString(undefined, { timeStyle: 'short' })} · {h.sources.join(', ')}</span>
         <button class="ic" class:on={h.starred} onclick={() => star(h)} aria-label={h.starred ? 'Unstar' : 'Star'}>{h.starred ? '★' : '☆'}</button>
         <button class="ic" onclick={() => del(h)} aria-label="Remove">✕</button>
       </li>

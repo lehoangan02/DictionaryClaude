@@ -13,6 +13,7 @@ mod packs;
 pub mod pairing;
 mod quiz;
 mod sync;
+mod update;
 pub mod userdb;
 
 pub use api::{Api, Config};

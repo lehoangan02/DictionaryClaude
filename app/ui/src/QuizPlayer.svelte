@@ -29,6 +29,19 @@
   const blanks = $derived<number>(item?.blanks ?? 1);
   const select = $derived<number>(item?.select ?? 1);
 
+  // Resuming: jump to the first question not answered yet and carry over the score so far.
+  let resumed = false;
+  $effect(() => {
+    if (resumed) return;
+    resumed = true;
+    const done = new Set<string>((session.answered ?? []).map((a: any) => a.item_id));
+    if (!done.size) return;
+    score = (session.answered ?? []).filter((a: any) => a.correct).length;
+    missed = session.missed ?? [];
+    const next = items.findIndex((it: any) => !done.has(it.id));
+    i = next < 0 ? items.length - 1 : next;
+  });
+
   $effect(() => { void i; picks = Array((items[i]?.blanks ?? 1)).fill(null); multi = []; result = null; shownAt = Date.now(); });
 
   const ready = $derived(select > 1 ? multi.length === select : picks.length > 0 && picks.every((p) => p !== null));
@@ -60,9 +73,8 @@
   function pick(b: number, c: string) {
     if (select > 1) { toggle(c); return; }
     if (result) return;
+    // Choosing only selects; the answer counts when it is checked, so it can be changed first.
     picks[b] = c;
-    // One-blank questions answer on the first tap, like a flashcard.
-    if (blanks === 1) submit();
   }
 
   function keys(e: KeyboardEvent) {
@@ -107,7 +119,7 @@
 {:else if item}
   <section class="play">
     <header>
-      <button class="btn small ghost" onclick={ondone}>✕ Exit</button>
+      <button class="btn small ghost" onclick={ondone}>⏸ Pause &amp; exit</button>
       <span class="muted">{item.group ?? session.title}</span>
       <span class="muted">{i + 1} / {items.length}</span>
     </header>
@@ -147,7 +159,7 @@
     {/key}
 
     {#if error}<p class="err">{error}</p>{/if}
-    {#if (blanks > 1 || select > 1) && !result}
+    {#if !result}
       <button class="btn primary go" disabled={!ready || busy} onclick={submit}>Check answer</button>
     {/if}
     {#if result}

@@ -66,7 +66,13 @@ button, a, summary, label, [role='radio'], .btn, .chip { touch-action: manipulat
 button, summary, label, nav, h1, h2, h3, .btn, .chip, .top, .tabbar, .seg, .n, .ic {
   -webkit-user-select: none; user-select: none; -webkit-touch-callout: none;
 }
-input, textarea { -webkit-user-select: text; user-select: text; }
+/* Everything is chrome (not selectable) unless it is content: definitions, examples, notes, passages, quiz questions. */
+body { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+input, textarea, .def, .ex, .exs, .exs li, .head-line, .gre p, .pass, .prompt, .fb, .miss, .pv, .selectable {
+  -webkit-user-select: text; user-select: text; -webkit-touch-callout: default;
+}
+/* Cards that sit next to each other (Settings) keep a gap, whichever component draws them. */
+section.card + section.card { margin-top: 14px; }
 button:focus:not(:focus-visible) { outline: none; }
 @media (pointer: coarse) { textarea { resize: none; } }
 a { color: var(--blue); }

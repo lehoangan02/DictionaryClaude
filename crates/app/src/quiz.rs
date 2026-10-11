@@ -425,6 +425,29 @@ impl Api {
         }))
     }
 
+    /// Reopens an unfinished quiz where it was left: the same questions, which ones are
+    /// already answered, and what was missed so far.
+    pub(crate) fn quiz_resume(&self, req: &Value) -> Result<Value> {
+        let sid = req.get("session_id").and_then(Value::as_str).ok_or_else(|| anyhow!("missing `session_id`"))?;
+        let (title, items) = self.session_items(sid)?;
+        let answered: Vec<(String, bool)> = {
+            let db = self.db.lock().unwrap();
+            let mut st = db.prepare("SELECT item_id, correct FROM attempts WHERE session_id=?1 ORDER BY ts")?;
+            let rows = st.query_map([sid], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)? != 0)))?.collect::<std::result::Result<_, _>>()?;
+            rows
+        };
+        let missed: Vec<Value> = answered
+            .iter()
+            .filter(|(_, ok)| !ok)
+            .filter_map(|(id, _)| items.iter().find(|i| &i.id == id))
+            .map(|i| json!({"prompt": i.prompt, "expected": i.expected, "explanation": i.explanation}))
+            .collect();
+        Ok(json!({
+            "id": sid, "title": title, "total": items.len(), "items": items.iter().map(Item::public).collect::<Vec<_>>(),
+            "answered": answered.iter().map(|(id, ok)| json!({"item_id": id, "correct": ok})).collect::<Vec<_>>(), "missed": missed,
+        }))
+    }
+
     /// Rebuilds a finished session's search document from its stored items.
     pub(crate) fn reindex_session(&self, id: &str) -> Result<()> {
         let (title, items) = self.session_items(id)?;
@@ -486,12 +509,12 @@ impl Api {
         let row = |r: &rusqlite::Row| -> rusqlite::Result<Value> {
             Ok(json!({"id": r.get::<_, String>(0)?, "kind": r.get::<_, String>(1)?, "title": r.get::<_, String>(2)?,
                       "started": r.get::<_, i64>(3)?, "ended": r.get::<_, Option<i64>>(4)?,
-                      "total": r.get::<_, i64>(5)?, "correct": r.get::<_, i64>(6)?}))
+                      "total": r.get::<_, i64>(5)?, "correct": r.get::<_, i64>(6)?, "answered": r.get::<_, i64>(7)?}))
         };
         let q = q.map(str::trim).filter(|q| !q.is_empty());
         let Some(q) = q else {
             let db = self.db.lock().unwrap();
-            let mut st = db.prepare("SELECT id,kind,title,started,ended,total,correct FROM sessions WHERE deleted=0 ORDER BY started DESC LIMIT ?")?;
+            let mut st = db.prepare("SELECT id,kind,title,started,ended,total,correct,(SELECT count(*) FROM attempts a WHERE a.session_id=sessions.id) FROM sessions WHERE deleted=0 ORDER BY started DESC LIMIT ?")?;
             let rows = st.query_map([limit], row)?.collect::<std::result::Result<Vec<_>, _>>()?;
             return Ok(json!(rows));
         };
@@ -569,7 +592,7 @@ impl Api {
             scored.into_iter().map(|(id, _)| id).collect()
         };
         for id in candidate_ids {
-            let v = db.query_row("SELECT id,kind,title,started,ended,total,correct FROM sessions WHERE id=?1 AND deleted=0", [&id], row);
+            let v = db.query_row("SELECT id,kind,title,started,ended,total,correct,(SELECT count(*) FROM attempts a WHERE a.session_id=sessions.id) FROM sessions WHERE id=?1 AND deleted=0", [&id], row);
             let Ok(v) = v else { continue };
             let (total, correct) = (v["total"].as_i64().unwrap_or(0), v["correct"].as_i64().unwrap_or(0));
             let finished = v["ended"].as_i64().is_some();

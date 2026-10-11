@@ -64,6 +64,78 @@ pub fn say(word: &str) -> Result<(), String> {
     Err("no speech program is installed".into())
 }
 
+/// The version this app was built as (release.sh sets it), shown in Settings.
+#[tauri::command]
+fn app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
+/// Installs a downloaded update and restarts into it. The file must be one the app itself
+/// downloaded (inside its `updates` folder).
+#[tauri::command]
+async fn update_install(app: tauri::AppHandle, state: tauri::State<'_, State>, path: String) -> Result<(), String> {
+    let dir = state.1.data_dir.join("updates").canonicalize().map_err(|e| e.to_string())?;
+    let file = PathBuf::from(&path).canonicalize().map_err(|e| e.to_string())?;
+    if !file.starts_with(&dir) || !file.file_name().is_some_and(|n| n.to_string_lossy().starts_with("LadyBird-")) {
+        return Err("that is not a downloaded update".into());
+    }
+    install_update(&app, &file).map_err(|e| format!("{e:#}"))
+}
+
+#[cfg(target_os = "macos")]
+fn install_update(app: &tauri::AppHandle, file: &std::path::Path) -> anyhow::Result<()> {
+    use std::process::{Command, Stdio};
+    let exe = std::env::current_exe()?;
+    let bundle = exe.ancestors().find(|p| p.extension().is_some_and(|e| e == "app")).ok_or_else(|| anyhow::anyhow!("this copy is not running from an app bundle"))?.to_path_buf();
+    // A helper outlives this process: waits for it to quit, swaps the bundle for the one in the
+    // disk image, clears the download quarantine flag and opens the new app.
+    let script = r#"#!/bin/sh
+PID="$1"; DMG="$2"; APP="$3"
+while kill -0 "$PID" 2>/dev/null; do sleep 0.3; done
+MNT="$(mktemp -d)"
+hdiutil attach -nobrowse -readonly -mountpoint "$MNT" "$DMG" >/dev/null || exit 1
+rm -rf "$APP.new"
+if cp -R "$MNT/LadyBird.app" "$APP.new"; then rm -rf "$APP" && mv "$APP.new" "$APP"; fi
+hdiutil detach "$MNT" >/dev/null 2>&1
+xattr -dr com.apple.quarantine "$APP" 2>/dev/null
+open "$APP"
+"#;
+    let sh = std::env::temp_dir().join("ladybird-update.sh");
+    std::fs::write(&sh, script)?;
+    Command::new("/bin/sh").arg(&sh).arg(std::process::id().to_string()).arg(file).arg(&bundle).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn()?;
+    app.exit(0);
+    Ok(())
+}
+
+#[cfg(all(target_os = "linux", not(target_os = "android")))]
+fn install_update(app: &tauri::AppHandle, file: &std::path::Path) -> anyhow::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    let target = PathBuf::from(std::env::var("APPIMAGE").map_err(|_| anyhow::anyhow!("self-update needs the AppImage build"))?);
+    let staged = target.with_extension("AppImage.new");
+    std::fs::copy(file, &staged)?;
+    std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o755))?;
+    std::fs::rename(&staged, &target)?;
+    std::process::Command::new(&target).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn()?;
+    app.exit(0);
+    Ok(())
+}
+
+/// Android: the system installer takes over (MainActivity.installApk).
+#[cfg(target_os = "android")]
+fn install_update(app: &tauri::AppHandle, file: &std::path::Path) -> anyhow::Result<()> {
+    use jni::objects::JValue;
+    let window = app.get_webview_window("main").ok_or_else(|| anyhow::anyhow!("no window"))?;
+    let path = file.to_string_lossy().to_string();
+    window.with_webview(move |webview| {
+        webview.jni_handle().exec(move |env, activity, _webview| {
+            if let Ok(p) = env.new_string(&path) {
+                let _ = env.call_method(activity, "installApk", "(Ljava/lang/String;)V", &[JValue::Object(&p)]);
+            }
+        });
+    })?;
+    Ok(())
+}
+
 #[tauri::command]
 async fn play_audio(state: tauri::State<'_, State>, url: String) -> Result<(), String> {
     let api = state.api();
@@ -173,7 +245,7 @@ pub fn run() {
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![call, play_audio, speak_text])
+        .invoke_handler(tauri::generate_handler![call, play_audio, speak_text, app_version, update_install])
         .run(tauri::generate_context!())
         .expect("error while running LadyBird");
 }
