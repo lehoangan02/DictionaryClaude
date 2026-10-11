@@ -2,6 +2,7 @@
   import { call } from './lib/api';
   import { app, bump } from './lib/store.svelte';
   import { pct, passageParts } from './lib/format';
+  import { enter, sweep, open as reveal } from './lib/motion';
 
   let { session, ondone, onretry }: { session: any; ondone: () => void; onretry: (id: string) => void } = $props();
 
@@ -83,8 +84,8 @@
 <svelte:window onkeydown={keys} />
 
 {#if finished}
-  <section class="done">
-    <div class="ring" style="--p:{pct(score, items.length)}"><span>{pct(score, items.length)}%</span></div>
+  <section class="done" in:enter={{ y: 16, duration: 320 }}>
+    <div class="ring ringfill" style="--p:{pct(score, items.length)}"><span>{pct(score, items.length)}%</span></div>
     <h1>{score} / {items.length}</h1>
     <p class="muted">{session.title} · about {mins} min</p>
     <div class="act">
@@ -95,7 +96,7 @@
       <h2>To review</h2>
       <ul class="miss">
         {#each missed as m}
-          <li><p class="pr">{m.prompt}</p><p class="e">Answer: {m.expected.join(' · ')}</p>
+          <li class="rise" style="--i:{missed.indexOf(m)}"><p class="pr">{m.prompt}</p><p class="e">Answer: {m.expected.join(' · ')}</p>
             {#if m.explanation}<p class="x">{m.explanation}</p>{/if}</li>
         {/each}
       </ul>
@@ -112,6 +113,8 @@
     </header>
     <div class="bar"><div style="width:{(100 * (i + (result ? 1 : 0))) / items.length}%"></div></div>
 
+    {#key i}
+    <div class="qa" in:sweep={{ dir: 1 }}>
     {#if item.passage}
       <details class="passage" open>
         <summary>Passage</summary>
@@ -130,7 +133,7 @@
       {#if blanks > 1}<h3>Blank ({roman[b]})</h3>{/if}
       <div class="choices" class:chips={item.kind === 'fill_in' && list.every((c: string) => c.length <= 16)}>
         {#each list as c, ci (c)}
-          <button class="ch" class:sel={select > 1 ? multi.includes(c) : picks[b] === c}
+          <button class="ch rise" style="--i:{ci}" class:sel={select > 1 ? multi.includes(c) : picks[b] === c}
             class:right={select > 1 ? isExpected(c) : result && result.expected[b]?.toLowerCase() === c.toLowerCase()}
             class:wrong={select > 1 ? !!result && multi.includes(c) && !isExpected(c) : result && picks[b] === c && result.expected[b]?.toLowerCase() !== c.toLowerCase()}
             aria-pressed={select > 1 ? multi.includes(c) : undefined}
@@ -140,13 +143,15 @@
         {/each}
       </div>
     {/each}
+    </div>
+    {/key}
 
     {#if error}<p class="err">{error}</p>{/if}
     {#if (blanks > 1 || select > 1) && !result}
       <button class="btn primary go" disabled={!ready || busy} onclick={submit}>Check answer</button>
     {/if}
     {#if result}
-      <div class="fb" class:ok={result.correct}>
+      <div class="fb" class:ok={result.correct} transition:reveal>
         <b>{result.correct ? 'Correct' : 'Not quite'}</b>
         {#if !result.correct}<span> — {result.expected.join(' · ')}</span>{/if}
         {#if result.explanation}<p>{result.explanation}</p>{/if}
@@ -170,7 +175,7 @@
     text-align: left; border: 1.5px solid var(--line); background: var(--bg); border-radius: 12px; padding: 12px 14px;
     font-size: 16px; min-height: 48px; display: flex; gap: 10px; align-items: baseline;
   }
-  .ch:hover:not(:disabled) { border-color: var(--blue); }
+  .ch:hover:not(:disabled) { border-color: var(--blue); box-shadow: var(--lift); }
   .ch.sel { border-color: var(--blue); background: var(--panel-2); }
   .ch.right { border-color: var(--good); background: var(--good-bg); }
   .ch.wrong { border-color: var(--bad); background: var(--bad-bg); }

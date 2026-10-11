@@ -2,6 +2,7 @@
   import { call } from './lib/api';
   import { app, open } from './lib/store.svelte';
   import Icon from './Icon.svelte';
+  import { drop } from './lib/motion';
 
   type S = { word: string; key: string; barrons: boolean };
   let q = $state('');
@@ -52,9 +53,9 @@
     aria-label="Search" bind:value={q} oninput={onInput} onkeydown={key}
     onfocus={() => (focused = true)} onblur={() => setTimeout(() => (focused = false), 140)}
   />
-  {#if q}<button class="x" onmousedown={(e) => { e.preventDefault(); clear(); }} aria-label="Clear"><Icon name="close" size={18} /></button>{/if}
+  {#if q}<button class="x fadein" onmousedown={(e) => { e.preventDefault(); clear(); }} aria-label="Clear"><Icon name="close" size={18} /></button>{/if}
   {#if focused && (sugg.length || did.length)}
-    <ul class="dd" role="listbox">
+    <ul class="dd" role="listbox" transition:drop>
       {#each sugg as s, i (s.key)}
         <li role="option" aria-selected={i === idx}>
           <button class:sel={i === idx} onmousedown={() => go(s.word)}>

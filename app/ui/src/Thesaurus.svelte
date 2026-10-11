@@ -18,11 +18,11 @@
 </script>
 
 {#if hasNotes || gre.length || syn.length || ant.length || moby.length}
-  <section class="th">
+  <section class="th rise" style="--i:2">
     <h2>GRE thesaurus <span class="muted">· {word}</span></h2>
 
     {#if hasNotes}
-      <div class="box mine">
+      <div class="box mine rise" style="--i:0">
         <h3>From your notes</h3>
         {#each noteGroups as g (g.k)}
           <p class="row">
@@ -34,7 +34,7 @@
     {/if}
 
     {#if gre.length}
-      <div class="box">
+      <div class="box rise" style="--i:1">
         <h3>Related GRE words <span class="muted">· Barron's</span></h3>
         <ul class="gl">
           {#each gre as g (g.key)}
@@ -49,7 +49,7 @@
     {/if}
 
     {#if syn.length || ant.length}
-      <div class="box">
+      <div class="box rise" style="--i:2">
         <h3>Dictionary synonyms</h3>
         {#if syn.length}<p class="row"><span class="sym" title="Synonyms">≈</span>
           {#each syn as w (w)}<button class="chip" onclick={() => open(w)}>{w}</button>{/each}</p>{/if}
@@ -59,7 +59,7 @@
     {/if}
 
     {#if moby.length}
-      <div class="box">
+      <div class="box rise" style="--i:3">
         <h3>More words <span class="muted">· Moby thesaurus</span></h3>
         <p class="row">
           {#each showMoby ? moby : moby.slice(0, 12) as w (w)}<button class="chip" onclick={() => open(w)}>{w}</button>{/each}

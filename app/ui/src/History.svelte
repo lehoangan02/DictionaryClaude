@@ -2,6 +2,8 @@
   import { call } from './lib/api';
   import { app, open, bump } from './lib/store.svelte';
   import { when } from './lib/format';
+  import { flip } from 'svelte/animate';
+  import { item as leave, flipDur } from './lib/motion';
 
   type H = { id: string; ts: number; key: string; word: string; source: string; starred: boolean };
   let q = $state('');
@@ -44,11 +46,11 @@
 </div>
 
 {#if error}<p class="err">{error}</p>{/if}
-{#each groups as g (g.day)}
-  <h2>{g.day}</h2>
+{#each groups as g, gi (g.day)}
+  <h2 class="rise" style="--i:{gi}">{g.day}</h2>
   <ul class="list">
     {#each g.items as h (h.id)}
-      <li>
+      <li animate:flip={{ duration: flipDur() }} out:leave>
         <button class="w" onclick={() => open(h.word)}>{h.word}</button>
         <span class="muted t">{new Date(h.ts).toLocaleTimeString(undefined, { timeStyle: 'short' })} · {h.source}</span>
         <button class="ic" class:on={h.starred} onclick={() => star(h)} aria-label={h.starred ? 'Unstar' : 'Star'}>{h.starred ? '★' : '☆'}</button>

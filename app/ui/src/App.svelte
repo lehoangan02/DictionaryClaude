@@ -10,6 +10,10 @@
   import ServerPill from './ServerPill.svelte';
   import Icon from './Icon.svelte';
   import Logo from './Logo.svelte';
+  import { enter, softFade } from './lib/motion';
+
+  // The bar's shadow deepens once content scrolls beneath it.
+  let scrolled = $state(false);
 
   let ready = $state(false);
   let error = $state('');
@@ -32,7 +36,9 @@
   ];
 </script>
 
-<header class="top">
+<svelte:window onscroll={() => (scrolled = window.scrollY > 4)} />
+
+<header class="top" class:scrolled>
   <div class="wrap bar">
     <button class="brand" onclick={() => { app.tab = 'search'; app.word = ''; }} aria-label="Home">
       <Logo size={36} /><span class="name">LadyBird</span>
@@ -51,22 +57,30 @@
   {#if error}
     <p class="err">Couldn't start: {error}</p>
   {:else if !ready}
-    <p class="empty">Loading…</p>
-  {:else if app.tab === 'search'}
-    <EntryView />
-  {:else if app.tab === 'history'}
-    <History />
-  {:else if app.tab === 'quiz'}
-    <Quiz />
-  {:else if app.tab === 'notes'}
-    <Notes />
+    <div class="skel" style="height:44px;width:60%;margin:30px auto"></div>
+    <div class="skel" style="height:18px;width:80%;margin:12px auto"></div>
   {:else}
-    <Settings />
+    <!-- Each screen slides up into place when you switch to it. -->
+    {#key app.tab}
+      <div class="view" in:enter={{ y: 14, duration: 260 }}>
+        {#if app.tab === 'search'}
+          <EntryView />
+        {:else if app.tab === 'history'}
+          <History />
+        {:else if app.tab === 'quiz'}
+          <Quiz />
+        {:else if app.tab === 'notes'}
+          <Notes />
+        {:else}
+          <Settings />
+        {/if}
+      </div>
+    {/key}
   {/if}
 </main>
 
 {#if !app.focus}
-<nav class="tabbar" aria-label="Sections">
+<nav class="tabbar" aria-label="Sections" in:enter={{ y: 40, duration: 260 }} out:softFade>
   {#each tabs as t (t.id)}
     <button class:on={app.tab === t.id} onclick={() => (app.tab = t.id)} aria-label={t.label}>
       <Icon name={t.icon} size={24} /><span>{t.label}</span>
@@ -82,15 +96,19 @@
     background: color-mix(in srgb, var(--surface) 94%, transparent);
     backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
     box-shadow: 0 1px 0 var(--line), 0 6px 18px rgba(16, 40, 80, 0.08);
+    transition: box-shadow var(--t) var(--ease);
   }
+  .top.scrolled { box-shadow: 0 1px 0 var(--line), 0 10px 28px rgba(16, 40, 80, 0.16); }
   .bar { display: flex; align-items: center; gap: 14px; padding-top: 10px; padding-bottom: 8px; }
   .brand { background: none; border: 0; color: var(--blue); display: flex; align-items: center; gap: 8px; padding: 0; }
   .name { font-weight: 700; font-size: 22px; letter-spacing: 0.2px; }
   .search { flex: 1; min-width: 0; }
   .desk { display: flex; gap: 2px; padding-bottom: 0; }
-  .desk button { background: none; border: 0; color: var(--muted); padding: 9px 16px; border-bottom: 3px solid transparent; font-weight: 500; }
+  .desk button { position: relative; background: none; border: 0; color: var(--muted); padding: 9px 16px; font-weight: 500; }
+  .desk button::after { content: ''; position: absolute; left: 12px; right: 12px; bottom: 0; height: 3px; border-radius: 3px 3px 0 0; background: var(--blue); transform: scaleX(0); transition: transform var(--t) var(--ease); }
   .desk button:hover { color: var(--blue); }
-  .desk button.on { color: var(--blue); border-bottom-color: var(--blue); font-weight: 700; }
+  .desk button.on { color: var(--blue); font-weight: 700; }
+  .desk button.on::after { transform: scaleX(1); }
   .page { padding-top: 20px; padding-bottom: 110px; min-height: 70vh; }
   .tabbar { display: none; }
   @media (max-width: 720px) {
@@ -103,6 +121,7 @@
       background: var(--surface); border: 1px solid var(--line); border-radius: 24px; box-shadow: var(--shadow); padding: 4px;
     }
     .tabbar button { background: none; border: 0; padding: 7px 2px 6px; display: flex; flex-direction: column; align-items: center; font-size: 11px; color: var(--muted); gap: 1px; border-radius: 18px; }
+    .tabbar button { transition: background-color var(--t) var(--ease), color var(--t) var(--ease), transform var(--t-fast) var(--ease); }
     .tabbar button.on { color: var(--blue); background: var(--blue-soft); font-weight: 700; }
   }
 </style>

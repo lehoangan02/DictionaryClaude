@@ -86,7 +86,7 @@
   {#if ['queued', 'processing'].includes(d.status)}<p class="note">Waiting for the server to read the photos… this updates by itself.</p>{/if}
   {#if d.error}<p class="note warn">{d.error}</p>{/if}
 
-  <div class="cols">
+  <div class="cols rise">
     <div class="photos">
       {#each d.photos as name, i (name)}
         {#if imgs[i]}<a href={imgs[i]} target="_blank" rel="noopener"><img src={imgs[i]} alt="Photo {i + 1} of your notes" /></a>
@@ -106,7 +106,7 @@
     </div>
   </div>
 
-  <section class="card agents">
+  <section class="card agents rise" style="--i:1">
     <h3>Hard to read?</h3>
     {#if agentsRunning}
       <p>The agents are reading the photos{d.agents?.request?.mode === 'both' ? ' and will compare notes if they differ' : ''}… this can take a minute or two.</p>
@@ -130,7 +130,7 @@
       <div class="versions">
         {#each ['claude', 'agy'] as n}
           {#if d.agents[n]}
-            <div class="ver"><b>{who(n)}</b>
+            <div class="ver rise"><b>{who(n)}</b>
               {#if d.agents[n].error}<p class="err small">{d.agents[n].error}</p>
               {:else}
                 {#each d.agents[n].lines as l}<div class="ln" class:unsure={l.unsure} title={l.reason}>{l.text}{#if l.unsure} <i>?</i>{/if}</div>{/each}

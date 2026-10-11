@@ -3,6 +3,7 @@
   import { app, open, bump } from './lib/store.svelte';
   import { REL } from './lib/format';
   import Drafts from './Drafts.svelte';
+  import { grow } from './lib/motion';
 
   type N = { id: string; session_date: string; tags: string; body: string; updated: number };
   let notes = $state<N[]>([]);
@@ -59,7 +60,7 @@
 <Drafts bind:reviewing />
 {#if !reviewing}
 
-<section class="ed card">
+<section class="ed card rise">
   <div class="meta">
     <label>Session <input type="date" bind:value={date} /></label>
     <label>Tags <input type="text" placeholder="tutor, roots…" bind:value={tags} /></label>
@@ -74,7 +75,7 @@
   {#if edges.length}
     <div class="pv" aria-label="Parsed relations">
       {#each edges as e (e.a + e.rel + e.b)}
-        <span class="pill"><button onclick={() => open(e.a)}>{e.a}</button><b>{REL[e.rel].sym}</b><button onclick={() => open(e.b)}>{e.b}</button></span>
+        <span class="pill" in:grow><button onclick={() => open(e.a)}>{e.a}</button><b>{REL[e.rel].sym}</b><button onclick={() => open(e.b)}>{e.b}</button></span>
       {/each}
     </div>
   {:else if lineCount}
@@ -88,8 +89,8 @@
 </section>
 
 <h2>Saved notes</h2>
-{#each notes as n (n.id)}
-  <article class="card nt">
+{#each notes as n, ni (n.id)}
+  <article class="card nt rise" style="--i:{ni}">
     <header>
       <b>{n.session_date || 'Undated'}</b>
       {#each n.tags.split(',').map((t) => t.trim()).filter(Boolean) as t}<span class="tag">{t}</span>{/each}

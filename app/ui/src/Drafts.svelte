@@ -4,6 +4,8 @@
   import { app, bump } from './lib/store.svelte';
   import { shrink } from './lib/image';
   import DraftReview from './DraftReview.svelte';
+  import { flip } from 'svelte/animate';
+  import { grow, flipDur } from './lib/motion';
 
   let { reviewing = $bindable(false) }: { reviewing?: boolean } = $props();
   let drafts = $state<any[]>([]);
@@ -54,7 +56,7 @@
 {#if open}
   <DraftReview id={open} onclose={() => { open = null; load(); }} />
 {:else}
-  <section class="card">
+  <section class="card rise">
     <h3>Photograph your notes</h3>
     <p class="muted small">Take or choose photos of handwritten notes. The server reads them; you check the result before anything is saved.</p>
     <div class="row">
@@ -63,8 +65,8 @@
     </div>
     {#if picked.length}
       <div class="thumbs">
-        {#each picked as p, i (i)}
-          <div class="th"><img src={p.url} alt="Photo {i + 1}" /><button aria-label="Remove photo {i + 1}" onclick={() => picked.splice(i, 1)}>✕</button></div>
+        {#each picked as p, i (p.url)}
+          <div class="th" in:grow out:grow animate:flip={{ duration: flipDur() }}><img src={p.url} alt="Photo {i + 1}" /><button aria-label="Remove photo {i + 1}" onclick={() => picked.splice(i, 1)}>✕</button></div>
         {/each}
       </div>
       <div class="row">
@@ -78,7 +80,7 @@
   {#if drafts.length}
     <h2>Waiting for review</h2>
     {#each drafts as d (d.id)}
-      <button class="draft card" onclick={() => (open = d.id)}>
+      <button class="draft card rise" style="--i:{drafts.indexOf(d)}" onclick={() => (open = d.id)}>
         <span class="st" class:ready={d.status === 'needs_review'} class:bad={d.status === 'failed'}>{label(d)}</span>
         <span class="meta">{d.photos.length} photo{d.photos.length > 1 ? 's' : ''} · {d.session_date || 'undated'}</span>
         <span class="pv">{(d.text || d.ocr_text || '').split('\n')[0]}</span>

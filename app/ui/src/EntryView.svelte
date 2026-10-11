@@ -5,6 +5,8 @@
   import Thesaurus from './Thesaurus.svelte';
   import HistoryNav from './HistoryNav.svelte';
   import Icon from './Icon.svelte';
+  import Disclosure from './Disclosure.svelte';
+  import { enter } from './lib/motion';
 
   let data = $state<any>(null);
   let loading = $state(false);
@@ -48,6 +50,8 @@
     return { shown: ordered.slice(0, 2), more: ordered.slice(2) };
   }
   const accentColor = (a: string) => (a === 'US' ? 'us' : 'uk');
+  // Content below the dictionary switch is re-entered whenever the word or dictionary changes.
+  const contentKey = $derived(`${data?.key}|${data?.source?.id}`);
 </script>
 
 {#if !app.word}
@@ -74,6 +78,8 @@
       {/each}
     </div>
 
+    {#key contentKey}
+    <div class="body" in:enter={{ y: 12, duration: 280 }}>
     {#if !entry}
       <h1 class="hw">{app.word}</h1>
       {#if data.mw_error}
@@ -113,7 +119,7 @@
       </header>
 
       {#if data.barrons}
-        <aside class="gre">
+        <aside class="gre rise">
           <div class="gre-h"><b>Barron's Essential Words for the GRE</b>
             {#if data.barrons[0].high_freq}<span class="hf">High-frequency</span>{/if}
             <span class="muted">Unit {data.barrons[0].unit}</span></div>
@@ -126,7 +132,7 @@
       {/if}
 
       {#each data.roots ?? [] as r}
-        <aside class="roots">
+        <aside class="roots rise" style="--i:1">
           <div class="rh"><b>Word root</b> <span class="rf">{r.forms}</span> <span class="muted">“{r.meaning}” · {r.lang}</span></div>
           <div class="rw">
             {#each r.words as w (w.word)}
@@ -143,8 +149,8 @@
           {/if}
           {#if b.head}<p class="head-line">{b.head}</p>{/if}
           <ol class="senses" class:single={b.senses.length === 1}>
-            {#each b.senses as s}
-              <li>
+            {#each b.senses as s, si}
+              <li class="rise" style="--i:{si}">
                 {#if s.tags?.length}<p class="lab">{s.tags.slice(0, 3).join(', ')}</p>{/if}
                 <p class="def">
                   {#each s.parents ?? [] as par}<span class="parent">{par} ›</span>{/each}
@@ -165,12 +171,13 @@
                     {#each ex.shown as e}<li>{e.text}{#if e.by}<span class="by"> — {e.by}</span>{/if}</li>{/each}
                   </ul>
                   {#if ex.more.length}
-                    <details class="quotes">
-                      <summary>{ex.more.length} more example{ex.more.length > 1 ? 's' : ''}</summary>
-                      <ul class="exs">
-                        {#each ex.more as e}<li>{e.text}{#if e.by}<span class="by"> — {e.by}</span>{/if}</li>{/each}
-                      </ul>
-                    </details>
+                    <div class="quotes">
+                      <Disclosure label="{ex.more.length} more example{ex.more.length > 1 ? 's' : ''}">
+                        <ul class="exs">
+                          {#each ex.more as e}<li>{e.text}{#if e.by}<span class="by"> — {e.by}</span>{/if}</li>{/each}
+                        </ul>
+                      </Disclosure>
+                    </div>
                   {/if}
                 {/if}
               </li>
@@ -183,13 +190,14 @@
       {/each}
 
       {#if etyms.length}
-        <details class="origin">
-          <summary><span class="pm"><Icon name="plus" size={18} /></span><span class="mn"><Icon name="minus" size={18} /></span> Word Origin</summary>
-          <div class="ob">
-            {#each showAllEtym ? etyms : etyms.slice(0, 1) as e}<p>{e}</p>{/each}
-            {#if etyms.length > 1 && !showAllEtym}<button class="btn small" onclick={() => (showAllEtym = true)}>Show {etyms.length - 1} more</button>{/if}
-          </div>
-        </details>
+        <div class="origin">
+          <Disclosure label="Word Origin" boxed>
+            <div class="ob">
+              {#each showAllEtym ? etyms : etyms.slice(0, 1) as e}<p>{e}</p>{/each}
+              {#if etyms.length > 1 && !showAllEtym}<button class="btn small" onclick={() => (showAllEtym = true)}>Show {etyms.length - 1} more</button>{/if}
+            </div>
+          </Disclosure>
+        </div>
       {/if}
 
       {#if data.source.id === 'mw'}
@@ -202,10 +210,18 @@
 
       <Thesaurus data={data.thesaurus} word={entry.word} />
     {/if}
+    </div>
+    {/key}
   </article>
 {:else if loading}
   <HistoryNav />
-  <p class="empty">Looking up “{app.word}”…</p>
+  <div aria-busy="true" aria-label="Looking up {app.word}">
+    <div class="skel" style="height:40px;width:50%;margin:10px 0 14px"></div>
+    <div class="skel" style="height:26px;width:35%;margin:0 0 22px"></div>
+    <div class="skel" style="height:20px;width:92%;margin:0 0 10px"></div>
+    <div class="skel" style="height:20px;width:78%;margin:0 0 10px"></div>
+    <div class="skel" style="height:20px;width:64%"></div>
+  </div>
 {/if}
 
 <style>
@@ -265,18 +281,12 @@
   .exs li { position: relative; padding-left: 20px; margin: 5px 0; font-style: italic; color: var(--text); font-size: 18px; }
   .exs li::before { content: ''; position: absolute; left: 6px; top: 0.7em; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
   .by { font-style: normal; font-size: 13px; color: var(--muted); }
-  .quotes { margin: 2px 0 0 4px; font-size: 14px; }
-  .quotes summary { cursor: pointer; color: var(--blue); }
+  .quotes { margin: 2px 0 0 0; font-size: 14px; }
   .forms { color: var(--muted); font-size: 14px; display: flex; flex-wrap: wrap; gap: 4px 16px; }
   .forms em { font-style: normal; font-size: 12px; }
 
   /* "Word Origin": the salmon box with the orange bar, as in the Oxford app. */
-  .origin { margin: 26px 0; background: var(--salmon); border-left: 5px solid var(--salmon-line); }
-  .origin summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px; padding: 14px 16px; font-size: 20px; }
-  .origin summary::-webkit-details-marker { display: none; }
-  .origin :global(svg) { color: var(--salmon-line); }
-  .origin .pm { display: inline-flex; } .origin .mn { display: none; }
-  .origin[open] .pm { display: none; } .origin[open] .mn { display: inline-flex; }
+  .origin { margin: 26px 0; }
   .ob { padding: 0 16px 12px 44px; }
   .ob p { margin: 0 0 8px; }
 

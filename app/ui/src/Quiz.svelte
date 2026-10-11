@@ -3,6 +3,8 @@
   import { app } from './lib/store.svelte';
   import { pct, when } from './lib/format';
   import QuizPlayer from './QuizPlayer.svelte';
+  import { flip } from 'svelte/animate';
+  import { item as leave, flipDur } from './lib/motion';
 
   type Sess = { id: string; kind: string; title: string; started: number; ended: number | null; total: number; correct: number };
   let cat = $state<any>(null);
@@ -55,7 +57,7 @@
 {#if live}
   <QuizPlayer session={live} ondone={done} onretry={(id: string) => start({ kind: 'retry', session_id: id })} />
 {:else if review}
-  <section>
+  <section class="fadein">
     <button class="btn small ghost" onclick={() => (review = null)}>← Back</button>
     <h1>{review.title}</h1>
     <p class="muted">{when(review.started)} · {review.correct}/{review.total} correct ({pct(review.correct, review.total)}%)</p>
@@ -64,8 +66,8 @@
         disabled={review.review.every((r: any) => r.correct !== false)}>Retry missed</button>
     </div>
     <ol class="rv">
-      {#each review.review as r (r.item.id)}
-        <li class:ok={r.correct === true} class:no={r.correct === false}>
+      {#each review.review as r, ri (r.item.id)}
+        <li class="rise" style="--i:{ri}" class:ok={r.correct === true} class:no={r.correct === false}>
           <span class="mark">{r.correct === true ? '✓' : r.correct === false ? '✗' : '–'}</span>
           <div>
             <p class="pr">{r.item.prompt}</p>
@@ -81,11 +83,11 @@
   <h1>Quizzes</h1>
   {#if error}<p class="err">{error}</p>{/if}
 
-  <section class="card">
+  <section class="card rise" style="--i:0">
     <h3>Past sessions</h3>
     <input type="search" bind:value={q} placeholder="Search sessions — “stubborn”, “words I got wrong”, “unit 12”…" aria-label="Search sessions" />
     {#each sessions as s (s.id)}
-      <div class="srow">
+      <div class="srow" animate:flip={{ duration: flipDur() }} out:leave>
         <button class="st" onclick={() => openReview(s.id)}>
           <b>{s.title}</b>
           <span class="muted">{when(s.started)}{s.ended ? '' : ' · unfinished'}</span>
@@ -98,7 +100,7 @@
     {/each}
   </section>
 
-  <section class="card">
+  <section class="card rise" style="--i:1">
     <h3>Quick practice</h3>
     {#if cat && !cat.barrons}
       <p class="muted">Barron's isn't on this device yet. Pair with your sync server in Settings and it arrives with the first sync.</p>
@@ -126,7 +128,7 @@
     {/if}
   </section>
 
-  <section class="card">
+  <section class="card rise" style="--i:2">
     <h3>My tutor notes</h3>
     {#if (cat?.notes?.relations ?? 0) === 0}
       <p class="muted">Write relations in Notes (like <code>abate = lessen</code>) to practise them here.</p>
@@ -145,7 +147,7 @@
   </section>
 
   {#if cat?.barrons}
-    <section class="card">
+    <section class="card rise" style="--i:3">
       <h3>Barron's exercises</h3>
       <p class="muted">Every review from the book: matching, fill-ins, sense or nonsense, and the applying-your-knowledge questions.</p>
       <div class="units" role="group" aria-label="Units">
@@ -167,7 +169,7 @@
   {/if}
 
   {#if cat?.extras}
-    <section class="card">
+    <section class="card rise" style="--i:4">
       <h3>Reviews</h3>
       <p class="muted">The two 50-question cumulative reviews at the back of the vocabulary section.</p>
       <div class="up">
@@ -177,7 +179,7 @@
       </div>
     </section>
 
-    <section class="card">
+    <section class="card rise" style="--i:5">
       <h3>Word roots</h3>
       <p class="muted">Root Work (match words to meanings) and the Root Roundup reviews.</p>
       <div class="units" role="group" aria-label="Root Work">

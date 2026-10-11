@@ -5,7 +5,7 @@
 
 <!-- Back and forward through the words you have looked up, like a browser. -->
 {#if canBack() || canForward()}
-  <div class="hn" role="navigation" aria-label="Lookup history">
+  <div class="hn fadein" role="navigation" aria-label="Lookup history">
     <button disabled={!canBack()} onclick={goBack} aria-label="Previous word: {backWord() ?? ''}">
       <Icon name="prev" size={26} /><span>{backWord() ?? ''}</span>
     </button>

@@ -3,6 +3,7 @@
   import { call } from './lib/api';
   import { app, bump } from './lib/store.svelte';
   import { when } from './lib/format';
+  import { pop, grow } from './lib/motion';
 
   type Status = {
     paired: boolean; online?: boolean; route?: 'lan' | 'wan' | null; latency_ms?: number | null; vpn?: boolean;
@@ -63,11 +64,11 @@
 <div class="wrapper" bind:this={wrap}>
   <button class="pill" onclick={() => { open = !open; if (open) refresh(); }} aria-expanded={open} aria-label="Sync server: {label}">
     <span class="dot {tone}"></span><span class="lbl">{label}</span>
-    {#if st.paired && (st.pending ?? 0) > 0}<span class="pend" title="Changes not yet sent">{st.pending}</span>{/if}
+    {#if st.paired && (st.pending ?? 0) > 0}<span class="pend" in:grow title="Changes not yet sent">{st.pending}</span>{/if}
     {#if st.vpn && st.paired}<span class="vpn">VPN</span>{/if}
   </button>
   {#if open}
-    <div class="pop" role="dialog" aria-label="Sync server">
+    <div class="pop" role="dialog" aria-label="Sync server" transition:pop>
       <b>Sync server</b>
       {#if !st.paired}
         <p>Not paired. Everything works offline on this device; pair a server in Settings to keep your notes, history and quizzes in step across devices.</p>
@@ -102,7 +103,7 @@
     display: inline-flex; align-items: center; gap: 7px; background: var(--panel); color: var(--text);
     border: 1px solid var(--line); border-radius: 999px; padding: 6px 13px; font-size: 13px; white-space: nowrap;
   }
-  .dot { width: 9px; height: 9px; border-radius: 50%; background: #9aa7b8; flex: none; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #9aa7b8; flex: none; transition: background-color var(--t-slow) var(--ease), box-shadow var(--t-slow) var(--ease); }
   .dot.green { background: #3ddc84; } .dot.blue { background: #5aa9ff; } .dot.amber { background: #ffb020; } .dot.red { background: #ff6b5e; }
   .pend { background: var(--accent); border-radius: 999px; padding: 0 7px; font-size: 11px; font-weight: 700; }
   .vpn { font-size: 10px; font-weight: 700; border: 1px solid #ffb020; color: #ffb020; border-radius: 4px; padding: 0 4px; }

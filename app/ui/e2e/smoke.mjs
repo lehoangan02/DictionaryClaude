@@ -149,6 +149,30 @@ await new Promise((r) => setTimeout(r, 700));
 ok((await m.$$('.srow')).length >= 1, 'retrieval search "wrong" finds the session with mistakes');
 await m.screenshot({ path: `${OUT}/quiz-sessions-mobile.png`, fullPage: true });
 
+// ---- motion: screens animate in, and reduced motion switches it off ----
+{
+  const m1 = await newPage(1000, 800);
+  await m1.goto(BASE, { waitUntil: 'networkidle0' });
+  await m1.evaluate(() => [...document.querySelectorAll('.desk button')].find((b) => b.textContent.includes('Quizzes')).click());
+  // Sample the new screen's opacity right after the switch and again once it has settled.
+  const early = await m1.evaluate(() => new Promise((r) => requestAnimationFrame(() => setTimeout(() => r(+getComputedStyle(document.querySelector('.view')).opacity), 40))));
+  await new Promise((r) => setTimeout(r, 600));
+  const late = await m1.evaluate(() => +getComputedStyle(document.querySelector('.view')).opacity);
+  ok(early < 1 && late === 1, `a new screen fades in (opacity ${early.toFixed(2)} -> ${late})`);
+  const tr = await m1.evaluate(() => getComputedStyle(document.querySelector('.desk button')).transitionDuration);
+  ok(tr !== '0s', 'buttons animate their state changes');
+  await m1.close();
+
+  const m2 = await browser.newPage();
+  await m2.setViewport({ width: 1000, height: 800 });
+  await m2.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  await m2.goto(BASE, { waitUntil: 'networkidle0' });
+  await m2.evaluate(() => [...document.querySelectorAll('.desk button')].find((b) => b.textContent.includes('Quizzes')).click());
+  const reduced = await m2.evaluate(() => new Promise((r) => requestAnimationFrame(() => setTimeout(() => r(+getComputedStyle(document.querySelector('.view')).opacity), 40))));
+  ok(reduced === 1, 'with "reduce motion" nothing fades or slides');
+  await m2.close();
+}
+
 // ---- dictionary order in Settings ----
 const o = await newPage(1000, 900);
 await o.goto(BASE + '?tab=settings', { waitUntil: 'networkidle0' });
