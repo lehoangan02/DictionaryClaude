@@ -1,36 +1,43 @@
 :root {
-  --navy: #0a2a5e;
-  --navy-2: #123a7a;
-  --blue: #0b57b5;
+  --navy: #1b2f5e;          /* headwords, strong accents */
+  --head: #1b2f5e;
+  --blue: #0a63b0;          /* links, icons, titles */
+  --blue-soft: #e8f1fb;
   --accent: #e8590c;
-  --bg: #ffffff;
-  --panel: #f4f7fb;
-  --panel-2: #e9eff8;
-  --text: #1c2430;
-  --muted: #5f6b7a;
-  --line: #d9e1ec;
+  --salmon: #fce8e3;        /* the "Word Origin" style boxes */
+  --salmon-line: #ee7a62;
+  --bg: #f6f8fb;
+  --surface: #ffffff;
+  --panel: #f1f4f8;
+  --panel-2: #e6ecf4;
+  --text: #222b36;
+  --muted: #6a7686;
+  --line: #e1e7ef;
   --good: #1b7f3b;
   --bad: #c0392b;
   --good-bg: #e6f4ea;
   --bad-bg: #fbe9e7;
-  --radius: 10px;
-  --shadow: 0 6px 24px rgba(10, 42, 94, 0.14);
+  --radius: 14px;
+  --shadow: 0 8px 28px rgba(16, 40, 80, 0.16);
+  --lift: 0 2px 10px rgba(16, 40, 80, 0.10);
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
-    --navy: #0b1f44; --navy-2: #16346b; --blue: #6aa6ff; --accent: #ff8a4c;
-    --bg: #0f1623; --panel: #172033; --panel-2: #1e2a42; --text: #e6ebf3; --muted: #9aa7b8;
-    --line: #2a364d; --good: #5fd08a; --bad: #ff8b7a; --good-bg: #12301e; --bad-bg: #3a1c18;
-    --shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+    --navy: #0b1f44; --head: #dce8ff; --blue: #6aa6ff; --blue-soft: #16294a; --accent: #ff8a4c;
+    --salmon: #3a2420; --salmon-line: #ff8d73;
+    --bg: #0c121d; --surface: #141c2b; --panel: #172033; --panel-2: #1e2a42; --text: #e6ebf3; --muted: #9aa7b8;
+    --line: #26324a; --good: #5fd08a; --bad: #ff8b7a; --good-bg: #12301e; --bad-bg: #3a1c18;
+    --shadow: 0 8px 28px rgba(0, 0, 0, 0.55); --lift: 0 2px 10px rgba(0, 0, 0, 0.4);
     color-scheme: dark;
   }
 }
 :root[data-theme='dark'] {
-  --navy: #0b1f44; --navy-2: #16346b; --blue: #6aa6ff; --accent: #ff8a4c;
-  --bg: #0f1623; --panel: #172033; --panel-2: #1e2a42; --text: #e6ebf3; --muted: #9aa7b8;
-  --line: #2a364d; --good: #5fd08a; --bad: #ff8b7a; --good-bg: #12301e; --bad-bg: #3a1c18;
-  --shadow: 0 6px 24px rgba(0, 0, 0, 0.5);
+  --navy: #0b1f44; --head: #dce8ff; --blue: #6aa6ff; --blue-soft: #16294a; --accent: #ff8a4c;
+  --salmon: #3a2420; --salmon-line: #ff8d73;
+  --bg: #0c121d; --surface: #141c2b; --panel: #172033; --panel-2: #1e2a42; --text: #e6ebf3; --muted: #9aa7b8;
+  --line: #26324a; --good: #5fd08a; --bad: #ff8b7a; --good-bg: #12301e; --bad-bg: #3a1c18;
+  --shadow: 0 8px 28px rgba(0, 0, 0, 0.55); --lift: 0 2px 10px rgba(0, 0, 0, 0.4);
   color-scheme: dark;
 }
 
@@ -44,6 +51,7 @@
 
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--bg); color: var(--text); }
+.ic { width: 1.25em; height: 1.25em; flex: none; vertical-align: -0.2em; }
 body {
   font: 16px/1.5 'Lexis Symbols', system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   -webkit-text-size-adjust: 100%;
@@ -53,10 +61,10 @@ button { cursor: pointer; }
 a { color: var(--blue); }
 .wrap { max-width: 900px; margin: 0 auto; padding: 0 16px; }
 .muted { color: var(--muted); }
-.card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 18px; box-shadow: var(--lift); }
 .btn {
-  border: 1px solid var(--line); background: var(--panel); border-radius: 999px;
-  padding: 8px 16px; min-height: 40px;
+  border: 1px solid var(--line); background: var(--surface); border-radius: 999px;
+  padding: 8px 16px; min-height: 40px; box-shadow: 0 1px 3px rgba(16, 40, 80, 0.06);
 }
 .btn:hover { background: var(--panel-2); }
 .btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
@@ -69,8 +77,8 @@ a { color: var(--blue); }
 }
 button.chip:hover, a.chip:hover { background: var(--panel-2); }
 h2 { font-size: 20px; margin: 22px 0 10px; }
-input[type='text'], input[type='search'], input[type='number'], input[type='date'], textarea, select {
-  width: 100%; border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 9px 12px;
+input[type='text'], input[type='search'], input[type='password'], input[type='number'], input[type='date'], textarea, select {
+  width: 100%; border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 10px 14px;
 }
 :focus-visible { outline: 3px solid color-mix(in srgb, var(--blue) 55%, transparent); outline-offset: 1px; }
 .empty { text-align: center; color: var(--muted); padding: 36px 12px; }

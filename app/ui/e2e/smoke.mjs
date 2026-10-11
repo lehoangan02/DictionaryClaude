@@ -17,6 +17,8 @@ const browser = await puppeteer.launch({
 let failed = 0;
 const ok = (cond, msg) => { console.log(`${cond ? 'PASS' : 'FAIL'}  ${msg}`); if (!cond) failed++; };
 const text = (page, sel) => page.$eval(sel, (e) => e.textContent.trim()).catch(() => null);
+// Headwords show syllables (a·bate); compare the plain word.
+const plain = async (page, sel) => ((await text(page, sel)) ?? '').replace(/·/g, '');
 
 async function newPage(w, h) {
   const page = await browser.newPage();
@@ -41,16 +43,28 @@ await d.waitForSelector('.dd li button');
 ok((await text(d, '.dd li button span')) === 'abate', 'autosuggest puts the GRE word "abate" first');
 await d.keyboard.press('Enter');
 await d.waitForSelector('.hw');
-ok((await text(d, '.hw')) === 'abate' || (await text(d, '.hw')) === 'abat', 'Enter opens an entry');
+ok(['abate', 'abat'].includes(await plain(d, '.hw')), 'Enter opens an entry');
 await d.goto(BASE + '?w=abate', { waitUntil: 'networkidle0' });
 await d.waitForSelector('.hw');
-ok((await text(d, '.hw')) === 'abate', 'deep link opens the entry');
+ok((await plain(d, '.hw')) === 'abate', 'deep link opens the entry');
+ok((await text(d, '.hw')) === 'a·bate', 'the headword shows its syllables');
 ok(!!(await d.$('.gre')), "Barron's card is shown for a GRE word");
 ok((await d.$$('.senses > li')).length >= 2, 'several senses listed');
 await clickText(d, '.srcs button', 'WordNet');
 await d.waitForFunction(() => document.querySelector('.srcs button.on')?.textContent.includes('WordNet'));
 await d.waitForFunction(() => !document.querySelector('article.dim'));
 ok((await d.$$('.senses > li')).length >= 1, 'WordNet source shows senses');
+
+// Back and forward go through the words you looked up, not the alphabet.
+await d.type('input[type=search]', 'x');
+await d.$eval('input[type=search]', (e) => { e.value = ''; });
+await d.evaluate(() => (document.getElementById('lexis-q').value = ''));
+await d.goto(BASE + '?w=lucid', { waitUntil: 'networkidle0' });
+await d.waitForSelector('.hw');
+const nav1 = await d.$$eval('.hn button', (b) => b.map((x) => ({ t: x.textContent.trim(), off: x.disabled })));
+ok(nav1.length === 2, 'a back/forward strip is shown over the entry');
+await d.evaluate(() => document.querySelectorAll('.hn button')[0]?.click());
+await d.waitForSelector('.hw');
 
 // Webster 1913 has no IPA of its own: the CMU pronunciation fills in.
 await d.goto(BASE + '?w=obdurate&source=gcide', { waitUntil: 'networkidle0' });
@@ -115,6 +129,22 @@ await m.type('input[type=search]', 'wrong');
 await new Promise((r) => setTimeout(r, 700));
 ok((await m.$$('.srow')).length >= 1, 'retrieval search "wrong" finds the session with mistakes');
 await m.screenshot({ path: `${OUT}/quiz-sessions-mobile.png`, fullPage: true });
+
+// ---- dictionary order in Settings ----
+const o = await newPage(1000, 900);
+await o.goto(BASE + '?tab=settings', { waitUntil: 'networkidle0' });
+await o.waitForSelector('.order li');
+const names0 = await o.$$eval('.order .nm b', (b) => b.map((x) => x.textContent));
+await o.$$eval('.order li', (li) => [...li].find((x) => x.textContent.includes('Webster'))?.querySelectorAll('.mv')[0].click());
+await o.waitForFunction((n) => [...document.querySelectorAll('.order .nm b')].map((x) => x.textContent).join() !== n, {}, names0.join());
+const names1 = await o.$$eval('.order .nm b', (b) => b.map((x) => x.textContent));
+ok(names1.indexOf('Webster 1913') === names0.indexOf('Webster 1913') - 1, 'a dictionary moves up in the order');
+await o.goto(BASE + '?w=obdurate', { waitUntil: 'networkidle0' });
+await o.waitForSelector('.srcs button');
+const tabsNow = await o.$$eval('.srcs button', (b) => b.map((x) => x.textContent.trim()));
+ok(tabsNow.join() === names1.filter((n) => tabsNow.includes(n)).join(), 'the tabs follow the chosen order');
+await o.evaluate(() => localStorage.removeItem('source-order'));
+await o.close();
 
 // ---- the pretest: pick-two, multi-blank, and reading passages ----
 await m.bringToFront();

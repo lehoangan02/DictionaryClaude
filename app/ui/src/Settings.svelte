@@ -1,6 +1,7 @@
 <script lang="ts">
   import { call } from './lib/api';
-  import { app, setTheme, bump } from './lib/store.svelte';
+  import { app, setTheme, bump, orderedSources, saveOrder } from './lib/store.svelte';
+  import Icon from './Icon.svelte';
   import { when } from './lib/format';
 
   let status = $state<any>({ paired: false });
@@ -58,11 +59,52 @@
     } catch (e) { mwMsg = (e as Error).message; }
   }
 
+  // Dictionary order: the first one shown is the default and the first tab.
+  type Row = { id: string; name: string; entries: number | null; shown: boolean };
+  let rows = $state<Row[]>([]);
+  function loadRows() {
+    const o = orderedSources();
+    rows = o.all.map((s) => ({ id: s.id, name: s.name, entries: s.entries, shown: !o.hidden.includes(s.id) }));
+  }
+  $effect(() => { void app.sources; loadRows(); });
+  function commit() { saveOrder(rows.map((r) => r.id), rows.filter((r) => !r.shown).map((r) => r.id)); }
+  function move(i: number, d: number) {
+    const j = i + d;
+    if (j < 0 || j >= rows.length) return;
+    [rows[i], rows[j]] = [rows[j], rows[i]];
+    commit();
+  }
+  function toggle(i: number) {
+    // At least one dictionary must stay visible.
+    if (rows[i].shown && rows.filter((r) => r.shown).length === 1) return;
+    rows[i].shown = !rows[i].shown;
+    commit();
+  }
+
   async function unpair() { await call('sync_unpair'); await load(); bump(); msg = 'Unpaired. Your data stays on this device.'; }
   async function saveSsids() { await call('sync_set_home_ssids', { ssids }); msg = 'Saved.'; }
 </script>
 
 <h1>Settings</h1>
+
+<section class="card">
+  <h3>Dictionaries</h3>
+  <p class="muted small">Choose the order of the tabs. The first dictionary that is switched on is the one every word opens in.</p>
+  <ol class="order">
+    {#each rows as r, i (r.id)}
+      <li class:off={!r.shown}>
+        <span class="n">{i + 1}</span>
+        <span class="nm"><b>{r.name}</b>
+          <span class="muted small">{r.entries != null ? `${r.entries.toLocaleString()} entries` : 'looked up online when you open a word'}</span></span>
+        <button class="mv" disabled={i === 0} onclick={() => move(i, -1)} aria-label="Move {r.name} up"><Icon name="up" size={22} /></button>
+        <button class="mv" disabled={i === rows.length - 1} onclick={() => move(i, 1)} aria-label="Move {r.name} down"><Icon name="down" size={22} /></button>
+        <label class="sw" title="Show this dictionary"><input type="checkbox" checked={r.shown} onchange={() => toggle(i)} /><span></span></label>
+      </li>
+    {/each}
+  </ol>
+  <p class="muted small">Wiktionary is CC BY-SA 4.0, WordNet is CC BY 4.0; Webster 1913 and the Moby thesaurus are public domain. Barron's material stays private on your devices.</p>
+</section>
+
 
 <section class="card">
   <h3>Sync server</h3>
@@ -135,14 +177,6 @@
   </div>
 </section>
 
-<section class="card">
-  <h3>Dictionaries on this device</h3>
-  <ul>
-    {#each app.sources as s (s.id)}<li><b>{s.name}</b> <span class="muted">{s.entries != null ? `${s.entries.toLocaleString()} entries` : 'looked up online when you open a word'}</span></li>{/each}
-  </ul>
-  <p class="muted small">Wiktionary is CC BY-SA 4.0, WordNet is CC BY 4.0; Webster 1913 and the Moby thesaurus are public domain. Barron's material stays private on your devices.</p>
-</section>
-
 <style>
   h1 { margin: 0 0 12px; font-size: 28px; }
   h3 { margin: 0 0 8px; font-size: 14px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
@@ -150,7 +184,6 @@
   .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
   .seg button { background: var(--bg); border: 0; padding: 8px 18px; text-transform: capitalize; }
   .seg button.on { background: var(--blue); color: #fff; }
-  ul { margin: 0; padding-left: 18px; }
   .small { font-size: 13px; }
   .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   .f { display: flex; flex-direction: column; gap: 4px; margin: 12px 0; font-size: 13px; color: var(--muted); }
@@ -158,5 +191,19 @@
   code { background: var(--panel-2); border-radius: 4px; padding: 1px 6px; }
   .msg { margin-top: 10px; }
   .chk { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
-  button:disabled { opacity: 0.5; }
+  button:disabled { opacity: 0.35; }
+  .order { list-style: none; margin: 10px 0; padding: 0; }
+  .order li { display: flex; align-items: center; gap: 10px; padding: 8px 4px; border-top: 1px solid var(--line); }
+  .order li:first-child { border-top: 0; }
+  .order li.off .nm { opacity: 0.45; }
+  .n { width: 26px; height: 26px; border-radius: 50%; background: var(--blue-soft); color: var(--blue); display: grid; place-items: center; font-weight: 700; font-size: 13px; flex: none; }
+  .nm { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .mv { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--blue); display: grid; place-items: center; box-shadow: 0 1px 3px rgba(16, 40, 80, 0.08); }
+  .mv:hover:not(:disabled) { background: var(--blue-soft); }
+  .sw { position: relative; width: 44px; height: 26px; flex: none; }
+  .sw input { position: absolute; inset: 0; opacity: 0; margin: 0; cursor: pointer; z-index: 1; }
+  .sw span { position: absolute; inset: 0; border-radius: 999px; background: var(--panel-2); transition: background 0.15s; }
+  .sw span::after { content: ''; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.3); transition: transform 0.15s; }
+  .sw input:checked + span { background: var(--blue); }
+  .sw input:checked + span::after { transform: translateX(18px); }
 </style>

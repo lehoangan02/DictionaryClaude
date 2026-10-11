@@ -8,12 +8,18 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct Entry {
     pub word: String,
+    /// The word broken into syllables with middle dots ("lo·qua·cious"), when the source says how.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub syl: Option<String>,
     /// One block per part of speech (and per etymology, for homographs).
     pub blocks: Vec<Block>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct Block {
+    /// Syllables as reported for this block; moved up to the entry when packs are built.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub syl: Option<String>,
     /// Set when this block belongs to a case variant of the entry's word
     /// ("Polish" under "polish").
     #[serde(default, skip_serializing_if = "Option::is_none")]

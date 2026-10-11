@@ -1,5 +1,5 @@
 [Unit]
-Description=Lexis sync server
+Description=LadyBird sync server
 After=network-online.target
 Wants=network-online.target
 

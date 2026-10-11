@@ -11,6 +11,65 @@ use tauri::Manager;
 
 struct State(Arc<Api>);
 
+/// Only the newest request plays: starting a new word stops the previous one.
+static PLAY_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Decodes and plays an MP3/Ogg recording through the system audio output.
+pub fn play_bytes(bytes: Vec<u8>) -> Result<(), String> {
+    let gen = PLAY_GEN.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+    let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
+    // The output stream must live on the thread that plays it.
+    std::thread::spawn(move || {
+        let run = || -> Result<(), String> {
+            let (_stream, handle) = rodio::OutputStream::try_default().map_err(|e| format!("no audio output ({e})"))?;
+            let sink = rodio::Sink::try_new(&handle).map_err(|e| e.to_string())?;
+            let source = rodio::Decoder::new(std::io::Cursor::new(bytes)).map_err(|e| format!("cannot decode the recording ({e})"))?;
+            sink.append(source);
+            let _ = tx.send(Ok(()));
+            while !sink.empty() && PLAY_GEN.load(std::sync::atomic::Ordering::SeqCst) == gen {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Ok(())
+        };
+        if let Err(e) = run() {
+            let _ = tx.send(Err(e));
+        }
+    });
+    rx.recv_timeout(Duration::from_secs(5)).map_err(|_| "audio did not start".to_string())?
+}
+
+/// Says a word with the system's speech program when no recording is available.
+pub fn say(word: &str) -> Result<(), String> {
+    let word: String = word.chars().filter(|c| c.is_alphanumeric() || " '-".contains(*c)).collect();
+    let candidates: &[(&str, &[&str])] = if cfg!(target_os = "macos") {
+        &[("say", &[])]
+    } else {
+        &[("spd-say", &["-w", "-l", "en"]), ("espeak-ng", &["-v", "en-us"]), ("espeak", &["-v", "en-us"])]
+    };
+    for (prog, args) in candidates {
+        if std::process::Command::new(prog).args(*args).arg(&word).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().is_ok() {
+            return Ok(());
+        }
+    }
+    Err("no speech program is installed".into())
+}
+
+#[tauri::command]
+async fn play_audio(state: tauri::State<'_, State>, url: String) -> Result<(), String> {
+    let api = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let bytes = api.audio_bytes(&url).map_err(|e| format!("{e:#}"))?;
+        play_bytes(bytes)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
+async fn speak_text(word: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || say(&word)).await.map_err(|e| e.to_string())?
+}
+
 #[tauri::command]
 async fn call(state: tauri::State<'_, State>, cmd: String, args: Option<Value>) -> Result<Value, String> {
     let api = state.0.clone();
@@ -58,9 +117,9 @@ pub fn run() {
             app.manage(State(api));
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![call])
+        .invoke_handler(tauri::generate_handler![call, play_audio, speak_text])
         .run(tauri::generate_context!())
-        .expect("error while running Lexis");
+        .expect("error while running LadyBird");
 }
 
 /// Starts `lexis --agent` at login (a LaunchAgent on macOS, an autostart entry
@@ -69,17 +128,17 @@ fn install_agent() -> anyhow::Result<PathBuf> {
     let exe = std::env::current_exe()?;
     let home = PathBuf::from(std::env::var("HOME")?);
     if cfg!(target_os = "macos") {
-        let path = home.join("Library/LaunchAgents/dev.lexis.agent.plist");
+        let path = home.join("Library/LaunchAgents/dev.ladybird.agent.plist");
         std::fs::create_dir_all(path.parent().unwrap())?;
         std::fs::write(&path, format!(
-            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict>\n<key>Label</key><string>dev.lexis.agent</string>\n<key>ProgramArguments</key><array><string>{}</string><string>--agent</string></array>\n<key>RunAtLoad</key><true/>\n<key>KeepAlive</key><true/>\n<key>ProcessType</key><string>Background</string>\n</dict></plist>\n",
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\"><dict>\n<key>Label</key><string>dev.ladybird.agent</string>\n<key>ProgramArguments</key><array><string>{}</string><string>--agent</string></array>\n<key>RunAtLoad</key><true/>\n<key>KeepAlive</key><true/>\n<key>ProcessType</key><string>Background</string>\n</dict></plist>\n",
             exe.display()
         ))?;
         Ok(path)
     } else {
-        let path = home.join(".config/autostart/lexis-agent.desktop");
+        let path = home.join(".config/autostart/ladybird-agent.desktop");
         std::fs::create_dir_all(path.parent().unwrap())?;
-        std::fs::write(&path, format!("[Desktop Entry]\nType=Application\nName=Lexis sync\nExec={} --agent\nNoDisplay=true\nX-GNOME-Autostart-enabled=true\n", exe.display()))?;
+        std::fs::write(&path, format!("[Desktop Entry]\nType=Application\nName=LadyBird sync\nExec={} --agent\nNoDisplay=true\nX-GNOME-Autostart-enabled=true\n", exe.display()))?;
         Ok(path)
     }
 }

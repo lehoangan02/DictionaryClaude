@@ -20,3 +20,11 @@ export async function call<T = any>(cmd: string, args: Record<string, unknown> =
   if (!r.ok) throw new Error(j.error ?? r.statusText);
   return j as T;
 }
+
+/** Calls a command only the desktop shell has (native sound); null in a plain browser. */
+export async function native<T = unknown>(cmd: string, args: Record<string, unknown> = {}): Promise<T | null> {
+  if (!tauri) return null;
+  return (await tauri.invoke(cmd, args)) as T;
+}
+
+export const isDesktopApp = !!tauri;

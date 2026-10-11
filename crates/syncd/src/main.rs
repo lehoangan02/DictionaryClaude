@@ -7,7 +7,7 @@ use gredict_app::Api;
 use gredict_syncd::{ensure_tls, serve, Pairing, Tokens};
 
 #[derive(Parser)]
-#[command(about = "Lexis sync server")]
+#[command(about = "LadyBird sync server")]
 struct Cli {
     /// Holds user.sqlite, tls/ and tokens.json.
     #[arg(long, default_value = "data/syncd", global = true)]

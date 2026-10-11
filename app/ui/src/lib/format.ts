@@ -27,22 +27,31 @@ export function pronunciations(blocks: { sounds?: Sound[] }[]) {
   return out.slice(0, 2);
 }
 
-import { call } from './api';
+import { call, isDesktopApp, native } from './api';
 
 let current: HTMLAudioElement | null = null;
 
-/** Plays the recording (from the offline cache, or fetched once when online); falls back to speech synthesis. */
+/**
+ * Plays the recording; falls back to the system voice. The desktop app plays
+ * through the system audio output (its web view cannot play audio when
+ * packaged); a browser uses an <audio> element and the browser's voice.
+ */
 export async function speak(word: string, audio?: string) {
   current?.pause();
+  if (isDesktopApp) {
+    if (audio) {
+      try { await native('play_audio', { url: audio }); return; } catch { /* offline and not saved yet */ }
+    }
+    try { await native('speak_text', { word }); } catch { /* no voice installed */ }
+    return;
+  }
   if (audio) {
     try {
       const { data_url } = await call<{ data_url: string }>('audio_get', { url: audio });
       current = new Audio(data_url);
       await current.play();
       return;
-    } catch {
-      /* offline and not cached yet, or the host refused: speak it instead */
-    }
+    } catch { /* fall through to speech */ }
   }
   if ('speechSynthesis' in window) {
     const u = new SpeechSynthesisUtterance(word);

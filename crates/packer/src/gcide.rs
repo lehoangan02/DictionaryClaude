@@ -19,6 +19,7 @@ use rusqlite::{params, Connection};
 static ENTITY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"<([A-Za-z]+[0-9]*|\?)/").unwrap());
 static TAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"</?[A-Za-z][A-Za-z0-9]*[^>]*>").unwrap());
 static DEF: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<def>(.*?)</def>").unwrap());
+static HW: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<hw>(.*?)</hw>").unwrap());
 static ENT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<ent>(.*?)</ent>").unwrap());
 static POS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<pos>(.*?)</pos>").unwrap());
 static ETY: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?s)<ety>(.*?)</ety>").unwrap());
@@ -38,6 +39,19 @@ fn entity(name: &str) -> &'static str {
         "frac12" => "½", "frac14" => "¼", "frac34" => "¾", "times" => "×",
         "lsquo" => "‘", "rsquo" => "’", "ldquo" => "“", "rdquo" => "”", "mdash" => "—", "ndash" => "–",
         _ => "",
+    }
+}
+
+/// Webster's headword marks syllables with `*` and stress with `"` or `'`
+/// (which also close a syllable): `Lo*qua"cious` -> `lo·qua·cious`.
+fn syllables(hw: &str) -> String {
+    let s: String = hw.replace(['*', '"', '\'', '`', '\u{2019}'], "\u{b7}");
+    let s = s.trim_matches('\u{b7}');
+    // Only keep it when it really is the headword spelled with breaks.
+    if s.chars().all(|c| c.is_alphabetic() || c == '\u{b7}' || c == '-') && s.contains('\u{b7}') {
+        display(&s.replace("\u{b7}\u{b7}", "\u{b7}"))
+    } else {
+        String::new()
     }
 }
 
@@ -78,6 +92,7 @@ fn pos_name(raw: &str) -> &'static str {
 #[derive(Default)]
 struct Raw {
     word: String,
+    syl: String,
     pos: String,
     etymology: String,
     senses: Vec<Sense>,
@@ -93,7 +108,10 @@ fn flush(raw: Option<Raw>, out: &mut BTreeMap<String, Entry>) {
     if !r.etymology.is_empty() {
         block.etymology = Some(r.etymology);
     }
-    let e = out.entry(key).or_insert_with(|| Entry { word: r.word.clone(), blocks: Vec::new() });
+    let e = out.entry(key).or_insert_with(|| Entry { word: r.word.clone(), syl: None, blocks: Vec::new() });
+    if e.syl.is_none() && !r.syl.is_empty() {
+        e.syl = Some(r.syl.clone());
+    }
     if e.word != r.word {
         block.word = Some(r.word);
     }
@@ -109,6 +127,7 @@ pub fn parse_file(text: &str, out: &mut BTreeMap<String, Entry>) {
             flush(cur.take(), out);
             let head = display(&clean(&c[1]));
             let mut raw = Raw { word: head, ..Default::default() };
+            raw.syl = HW.captures(para).map(|h| syllables(&clean(&h[1]))).unwrap_or_default();
             raw.pos = POS.captures(para).map(|p| clean(&p[1])).unwrap_or_default();
             raw.etymology = ETY.captures(para).map(|p| clean(&p[1])).unwrap_or_default();
             cur = Some(raw);

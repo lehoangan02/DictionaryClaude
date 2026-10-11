@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Lexis",
+  "productName": "LadyBird",
   "version": "0.1.0",
   "identifier": "dev.lexis.gre",
   "build": {
@@ -11,7 +11,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Lexis",
+        "title": "LadyBird",
         "width": 1100,
         "height": 820,
         "minWidth": 360,

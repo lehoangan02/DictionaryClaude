@@ -27,6 +27,7 @@ struct Line {
     sounds: Vec<RSound>,
     forms: Vec<RForm>,
     etymology_text: String,
+    hyphenations: Vec<RHyph>,
     head_templates: Vec<RHead>,
     synonyms: Vec<RWord>,
     antonyms: Vec<RWord>,
@@ -65,6 +66,12 @@ struct RSound {
 struct RForm {
     form: String,
     tags: Vec<String>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct RHyph {
+    parts: Vec<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -164,7 +171,10 @@ fn block(l: Line) -> Block {
             })
         })
         .collect();
+    // Syllables, when Wiktionary hyphenates the word into several parts.
+    let syl = l.hyphenations.iter().map(|h| &h.parts).find(|p| p.len() > 1 && p.iter().all(|x| !x.is_empty())).map(|p| p.join("\u{b7}"));
     Block {
+        syl,
         word: None,
         pos: l.pos,
         head: l.head_templates.into_iter().map(|h| h.expansion).find(|h| !h.is_empty()),
@@ -262,6 +272,9 @@ pub fn build(input: &Path, out: &Path, limit: Option<usize>) -> Result<()> {
     let mut cur: Option<(String, Entry)> = None;
     let mut finish = |dict: &mut Option<zstd::dict::EncoderDictionary<'static>>, pending: &mut Vec<(String, Entry)>, g: (String, Entry)| -> Result<()> {
         entries += 1;
+        // The entry carries the syllables; the blocks need not repeat them.
+        let mut g = g;
+        g.1.blocks.iter_mut().for_each(|b| b.syl = None);
         if dict.is_none() && pending.len() < TRAIN_GROUPS {
             pending.push(g);
             if pending.len() == TRAIN_GROUPS {
@@ -282,6 +295,9 @@ pub fn build(input: &Path, out: &Path, limit: Option<usize>) -> Result<()> {
         let mut b: Block = serde_json::from_str(&json)?;
         match &mut cur {
             Some((k, e)) if *k == key => {
+                if e.syl.is_none() && word == e.word {
+                    e.syl = b.syl.clone();
+                }
                 if word != e.word {
                     b.word = Some(word);
                 }
@@ -291,7 +307,7 @@ pub fn build(input: &Path, out: &Path, limit: Option<usize>) -> Result<()> {
                 if let Some(g) = cur.take() {
                     finish(&mut dict, &mut pending, g)?;
                 }
-                cur = Some((key, Entry { word, blocks: vec![b] }));
+                cur = Some((key, Entry { word, syl: b.syl.clone(), blocks: vec![b] }));
             }
         }
     }

@@ -55,6 +55,7 @@ pub fn map_collegiate(word: &str, v: &Value) -> Result<Result<Entry, Vec<String>
         return Ok(Err(arr.iter().filter_map(Value::as_str).map(String::from).collect()));
     }
     let mut blocks = Vec::new();
+    let mut syl: Option<String> = None;
     for e in arr.iter().filter(|e| e.is_object()) {
         let senses: Vec<Sense> = e["shortdef"].as_array().into_iter().flatten().filter_map(Value::as_str).map(|d| Sense { gloss: plain(d), ..Default::default() }).collect();
         if senses.is_empty() {
@@ -72,6 +73,10 @@ pub fn map_collegiate(word: &str, v: &Value) -> Result<Result<Entry, Vec<String>
             })
             .collect();
         let etymology = e["et"].as_array().into_iter().flatten().filter_map(|x| x.get(1).and_then(Value::as_str)).map(plain).collect::<Vec<_>>().join(" ");
+        // MW marks syllables in the headword: "lo*qua*cious".
+        if syl.is_none() {
+            syl = e["hwi"]["hw"].as_str().filter(|h| h.contains('*')).map(|h| h.replace('*', "\u{b7}"));
+        }
         blocks.push(Block {
             pos: e["fl"].as_str().unwrap_or("").to_string(),
             head: e["hwi"]["hw"].as_str().map(|h| h.replace('*', "")),
@@ -84,7 +89,7 @@ pub fn map_collegiate(word: &str, v: &Value) -> Result<Result<Entry, Vec<String>
     if blocks.is_empty() {
         return Ok(Err(vec![]));
     }
-    Ok(Ok(Entry { word: word.to_string(), blocks }))
+    Ok(Ok(Entry { word: word.to_string(), syl, blocks }))
 }
 
 /// Adds the Thesaurus API's synonyms and antonyms to the blocks they belong to.
@@ -186,7 +191,7 @@ impl Api {
             bail!("today's Merriam-Webster allowance ({DAILY_LIMIT} lookups) is nearly used up; try again tomorrow");
         }
         let base = std::env::var("LEXIS_MW_BASE").unwrap_or_else(|_| "https://www.dictionaryapi.com/api/v3/references".into());
-        let agent: ureq::Agent = ureq::Agent::config_builder().user_agent("Lexis/0.1 (personal study app)").timeout_global(Some(Duration::from_secs(10))).http_status_as_error(false).build().into();
+        let agent: ureq::Agent = ureq::Agent::config_builder().user_agent("LadyBird/0.1 (personal study app)").timeout_global(Some(Duration::from_secs(10))).http_status_as_error(false).build().into();
         let mut resp = agent
             .get(&format!("{base}/{kind}/json/{}", urlencode(word)))
             .query("key", &key)

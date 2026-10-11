@@ -51,7 +51,7 @@ impl Api {
         }
         // Wikimedia asks clients to identify themselves.
         let agent: ureq::Agent = ureq::Agent::config_builder()
-            .user_agent("Lexis/0.1 (offline GRE dictionary; personal study app)")
+            .user_agent("LadyBird/0.1 (offline GRE dictionary; personal study app)")
             .timeout_global(Some(Duration::from_secs(15)))
             .http_status_as_error(false)
             .build()
@@ -73,6 +73,11 @@ impl Api {
         std::fs::write(&tmp, &bytes)?;
         std::fs::rename(&tmp, &path)?;
         Ok(path)
+    }
+
+    /// The recording's bytes (cached on first use), for players that cannot use a data URL.
+    pub fn audio_bytes(&self, url: &str) -> Result<Vec<u8>> {
+        Ok(std::fs::read(self.audio_fetch(url)?)?)
     }
 
     /// A playable data URL for a recording, from the cache or the network.

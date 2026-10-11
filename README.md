@@ -1,4 +1,4 @@
-# Lexis — an offline GRE dictionary
+# LadyBird — an offline GRE dictionary
 
 A fast, offline dictionary, thesaurus and quiz app for GRE Verbal study, built with Rust, Tauri 2 and Svelte. It runs on Linux and macOS (Android planned), keeps your notes, history and quiz scores in sync between your own devices, and never needs the internet to look a word up.
 

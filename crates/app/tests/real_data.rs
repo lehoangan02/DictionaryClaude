@@ -291,3 +291,16 @@ fn entries_show_the_root_family_from_the_book() {
     // A word outside the book's root lists simply has none.
     assert!(api.call("entry", json!({"word": "serendipity", "record": false})).unwrap()["roots"].as_array().unwrap().is_empty());
 }
+
+#[test]
+fn headwords_come_with_syllables_from_whichever_dictionary_has_them() {
+    let Some(api) = api() else { return };
+    // Wiktionary has none for this word; Webster 1913 supplies them.
+    let e = api.call("entry", json!({"word": "loquacious", "record": false})).unwrap();
+    assert_eq!(e["syl"], "lo·qua·cious");
+    // Wiktionary's own hyphenation is used when it has one.
+    let d = api.call("entry", json!({"word": "dictionary", "record": false})).unwrap();
+    assert!(d["syl"].as_str().unwrap().contains('·'), "{d}");
+    // No source knows a made-up word: no syllables, no entry.
+    assert!(api.call("entry", json!({"word": "zzqxv", "record": false})).unwrap()["syl"].is_null());
+}

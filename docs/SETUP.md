@@ -4,7 +4,7 @@ Everything that needs a person (a router, your Mac, your phone, accounts) is her
 
 ## 0. Status on the Ubuntu machine (done on 2026-10-11)
 
-Done: build libraries installed; sync server installed as a service and verified on ports 25 and 5025 (also on the LAN address); pairing codes created in `~/lexis-pairing/`; the desktop app built (`~/Applications/Lexis.AppImage`, 310 MB, packs inside) with an app-menu launcher called **Lexis**; the app is already paired with the server and has received the Barron's quizzes (data in `~/.local/share/dev.lexis.gre`).
+Done: build libraries installed; sync server installed as a service and verified on ports 25 and 5025 (also on the LAN address); pairing codes created in `~/lexis-pairing/`; the desktop app built (`~/Applications/LadyBird.AppImage`, 310 MB, packs inside) with an app-menu launcher called **LadyBird**; the app is already paired with the server and has received the Barron's quizzes (data in `~/.local/share/dev.lexis.gre`).
 
 Still needs a person: the router forward for 5025 (section 2), the Mac (section 5), the phone (section 6), and the optional keys (section 7).
 
@@ -49,7 +49,7 @@ If a VPN is on, the pill shows **VPN**. If the server can't be reached with a VP
 
 ## 3. The app on Ubuntu (this machine)
 
-Libraries (already installed): `libwebkit2gtk-4.1-dev libsoup-3.0-dev librsvg2-dev libayatana-appindicator3-dev libxdo-dev`.
+Libraries (already installed): `libwebkit2gtk-4.1-dev libsoup-3.0-dev librsvg2-dev libayatana-appindicator3-dev libxdo-dev libasound2-dev`.
 
 ```bash
 cargo install tauri-cli --version "^2" --locked          # once
@@ -60,16 +60,16 @@ cargo tauri build                                        # AppImage under target
 The build was run from `app/src-tauri` (the pre-build step expects that). Install or update the launcher after a rebuild:
 
 ```bash
-cp target/release/bundle/appimage/Lexis_0.1.0_amd64.AppImage ~/Applications/Lexis.AppImage
+cp target/release/bundle/appimage/LadyBird_0.1.0_amd64.AppImage ~/Applications/LadyBird.AppImage
 ```
 
-The launcher starts it with `WEBKIT_DISABLE_DMABUF_RENDERER=1`, which avoids a blank window with some NVIDIA setups; remove that variable in `~/.local/share/applications/lexis.desktop` if everything renders fine without it. The AppImage carries the dictionary packs. Optional background sync with no window, started at login:
+The launcher starts it with `WEBKIT_DISABLE_DMABUF_RENDERER=1`, which avoids a blank window with some NVIDIA setups; remove that variable in `~/.local/share/applications/ladybird.desktop` if everything renders fine without it. The AppImage carries the dictionary packs. Optional background sync with no window, started at login:
 
 ```bash
-~/Applications/Lexis.AppImage --install-agent
+~/Applications/LadyBird.AppImage --install-agent
 ```
 
-Recorded pronunciations play through GStreamer; the plugins (`gstreamer1.0-plugins-base`, `-good`, `-libav`) are installed here. If a recording does not play, the app falls back to the browser's speech voice, if the system has one.
+Sound: the window's web engine cannot play audio inside an AppImage, so the desktop app plays recordings itself through the system audio output (the `rodio` library; ALSA/PipeWire on Linux, CoreAudio on a Mac). When no recording is saved and you are offline it speaks the word with `spd-say` (Linux) or `say` (Mac). `cargo run --example sound_check -- <file.mp3>` in `app/src-tauri` plays one recording to test the path.
 
 During development you can instead run `./target/release/gredict-server` and open http://127.0.0.1:8787.
 
@@ -104,9 +104,9 @@ The packer refuses to write the Barron's database if any unit, exercise or answe
    scp -P 22 'lhan@lhan.duckdns.org:/home/lhan/Documents/AILab/DictionaryClaude/data/packs/*' data/packs/
    scp -P 22 lhan@lhan.duckdns.org:~/lexis-pairing/mac.txt ~/Desktop/lexis-mac-code.txt
    ```
-4. Build: `cargo install tauri-cli --version "^2" --locked`, then `cd app/src-tauri && cargo tauri icon icons/source.png && cargo tauri build`. Move `Lexis.app` to Applications.
+4. Build: `cargo install tauri-cli --version "^2" --locked`, then `cd app/src-tauri && cargo tauri icon icons/source.png && cargo tauri build`. Move `LadyBird.app` to Applications.
 5. Open it, **Settings → Sync server**, paste the code from `lexis-mac-code.txt` (then delete that file). Barron's quizzes arrive with the first sync.
-6. Optional background sync at login: `/Applications/Lexis.app/Contents/MacOS/lexis --install-agent`.
+6. Optional background sync at login: `/Applications/LadyBird.app/Contents/MacOS/ladybird --install-agent`.
 7. Location permission lets the app read the Wi-Fi name; if you decline it the app still works by testing both routes.
 
 Not yet built or tested on a Mac: the on-device NPU runtime (CoreML).

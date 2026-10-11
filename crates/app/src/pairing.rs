@@ -25,7 +25,7 @@ impl Pairing {
 
     pub fn decode(code: &str) -> Result<Self> {
         let body: String = code.split_whitespace().collect();
-        let body = body.strip_prefix("lexis1:").ok_or_else(|| anyhow!("that is not a Lexis pairing code"))?;
+        let body = body.strip_prefix("lexis1:").ok_or_else(|| anyhow!("that is not a LadyBird pairing code"))?;
         let p: Pairing = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(body)?).map_err(|_| anyhow!("the pairing code is damaged"))?;
         if p.lan.is_none() && p.wan.is_none() {
             return Err(anyhow!("the pairing code has no server address"));

@@ -12,6 +12,7 @@
 
   let st = $state<Status>({ paired: false });
   let open = $state(false);
+  let wrap = $state<HTMLElement | null>(null);
   let busy = $state(false);
   let msg = $state('');
   let checking = $state(true);
@@ -52,7 +53,9 @@
   const tone = $derived(!st.paired || checking ? 'grey' : st.online ? (st.vpn ? 'amber' : st.route === 'lan' ? 'green' : 'blue') : 'red');
 </script>
 
-<div class="wrapper">
+<svelte:window onclick={(e) => { if (open && wrap && !wrap.contains(e.target as Node)) open = false; }} />
+
+<div class="wrapper" bind:this={wrap}>
   <button class="pill" onclick={() => { open = !open; if (open) refresh(); }} aria-expanded={open} aria-label="Sync server: {label}">
     <span class="dot {tone}"></span><span class="lbl">{label}</span>
     {#if st.paired && (st.pending ?? 0) > 0}<span class="pend" title="Changes not yet sent">{st.pending}</span>{/if}
@@ -91,8 +94,8 @@
 <style>
   .wrapper { position: relative; }
   .pill {
-    display: inline-flex; align-items: center; gap: 7px; background: rgba(255, 255, 255, 0.12); color: #fff;
-    border: 1px solid rgba(255, 255, 255, 0.25); border-radius: 999px; padding: 5px 12px; font-size: 13px; white-space: nowrap;
+    display: inline-flex; align-items: center; gap: 7px; background: var(--panel); color: var(--text);
+    border: 1px solid var(--line); border-radius: 999px; padding: 6px 13px; font-size: 13px; white-space: nowrap;
   }
   .dot { width: 9px; height: 9px; border-radius: 50%; background: #9aa7b8; flex: none; }
   .dot.green { background: #3ddc84; } .dot.blue { background: #5aa9ff; } .dot.amber { background: #ffb020; } .dot.red { background: #ff6b5e; }
@@ -100,7 +103,7 @@
   .vpn { font-size: 10px; font-weight: 700; border: 1px solid #ffb020; color: #ffb020; border-radius: 4px; padding: 0 4px; }
   .pop {
     position: absolute; right: 0; top: calc(100% + 8px); width: min(390px, 92vw); background: var(--bg); color: var(--text);
-    border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); padding: 12px 14px; z-index: 40; font-size: 14px;
+    border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 14px 16px; z-index: 40; font-size: 14px;
   }
   .pop p { margin: 6px 0; color: var(--muted); }
   dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 8px 0; }

@@ -346,8 +346,13 @@ impl Api {
             let display = shown.as_ref().map(|(_, e)| e.word.clone()).unwrap_or_else(|| word.to_string());
             self.record_lookup(&key, &display, shown.as_ref().map_or("", |(s, _)| s.id))?;
         }
+        // Syllables: the shown entry's own, else the first other dictionary that has them.
+        let syl: Option<String> = shown.as_ref().and_then(|(_, e)| e.syl.clone()).or_else(|| {
+            self.sources.iter().find_map(|s| s.pack.lock().unwrap().get(&key).ok().flatten().and_then(|e| e.syl))
+        });
         Ok(json!({
             "key": key,
+            "syl": syl,
             "source": shown.as_ref().map(|(s, _)| json!({"id": s.id, "name": s.name})),
             "ipa_fallback": ipa_fallback,
             "roots": self.barrons().map(|b| b.roots_for(&key)).unwrap_or_default(),
@@ -368,6 +373,7 @@ impl Api {
                 if record {
                     self.record_lookup(key, &e.word, "mw")?;
                 }
+                out["syl"] = json!(e.syl.clone().or_else(|| self.sources.iter().find_map(|s| s.pack.lock().unwrap().get(key).ok().flatten().and_then(|x| x.syl))));
                 out["entry"] = json!(e);
             }
             Ok(Err(suggestions)) => out["did_you_mean"] = json!(suggestions),

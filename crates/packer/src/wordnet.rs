@@ -167,7 +167,7 @@ pub fn build(input: &Path, out: &Path) -> Result<()> {
         let block = Block { pos, senses, ..Default::default() };
         let e = by_key.entry(key.clone()).or_insert_with(|| {
             order.push(key.clone());
-            Entry { word: le.lemma.clone(), blocks: Vec::new() }
+            Entry { word: le.lemma.clone(), syl: None, blocks: Vec::new() }
         });
         let mut block = block;
         if le.lemma != e.word {
