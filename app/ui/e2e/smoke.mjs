@@ -226,9 +226,11 @@ const BASE_B = process.env.BASE_B;
 if (BASE_B && process.env.PAIR_A) {
   const pairVia = async (page, base, code) => {
     await page.goto(base + '?tab=settings', { waitUntil: 'networkidle0' });
+    await page.waitForSelector('details.alt');
+    await page.$eval('details.alt', (e) => { e.open = true; });
     await page.waitForSelector('textarea');
     await page.$eval('textarea', (e, v) => { e.value = v; e.dispatchEvent(new Event('input', { bubbles: true })); }, code);
-    await clickText(page, 'button', 'Pair');
+    await clickText(page, 'button', 'Pair with code');
     await page.waitForFunction(() => document.body.innerText.includes('Synced via'), { timeout: 20000 });
   };
   const a = await newPage(1000, 900);

@@ -62,6 +62,37 @@ pub fn map_collegiate(word: &str, v: &Value) -> Result<Result<Entry, Vec<String>
     let objs: Vec<&Value> = arr.iter().filter(|e| e.is_object()).collect();
     let headed: Vec<&Value> = objs.iter().copied().filter(|e| e["hwi"]["hw"].as_str().is_some_and(|h| h.replace('*', "").to_lowercase() == want)).collect();
     let stemmed: Vec<&Value> = objs.iter().copied().filter(|e| e["meta"]["stems"].as_array().is_some_and(|a| a.iter().any(|x| x.as_str().is_some_and(|x| x.to_lowercase() == want)))).collect();
+    // A derived word ("japery") is often only a run-on of another entry ("jape"):
+    // it keeps its own part of speech, syllables and pronunciation, and borrows the
+    // parent's definitions.
+    let run_on = if headed.is_empty() {
+        objs.iter().copied().find_map(|e| {
+            e["uros"].as_array()?.iter().find(|u| u["ure"].as_str().is_some_and(|x| x.replace('*', "").to_lowercase() == want)).map(|u| (e, u))
+        })
+    } else {
+        None
+    };
+    if let Some((parent, uro)) = run_on {
+        let senses: Vec<Sense> = parent["shortdef"].as_array().into_iter().flatten().filter_map(Value::as_str).map(|d| Sense { gloss: plain(d), ..Default::default() }).collect();
+        let sounds: Vec<Sound> = uro["prs"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|p| Sound { ipa: p["mw"].as_str().map(|m| format!("\\{m}\\")), audio: p["sound"]["audio"].as_str().map(audio_url), tags: vec![] })
+            .collect();
+        let ure = uro["ure"].as_str().unwrap_or("");
+        let syl = ure.contains('*').then(|| ure.replace('*', "\u{b7}"));
+        let block = Block {
+            pos: uro["fl"].as_str().unwrap_or("").to_string(),
+            head: parent["hwi"]["hw"].as_str().map(|h| h.replace('*', "")),
+            sounds,
+            senses,
+            ..Default::default()
+        };
+        if !block.senses.is_empty() {
+            return Ok(Ok(Entry { word: word.to_string(), syl, blocks: vec![block] }));
+        }
+    }
     let chosen = if !headed.is_empty() { headed } else if !stemmed.is_empty() { stemmed } else { objs };
     for e in chosen {
         let senses: Vec<Sense> = e["shortdef"].as_array().into_iter().flatten().filter_map(Value::as_str).map(|d| Sense { gloss: plain(d), ..Default::default() }).collect();
@@ -253,6 +284,17 @@ pub(crate) const CACHE_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS mw(kind TEXT N
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_run_on_word_gets_its_own_pronunciation_and_parts() {
+        let v = json!([{"hwi": {"hw": "jape", "prs": [{"mw": "ˈjāp"}]}, "fl": "verb", "shortdef": ["to joke"],
+            "uros": [{"ure": "jap*er", "fl": "noun", "prs": [{"mw": "ˈjā-pər"}]}, {"ure": "jap*ery", "fl": "noun", "prs": [{"mw": "ˈjā-p(ə-)rē"}]}]}]);
+        let e = map_collegiate("japery", &v).unwrap().unwrap();
+        assert_eq!(e.syl.as_deref(), Some("jap·ery"));
+        assert_eq!(e.blocks[0].pos, "noun");
+        assert_eq!(e.blocks[0].head.as_deref(), Some("jape"));
+        assert_eq!(e.blocks[0].sounds[0].ipa.as_deref(), Some("\\ˈjā-p(ə-)rē\\"));
+    }
 
     #[test]
     fn neighbours_are_dropped() {
