@@ -15,6 +15,15 @@ Kept current by whoever changes the app (Claude Code included): when you fix som
 - **Camera screen on the Mac is unusable:** the live video fills the window, so the **Take photo** button is pushed off screen and there is no X button; only Escape closes it. Fix: keep the video within the window (`max-height`/`min-height: 0`, controls overlaid at the bottom), add an obvious X in the top corner, and rotate or offer a rotate button for a sideways notebook (the preview and the read photo came out rotated 90 degrees).
 - **Settings cards touch each other:** the "On-device AI" card sits directly under the "Downloads" card with no gap (and no shadow separation), because the card's component has no margin of its own (`section { margin: 14px 0 }` lives in `Settings.svelte` only). Give every card a shared margin in `app.css` or wrap them in a stack. Check Settings at phone width as well.
 
+- **Quiz answers submit on the first tap:** let the person select (and change) an answer first, then confirm with a Submit button, for every quiz style.
+- **Quizzes cannot be paused and resumed:** a quiz in progress should be saved (session state, current item, answers so far) so the person can leave and continue later, from any device ideally (the session already syncs); list unfinished quizzes on the Quizzes screen.
+- **History repeats a word:** consecutive entries for the same word, especially when looked up in different dictionaries one after another, should be combined into one row (keep the latest time, list the sources it was opened in).
+- **Search box cannot be edited on the phone:** the "can't backspace / the X does not clear" bug is still there on mobile after the desktop fix (`SearchBar.svelte` effect). Reproduce on the S24 Ultra (Android web view: check the `input` event, IME composition, and the Clear button's `onmousedown` handler, which touch screens may never fire; use `pointerdown`/`click`).
+- **No version shown in the app:** add the app version (and the server version when paired) to Settings, and in the status panel.
+- **Sound does not work on the phone:** neither recordings nor the speech fallback play on Android; check the web view's audio and `speechSynthesis` support, autoplay rules, and whether audio files are fetched from the downloaded cache.
+- **Long examples hide the word:** highlight the headword (and its inflections) inside example sentences so it can be found at a glance.
+- **Too much text is selectable:** functional and navigational text (tabs, section and card headings, labels, panel titles, status pills, buttons, quiz chrome) must not be selectable or open the system selection bubble; only dictionary content (definitions, examples, notes) and inputs should be. The first pass covered buttons, labels, headings and the tab bar; audit every screen on desktop and phone.
+
 **Known defects and gaps**
 - **macOS is not notarized** (no paid Apple account): the app is ad-hoc signed, so macOS shows a one-time "unidentified developer" prompt and a freshly downloaded copy needs `xattr -dr com.apple.quarantine /Applications/LadyBird.app`.
 - **macOS hides the Wi-Fi name from apps**, so auto-pair falls back to "this device is on the server's /24 (192.168.1.x)". Another network that also uses 192.168.1.x and has a device at 192.168.1.7:25 could be mistaken for home (the device must also answer TLS and the enrollment request). Fix idea: ask for Location permission so the SSID is readable, or confirm the server certificate fingerprint once.
@@ -31,6 +40,7 @@ Kept current by whoever changes the app (Claude Code included): when you fix som
 ## Upcoming
 
 **Next up**
+- **Self-updating app (owner request, high priority):** devices must update themselves; nobody should download a release from GitHub by hand. Sketch: the sync server already has `latest.json` per release in `~/lexis-releases`; serve it (and the files) to paired devices over the pinned-TLS channel, show "Update available" in Settings with one button (and optionally update on its own at home), verify the SHA-256 and a signature before installing. Mac: Tauri's updater plugin with a signed manifest, or replace the app bundle from the verified DMG; Linux: swap the AppImage; Android: download the APK and hand it to the system installer (needs the "install unknown apps" permission once; the APK must keep the same signing key). Unpaired devices could fall back to GitHub releases.
 1. Release v0.6.1 from the Ubuntu box (AppImage + signed APK), letting the release-mac workflow attach the DMG; update and restart `gredict-syncd` there.
 2. Real-device test pass on the Mac and the S24 Ultra, recording what the NPU actually uses.
 3. Keep SSH from the Mac to the box working (key login is set up; see SETUP "Which machine is which").
