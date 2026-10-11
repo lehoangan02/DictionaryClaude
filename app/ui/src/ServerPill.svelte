@@ -53,7 +53,12 @@
   const tone = $derived(!st.paired || checking ? 'grey' : st.online ? (st.vpn ? 'amber' : st.route === 'lan' ? 'green' : 'blue') : 'red');
 </script>
 
-<svelte:window onclick={(e) => { if (open && wrap && !wrap.contains(e.target as Node)) open = false; }} />
+<!-- Close on any press outside (captured so nothing can swallow it), on Escape, and when the window loses focus. -->
+<svelte:window
+  onpointerdowncapture={(e) => { if (open && wrap && !wrap.contains(e.target as Node)) open = false; }}
+  onkeydown={(e) => { if (e.key === 'Escape') open = false; }}
+  onblur={() => (open = false)}
+/>
 
 <div class="wrapper" bind:this={wrap}>
   <button class="pill" onclick={() => { open = !open; if (open) refresh(); }} aria-expanded={open} aria-label="Sync server: {label}">
@@ -102,7 +107,7 @@
   .pend { background: var(--accent); border-radius: 999px; padding: 0 7px; font-size: 11px; font-weight: 700; }
   .vpn { font-size: 10px; font-weight: 700; border: 1px solid #ffb020; color: #ffb020; border-radius: 4px; padding: 0 4px; }
   .pop {
-    position: absolute; right: 0; top: calc(100% + 8px); width: min(390px, 92vw); background: var(--bg); color: var(--text);
+    position: absolute; right: 0; top: calc(100% + 24px); width: min(390px, 92vw); background: var(--bg); color: var(--text);
     border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 14px 16px; z-index: 40; font-size: 14px;
   }
   .pop p { margin: 6px 0; color: var(--muted); }

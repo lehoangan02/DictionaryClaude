@@ -35,7 +35,9 @@
     entry ? [...new Set<string>(entry.blocks.map((b: any) => b.etymology).filter(Boolean))] : [],
   );
   const tabs = $derived((void app.orderVersion, orderedSources().visible));
-  const best = (id: string) => id === 'mw' || data?.found_in.includes(id);
+  // A dictionary without the word is greyed out and cannot be opened; Merriam-Webster is a live lookup, so it is always allowed.
+  const has = (id: string) => id === 'mw' || !!data?.found_in.includes(id);
+  const shownId = $derived<string>(data?.source?.id ?? app.source);
 
   // Short, modern sentences first; dated quotations stay one click away.
   type Ex = { text: string; by?: string };
@@ -66,9 +68,9 @@
   <article class:dim={loading}>
     <div class="srcs" role="tablist" aria-label="Dictionary source">
       {#each tabs as s (s.id)}
-        <button role="tab" aria-selected={app.source === s.id} class:on={app.source === s.id}
-          class:missing={!best(s.id)} onclick={() => setSource(s.id)}
-          title={best(s.id) ? '' : 'Not in this dictionary'}>{s.name}</button>
+        <button role="tab" aria-selected={shownId === s.id} class:on={shownId === s.id}
+          class:missing={!has(s.id)} disabled={!has(s.id)} onclick={() => setSource(s.id)}
+          title={has(s.id) ? '' : `${s.name} does not have this word`}>{s.name}</button>
       {/each}
     </div>
 
@@ -86,10 +88,6 @@
         <p>Did you mean {#each did as w (w)}<button class="chip" onclick={() => open(w)}>{w}</button>{/each}</p>
       {/if}
     {:else}
-      {#if data.source.id !== app.source}
-        <p class="note">Not in {app.sources.find((s) => s.id === app.source)?.name}; showing {data.source.name}.</p>
-      {/if}
-
       <header class="head">
         <div class="hwrow">
           <h1 class="hw">{data.syl ?? entry.word}</h1>
@@ -220,7 +218,8 @@
   .srcs button { background: none; border: 0; padding: 6px 14px; border-radius: 999px; color: var(--muted); white-space: nowrap; font-size: 14px; }
   .srcs button:hover { color: var(--blue); }
   .srcs button.on { background: var(--blue); color: #fff; font-weight: 600; }
-  .srcs button.missing:not(.on) { opacity: 0.45; }
+  .srcs button.missing { opacity: 0.38; cursor: not-allowed; text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--muted) 50%, transparent); }
+  .srcs button.missing:hover { color: var(--muted); }
   .note { background: var(--panel); border-left: 4px solid var(--accent); padding: 8px 12px; border-radius: 4px; }
 
   .head { margin-bottom: 18px; }

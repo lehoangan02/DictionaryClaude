@@ -55,6 +55,25 @@ await d.waitForFunction(() => document.querySelector('.srcs button.on')?.textCon
 await d.waitForFunction(() => !document.querySelector('article.dim'));
 ok((await d.$$('.senses > li')).length >= 1, 'WordNet source shows senses');
 
+// A dictionary without the word is greyed out and cannot be opened; the word still shows from one that has it.
+await d.goto(BASE + '?w=selfie&source=wordnet', { waitUntil: 'networkidle0' });
+await d.waitForSelector('.hw');
+const tabState = await d.$$eval('.srcs button', (b) => b.map((x) => ({ t: x.textContent.trim(), off: x.disabled, on: x.classList.contains('on') })));
+ok(tabState.find((t) => t.t === 'WordNet')?.off && tabState.find((t) => t.t === 'Webster 1913')?.off, 'dictionaries without the word are disabled');
+ok(tabState.find((t) => t.t === 'Wiktionary')?.on && !tabState.find((t) => t.t === 'Wiktionary')?.off, 'the result shows from the dictionary that has it');
+ok(!(await d.$('.note')), 'no "not in this dictionary" panel');
+await d.goto(BASE, { waitUntil: 'networkidle0' });
+// The server popover closes when you press anywhere else, and keeps clear of the search box.
+await d.click('.pill'); await d.waitForSelector('.pop');
+const gap = await d.evaluate(() => document.querySelector('.pop').getBoundingClientRect().top - document.querySelector('.sb input').getBoundingClientRect().bottom);
+ok(gap >= 10, `the popover keeps clear of the search box (${Math.round(gap)} px gap)`);
+await d.mouse.click(300, 600);
+await new Promise((r) => setTimeout(r, 250));
+ok(!(await d.$('.pop')), 'the popover closes when you click elsewhere');
+await d.click('.pill'); await d.waitForSelector('.pop'); await d.keyboard.press('Escape');
+await new Promise((r) => setTimeout(r, 250));
+ok(!(await d.$('.pop')), 'the popover closes on Escape');
+
 // Back and forward go through the words you looked up, not the alphabet.
 await d.type('input[type=search]', 'x');
 await d.$eval('input[type=search]', (e) => { e.value = ''; });
