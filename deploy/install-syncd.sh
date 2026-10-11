@@ -8,9 +8,11 @@ BIN=target/release/gredict-syncd
 [ -x "$BIN" ] || { echo "build first: cargo build --release -p gredict-syncd"; exit 1; }
 STATE=/var/lib/lexis-syncd
 install -m 0755 "$BIN" /usr/local/bin/gredict-syncd
-install -d -o lhan -g lhan "$STATE" "$STATE/private"
+install -d -o lhan -g lhan "$STATE" "$STATE/private" "$STATE/packs"
 # The parsed Barron's book (never the PDF) is what paired devices receive.
 if [ -f private/barrons.sqlite ]; then install -o lhan -g lhan -m 0644 private/barrons.sqlite "$STATE/private/barrons.sqlite"; fi
+# The dictionary packs paired devices can download (Settings -> Dictionaries).
+for f in data/packs/*.pack data/packs/*.fst; do [ -f "$f" ] && install -o lhan -g lhan -m 0644 "$f" "$STATE/packs/$(basename "$f")"; done
 install -m 0644 deploy/gredict-syncd.service /etc/systemd/system/gredict-syncd.service
 systemctl daemon-reload
 systemctl enable gredict-syncd

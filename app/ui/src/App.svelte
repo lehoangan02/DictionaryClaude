@@ -63,7 +63,13 @@
     <!-- Each screen slides up into place when you switch to it. -->
     {#key app.tab}
       <div class="view" in:enter={{ y: 14, duration: 260 }}>
-        {#if app.tab === 'search'}
+        {#if app.tab === 'search' && !app.sources.some((x) => x.id !== 'mw')}
+          <div class="card empty">
+            <h2>Get your dictionaries</h2>
+            <p class="muted">This device has no dictionaries yet. Pair it with your server and download them in Settings, which keeps the app itself small.</p>
+            <button class="btn primary" onclick={() => (app.tab = 'settings')}>Open Settings</button>
+          </div>
+        {:else if app.tab === 'search'}
           <EntryView />
         {:else if app.tab === 'history'}
           <History />
@@ -124,4 +130,5 @@
     .tabbar button { transition: background-color var(--t) var(--ease), color var(--t) var(--ease), transform var(--t-fast) var(--ease); }
     .tabbar button.on { color: var(--blue); background: var(--blue-soft); font-weight: 700; }
   }
+.empty { margin: 24px 0; display: grid; gap: 12px; justify-items: start; }
 </style>

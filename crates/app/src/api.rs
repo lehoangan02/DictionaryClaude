@@ -5,7 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, bail, Result};
 use gredict_core::entry::Entry;
 use gredict_core::notes::{self, Graph};
 use gredict_core::pack::Pack;
@@ -20,6 +20,7 @@ use serde_json::{json, Value};
 use crate::barrons::Barrons;
 use crate::userdb::{self, new_id, now_ms};
 
+#[derive(Clone)]
 pub struct Config {
     /// Holds `user.sqlite` and caches. Created if missing.
     pub data_dir: PathBuf,
@@ -51,6 +52,9 @@ fn open_cache(dir: &std::path::Path) -> Result<Connection> {
 
 pub struct Api {
     pub(crate) sources: Vec<Source>,
+    /// Bundled packs (read-only) and the downloaded ones in `<data>/packs`.
+    pub(crate) packs_dir: PathBuf,
+    pub(crate) pack_progress: Mutex<HashMap<String, (u64, u64)>>,
     pub(crate) moby: Option<Mutex<Thesaurus>>,
     /// Hot-swappable: a paired device receives the parsed book from the server.
     pub(crate) barrons: RwLock<Option<Arc<Barrons>>>,
@@ -81,11 +85,16 @@ struct Suggestion {
 impl Api {
     /// User data only, no dictionaries: what the sync server needs.
     pub fn open_headless(data_dir: &std::path::Path) -> Result<Self> {
+        Self::open_headless_serving(data_dir, &data_dir.join("none"))
+    }
+
+    /// Like `open_headless`, and offers the pack files in `packs_dir` to paired devices.
+    pub fn open_headless_serving(data_dir: &std::path::Path, packs_dir: &std::path::Path) -> Result<Self> {
         std::fs::create_dir_all(data_dir)?;
         let db = userdb::open(&data_dir.join("user.sqlite"))?;
         let device = Self::device_id(&db)?;
         let fuzzy_paths = [data_dir.join("none.fst"), data_dir.join("none.fst")];
-        Ok(Api { sources: Vec::new(), moby: None, barrons: RwLock::new(None), private_dir: None, db: Mutex::new(db), device, rng: Mutex::new(now_ms() as u64 | 1), data_dir: data_dir.to_path_buf(), cache: Mutex::new(open_cache(data_dir)?), pron: None, dirty: Default::default(), fuzzy: OnceLock::new(), fuzzy_paths, barrons_syn: RwLock::new(None) })
+        Ok(Api { sources: Vec::new(), packs_dir: packs_dir.to_path_buf(), pack_progress: Default::default(), moby: None, barrons: RwLock::new(None), private_dir: None, db: Mutex::new(db), device, rng: Mutex::new(now_ms() as u64 | 1), data_dir: data_dir.to_path_buf(), cache: Mutex::new(open_cache(data_dir)?), pron: None, dirty: Default::default(), fuzzy: OnceLock::new(), fuzzy_paths, barrons_syn: RwLock::new(None) })
     }
 
     fn device_id(db: &Connection) -> Result<String> {
@@ -104,29 +113,28 @@ impl Api {
         let db = userdb::open(&cfg.data_dir.join("user.sqlite"))?;
         let device = Self::device_id(&db)?;
         let mut sources = Vec::new();
+        let find = |file: &str| crate::packs::locate(&cfg.data_dir, &cfg.packs_dir, file);
         for (id, name, file) in SOURCES {
-            let p = cfg.packs_dir.join(file);
+            let p = find(file);
             if p.exists() {
                 let pack = Pack::open(&p)?;
                 let entries = pack.len()?;
                 sources.push(Source { id, name, pack: Mutex::new(pack), entries });
             }
         }
-        if sources.is_empty() {
-            bail!("no dictionary packs found in {}", cfg.packs_dir.display());
-        }
-        let moby = cfg.packs_dir.join("moby.pack");
+        // No packs is allowed: a fresh phone starts empty and downloads them.
+        let moby = find("moby.pack");
         let moby = moby.exists().then(|| Thesaurus::open(&moby)).transpose()?.map(Mutex::new);
         let barrons = match cfg.private_dir.as_ref().map(|d| d.join("barrons.sqlite")) {
             Some(p) if p.exists() => Some(Arc::new(Barrons::open(&p)?)),
             _ => None,
         };
         let pron = {
-            let p = cfg.packs_dir.join("cmudict.pack");
+            let p = find("cmudict.pack");
             p.exists().then(|| Pronunciations::open(&p)).transpose()?.map(Mutex::new)
         };
-        let fuzzy_paths = [cfg.packs_dir.join("wiktionary.fst"), cfg.data_dir.join("wiktionary.fst")];
-        Ok(Api { sources, moby, barrons: RwLock::new(barrons), private_dir: cfg.private_dir, db: Mutex::new(db), device, rng: Mutex::new(now_ms() as u64 | 1), data_dir: cfg.data_dir.clone(), cache: Mutex::new(open_cache(&cfg.data_dir)?), pron, dirty: Default::default(), fuzzy: OnceLock::new(), fuzzy_paths, barrons_syn: RwLock::new(None) })
+        let fuzzy_paths = [find("wiktionary.fst"), cfg.data_dir.join("wiktionary.fst")];
+        Ok(Api { sources, packs_dir: cfg.packs_dir.clone(), pack_progress: Default::default(), moby, barrons: RwLock::new(barrons), private_dir: cfg.private_dir, db: Mutex::new(db), device, rng: Mutex::new(now_ms() as u64 | 1), data_dir: cfg.data_dir.clone(), cache: Mutex::new(open_cache(&cfg.data_dir)?), pron, dirty: Default::default(), fuzzy: OnceLock::new(), fuzzy_paths, barrons_syn: RwLock::new(None) })
     }
 
     pub fn call(&self, cmd: &str, args: Value) -> Result<Value> {
@@ -141,6 +149,9 @@ impl Api {
     fn dispatch(&self, cmd: &str, args: Value) -> Result<Value> {
         let a = |k: &str| args.get(k).and_then(Value::as_str).map(str::to_string);
         let n = |k: &str, d: i64| args.get(k).and_then(Value::as_i64).unwrap_or(d);
+        if self.sources.is_empty() && matches!(cmd, "search" | "entry") {
+            bail!("no dictionaries are installed yet: open Settings → Dictionaries to download them");
+        }
         let req = |k: &str| a(k).ok_or_else(|| anyhow!("missing argument `{k}`"));
         match cmd {
             "sources" => {
@@ -151,6 +162,11 @@ impl Api {
                 }
                 Ok(json!(v))
             }
+            "packs_list" => self.packs_list(),
+            "packs_catalog" => self.packs_catalog(),
+            "pack_install" => self.pack_install(&req("id")?),
+            "pack_remove" => self.pack_remove(&req("id")?),
+            "pack_progress" => Ok(self.pack_progress_now()),
             "mw_status" => self.mw_status(),
             "mw_config" => self.mw_config(&args),
             "search" => self.search(&req("q")?, a("source").as_deref()),
@@ -276,7 +292,7 @@ impl Api {
                     return Fuzzy::open(p).ok();
                 }
                 let wikt = self.sources.iter().find(|s| s.id == "wiktionary")?;
-                let pack_path = self.fuzzy_paths[0].with_file_name("wiktionary.pack");
+                let pack_path = crate::packs::locate(&self.data_dir, &self.packs_dir, "wiktionary.pack");
                 let _ = wikt;
                 Fuzzy::build(&pack_path, &self.fuzzy_paths[1]).ok()?;
                 Fuzzy::open(&self.fuzzy_paths[1]).ok()

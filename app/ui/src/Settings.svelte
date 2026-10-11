@@ -2,6 +2,7 @@
   import { call } from './lib/api';
   import { app, setTheme, bump, orderedSources, saveOrder } from './lib/store.svelte';
   import Icon from './Icon.svelte';
+  import PackManager from './PackManager.svelte';
   import { flip } from 'svelte/animate';
   import { flipDur } from './lib/motion';
   import { when } from './lib/format';
@@ -107,8 +108,9 @@
   <p class="muted small">Wiktionary is CC BY-SA 4.0, WordNet is CC BY 4.0; Webster 1913 and the Moby thesaurus are public domain. Barron's material stays private on your devices.</p>
 </section>
 
+<PackManager />
 
-<section class="card rise" style="--i:1">
+<section class="card rise" style="--i:2">
   <h3>Sync server</h3>
   {#if status.paired}
     <p>Paired with <b>{status.name}</b>. {status.pending ?? 0} change{status.pending === 1 ? '' : 's'} waiting.
@@ -131,7 +133,7 @@
   {#if msg}<p class="msg">{msg}</p>{/if}
 </section>
 
-<section class="card rise" style="--i:2">
+<section class="card rise" style="--i:3">
   <h3>Merriam-Webster</h3>
   <p class="muted small">
     Optional. Uses Merriam-Webster's free API for personal, non-commercial use (1,000 lookups a day per reference). Get free keys for
@@ -155,7 +157,7 @@
   {#if mwMsg}<p class="msg small">{mwMsg}</p>{/if}
 </section>
 
-<section class="card rise" style="--i:3">
+<section class="card rise" style="--i:4">
   <h3>Pronunciation</h3>
   <p class="muted small">Recordings play from this device once downloaded; until then the app speaks the word. Download the Barron's words so they work without internet.</p>
   <div class="row">
@@ -170,7 +172,7 @@
   {#if dl.note}<p class="muted small">{dl.note}</p>{/if}
 </section>
 
-<section class="card rise" style="--i:4">
+<section class="card rise" style="--i:5">
   <h3>Appearance</h3>
   <div class="seg" role="radiogroup" aria-label="Theme">
     {#each ['system', 'light', 'dark'] as t}

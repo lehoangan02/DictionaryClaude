@@ -148,6 +148,25 @@ pub fn handle(api: &Api, tokens: &Tokens, private: &Path, mut req: Request) {
             None => reply(req, 404, json!({"error": "no such photo"})),
         };
     }
+    if path == "/v1/packs" {
+        return match api.packs_served() {
+            Ok(v) => reply(req, 200, v),
+            Err(e) => reply(req, 500, json!({"error": format!("{e:#}")})),
+        };
+    }
+    if path == "/v1/pack/get" {
+        // A dictionary pack, from `offset` so an interrupted download resumes.
+        let file = args.get("file").and_then(Value::as_str).unwrap_or("");
+        let offset = args.get("offset").and_then(Value::as_u64).unwrap_or(0);
+        return match api.pack_open_for_serving(file, offset) {
+            Ok((f, len, sum)) => {
+                let h1 = Header::from_bytes("Content-Type", "application/octet-stream").unwrap();
+                let h2 = Header::from_bytes("X-Sha256", sum.as_bytes()).unwrap();
+                let _ = req.respond(Response::new(StatusCode(200), vec![h1, h2], f, Some(len.saturating_sub(offset) as usize), None));
+            }
+            Err(e) => reply(req, 404, json!({"error": format!("{e:#}")})),
+        };
+    }
     if path == "/v1/blob/barrons" {
         // The parsed book (never the PDF) goes to the owner's paired devices.
         let Ok(bytes) = fs::read(private.join("barrons.sqlite")) else { return reply(req, 404, json!({"error": "no book on this server"})) };

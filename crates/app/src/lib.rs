@@ -8,6 +8,7 @@ mod jobs;
 pub mod barrons;
 mod mw;
 mod net;
+mod packs;
 pub mod pairing;
 mod quiz;
 mod sync;

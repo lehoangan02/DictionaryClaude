@@ -18,6 +18,9 @@ struct Cli {
     /// Where barrons.sqlite lives; it is offered to paired devices.
     #[arg(long, default_value = "private", global = true)]
     private: PathBuf,
+    /// Dictionary packs offered to paired devices (default: <data>/packs).
+    #[arg(long, global = true)]
+    packs: Option<PathBuf>,
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -54,7 +57,7 @@ fn main() -> Result<()> {
     match cli.cmd {
         Cmd::Serve { lan, wan } => {
             let tls = ensure_tls(&cli.data.join("tls"), &cli.sans)?;
-            let api = Arc::new(Api::open_headless(&cli.data)?);
+            let api = Arc::new(Api::open_headless_serving(&cli.data, &cli.packs.clone().unwrap_or_else(|| cli.data.join("packs")))?);
             // Reads photographed notes (OCR) and serves agent requests.
             gredict_app::spawn_job_runner(api.clone(), std::time::Duration::from_secs(5));
             let mut addrs = Vec::new();

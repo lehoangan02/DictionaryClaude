@@ -44,13 +44,13 @@ struct Probe {
     error: Option<String>,
 }
 
-fn agent(cert_pem: &str, timeout: Duration) -> Result<ureq::Agent> {
+pub(crate) fn agent(cert_pem: &str, timeout: Duration) -> Result<ureq::Agent> {
     let cert = Certificate::from_pem(cert_pem.as_bytes()).map_err(|e| anyhow!("bad server certificate: {e}"))?;
     let tls = TlsConfig::builder().root_certs(RootCerts::new_with_certs(&[cert])).build();
     Ok(ureq::Agent::config_builder().tls_config(tls).timeout_global(Some(timeout)).http_status_as_error(false).build().into())
 }
 
-fn post(agent: &ureq::Agent, host: &str, token: &str, path: &str, body: &Value) -> Result<Value> {
+pub(crate) fn post(agent: &ureq::Agent, host: &str, token: &str, path: &str, body: &Value) -> Result<Value> {
     let mut resp = agent
         .post(&format!("https://{host}{path}"))
         .header("Authorization", &format!("Bearer {token}"))
@@ -109,7 +109,7 @@ fn vpn_active() -> bool {
     })
 }
 
-fn sha_hex(bytes: &[u8]) -> String {
+pub(crate) fn sha_hex(bytes: &[u8]) -> String {
     Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
 }
 
@@ -204,7 +204,7 @@ impl Api {
         Ok(())
     }
 
-    fn pairing(&self) -> Option<Pairing> {
+    pub(crate) fn pairing(&self) -> Option<Pairing> {
         serde_json::from_str(&self.setting("sync.pairing")?).ok()
     }
 
@@ -252,6 +252,21 @@ impl Api {
             probes.iter().find(|p| p.ok)
         };
         (pick.map(|p| p.route), probes, ssid, vpn)
+    }
+
+    /// A verified route to the server: its host, the pairing and a TLS agent
+    /// that trusts only the paired certificate.
+    pub(crate) fn server_conn(&self, timeout: Duration) -> Result<(String, Pairing, ureq::Agent)> {
+        let p = self.pairing().ok_or_else(|| anyhow!("this device is not paired with a sync server"))?;
+        let (route, ..) = self.choose_route(&p);
+        let host = match route {
+            Some(Route::Lan) => p.lan.clone(),
+            Some(Route::Wan) => p.wan.clone(),
+            None => bail!("the sync server is not reachable"),
+        }
+        .unwrap();
+        let a = agent(&p.cert, timeout)?;
+        Ok((host, p, a))
     }
 
     /// Status for the header pill and the sync settings.
@@ -358,10 +373,15 @@ impl Api {
 /// Keeps a paired device in step without anyone opening anything: soon after
 /// a local change, and at least every `every` to pick up other devices' edits.
 pub fn spawn_background_sync(api: Arc<Api>, every: Duration) -> std::thread::JoinHandle<()> {
+    // Holding only a weak handle lets the app drop and reopen the Api (after a
+    // dictionary download) without leaving this loop on the old one.
+    let weak = Arc::downgrade(&api);
+    drop(api);
     std::thread::spawn(move || {
         let mut last = Instant::now() - every;
         loop {
             std::thread::sleep(Duration::from_secs(15));
+            let Some(api) = weak.upgrade() else { return };
             if api.pairing().is_none() {
                 continue;
             }

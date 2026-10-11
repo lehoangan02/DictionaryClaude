@@ -236,3 +236,52 @@ fn photographed_notes_travel_to_the_server_get_read_and_reach_another_device() {
     assert_eq!(phone.call("drafts_list", json!({})).unwrap().as_array().unwrap().len(), 0, "the draft is closed everywhere");
     assert_eq!(phone.call("thesaurus", json!({"word": "adamant"})).unwrap()["notes"]["same"], json!(["intransigent", "obdurate"]));
 }
+
+#[test]
+fn a_device_downloads_dictionaries_from_the_server_resumes_and_checks_them() {
+    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    // A fake pack: any SQLite-headed file will do for the transfer.
+    let dir = tmp("packsrv");
+    let packs = dir.join("packs");
+    std::fs::create_dir_all(&packs).unwrap();
+    let mut body = b"SQLite format 3\0".to_vec();
+    body.extend((0..3_000_000u32).map(|i| (i % 251) as u8));
+    std::fs::write(packs.join("wordnet.pack"), &body).unwrap();
+    std::fs::write(packs.join("notes.txt"), "not offered").unwrap();
+
+    let tls = ensure_tls(&dir.join("tls"), &["127.0.0.1".into(), "localhost".into()]).unwrap();
+    let (lan, wan) = (free_port(), free_port());
+    let api = Arc::new(Api::open_headless_serving(&dir, &packs).unwrap());
+    let tokens = Arc::new(Tokens::new(&dir));
+    serve(api, tokens, dir.join("private"), &tls, &[format!("127.0.0.1:{lan}"), format!("127.0.0.1:{wan}")]).unwrap();
+    let s = Server { api: Arc::new(Api::open_headless(&dir.join("x")).unwrap()), lan, wan, dir: dir.clone(), tokens: Tokens::new(&dir), cert: tls.cert_pem };
+
+    let phone_dir = tmp("phone");
+    let phone = Api::open(Config { data_dir: phone_dir.clone(), packs_dir: tmp("nopacks"), private_dir: None }).unwrap();
+    // A brand-new device has no dictionaries and says so plainly.
+    assert!(phone.call("search", json!({"q": "abate"})).unwrap_err().to_string().contains("no dictionaries are installed"));
+    phone.call("sync_pair", json!({"code": code(&s, "phone", Some(lan), Some(wan))})).unwrap();
+
+    let list = phone.call("packs_catalog", json!({})).unwrap();
+    let wn = list["packs"].as_array().unwrap().iter().find(|p| p["id"] == "wordnet").unwrap().clone();
+    assert_eq!(wn["on_server"], true);
+    assert_eq!(wn["downloaded"], false);
+    let own = phone.call("packs_list", json!({})).unwrap();
+    assert_eq!(own["paired"], true);
+    // An interrupted earlier download resumes from what it already has.
+    std::fs::create_dir_all(phone_dir.join("packs")).unwrap();
+    std::fs::write(phone_dir.join("packs/wordnet.pack.part"), &body[..1_000_000]).unwrap();
+    let r = phone.call("pack_install", json!({"id": "wordnet"})).unwrap();
+    assert_eq!(std::fs::read(phone_dir.join("packs/wordnet.pack")).unwrap(), body);
+    assert_eq!(r["reload"], true);
+    let list = phone.call("packs_list", json!({})).unwrap();
+    let wn = list["packs"].as_array().unwrap().iter().find(|p| p["id"] == "wordnet").unwrap();
+    assert_eq!(wn["downloaded"], true);
+    assert_eq!(wn["update"], false);
+    // Removing frees it again.
+    phone.call("pack_remove", json!({"id": "wordnet"})).unwrap();
+    let list = phone.call("packs_list", json!({})).unwrap();
+    assert_eq!(list["packs"].as_array().unwrap().iter().find(|p| p["id"] == "wordnet").unwrap()["downloaded"], false);
+    // Only pack files are offered; a bad name is refused.
+    assert!(phone.call("pack_install", json!({"id": "../../etc/passwd"})).is_err());
+}

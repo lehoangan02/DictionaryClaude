@@ -9,7 +9,15 @@ use gredict_app::{Api, Config};
 use serde_json::Value;
 use tauri::Manager;
 
-struct State(Arc<Api>);
+/// The open API. Installing or removing a dictionary reopens it, so the
+/// pointer is swappable.
+struct State(std::sync::RwLock<Arc<Api>>, Config);
+
+impl State {
+    fn api(&self) -> Arc<Api> {
+        self.0.read().unwrap().clone()
+    }
+}
 
 /// Only the newest request plays: starting a new word stops the previous one.
 static PLAY_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -56,7 +64,7 @@ pub fn say(word: &str) -> Result<(), String> {
 
 #[tauri::command]
 async fn play_audio(state: tauri::State<'_, State>, url: String) -> Result<(), String> {
-    let api = state.0.clone();
+    let api = state.api();
     tauri::async_runtime::spawn_blocking(move || {
         let bytes = api.audio_bytes(&url).map_err(|e| format!("{e:#}"))?;
         play_bytes(bytes)
@@ -72,12 +80,19 @@ async fn speak_text(word: String) -> Result<(), String> {
 
 #[tauri::command]
 async fn call(state: tauri::State<'_, State>, cmd: String, args: Option<Value>) -> Result<Value, String> {
-    let api = state.0.clone();
+    let api = state.api();
     // The API blocks on SQLite and the network; keep it off the UI thread.
-    tauri::async_runtime::spawn_blocking(move || api.call(&cmd, args.unwrap_or(Value::Null)))
+    let out = tauri::async_runtime::spawn_blocking(move || api.call(&cmd, args.unwrap_or(Value::Null)))
         .await
         .map_err(|e| e.to_string())?
-        .map_err(|e| format!("{e:#}"))
+        .map_err(|e| format!("{e:#}"))?;
+    if out["reload"] == true {
+        // A dictionary arrived or left: reopen so every search sees it.
+        let fresh = Arc::new(Api::open(state.1.clone()).map_err(|e| format!("{e:#}"))?);
+        gredict_app::spawn_background_sync(fresh.clone(), Duration::from_secs(300));
+        *state.0.write().unwrap() = fresh;
+    }
+    Ok(out)
 }
 
 /// Where things live. Environment variables override for development; in an
@@ -105,7 +120,8 @@ pub fn run() {
     }
     tauri::Builder::default()
         .setup(move |app| {
-            let api = Arc::new(Api::open(config(app.handle()))?);
+            let cfg = config(app.handle());
+            let api = Arc::new(Api::open(cfg.clone())?);
             api.seed_defaults();
             gredict_app::spawn_background_sync(api.clone(), Duration::from_secs(300));
             if agent {
@@ -114,7 +130,7 @@ pub fn run() {
                     w.hide()?;
                 }
             }
-            app.manage(State(api));
+            app.manage(State(std::sync::RwLock::new(api), cfg));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![call, play_audio, speak_text])
