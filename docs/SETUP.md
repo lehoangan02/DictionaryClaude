@@ -96,6 +96,8 @@ The packer refuses to write the Barron's database if any unit, exercise or answe
 
 ## 5. The Mac (M2 MacBook Air)
 
+**Easiest:** download `LadyBird-<version>-macos-arm64.dmg` from the GitHub release, drag the app to Applications and open it (if macOS says it is damaged: `xattr -dr com.apple.quarantine /Applications/LadyBird.app`). On the home Wi-Fi it pairs with the server by itself; skip to step 6. To build from source instead:
+
 1. Install Xcode command line tools (`xcode-select --install`), Rust (`rustup`), Node 20+.
 2. Get the code: `git clone https://github.com/lehoangan02/DictionaryClaude && cd DictionaryClaude`.
 3. Copy the packs from Ubuntu (they are not in git):
@@ -105,7 +107,7 @@ The packer refuses to write the Barron's database if any unit, exercise or answe
    scp -P 22 lhan@lhan.duckdns.org:~/lexis-pairing/mac.txt ~/Desktop/lexis-mac-code.txt
    ```
 4. Build: `cargo install tauri-cli --version "^2" --locked`, then `cd app/src-tauri && cargo tauri icon icons/source.png && cargo tauri build`. Move `LadyBird.app` to Applications.
-5. Open it, **Settings → Sync server**, paste the code from `lexis-mac-code.txt` (then delete that file). Barron's quizzes arrive with the first sync.
+5. Open it on the home Wi-Fi: it pairs itself (Settings → Sync server → **Pair now** if you want it immediately; the code in `lexis-mac-code.txt` still works under "Pair with a code instead"). Barron's quizzes arrive with the first sync.
 6. Optional background sync at login: `/Applications/LadyBird.app/Contents/MacOS/ladybird --install-agent`.
 7. Location permission lets the app read the Wi-Fi name; if you decline it the app still works by testing both routes.
 

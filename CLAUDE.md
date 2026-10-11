@@ -37,7 +37,9 @@ The repo is published at https://github.com/lehoangan02/DictionaryClaude (public
 
 ## Releases (standing rule from the owner)
 
-Every time the app changes, package it and publish it as a GitHub release. **The owner left versioning to Claude:** use `0.MINOR.PATCH` (new feature or visible redesign: bump MINOR; fix: bump PATCH). Run `scripts/release.sh <version> --publish` from a clean, committed tree: it tests, bumps `app/src-tauri/tauri.conf.json` and `Cargo.toml`, builds the AppImage, saves it and `latest.json` under `~/lexis-releases`, tags `v<version>`, pushes and creates the GitHub release. Only Linux x86_64 is built here (the Mac and phone build from source). Releases never contain Barron's (`private/` is not bundled).
+Every time the app changes, package it and publish it as a GitHub release. **The owner left versioning to Claude:** use `0.MINOR.PATCH` (new feature or visible redesign: bump MINOR; fix: bump PATCH). Run `scripts/release.sh <version> --publish` from a clean, committed tree: it tests, bumps `app/src-tauri/tauri.conf.json` and `Cargo.toml`, builds the AppImage, saves it and `latest.json` under `~/lexis-releases`, tags `v<version>`, pushes and creates the GitHub release. Only Linux x86_64 (and the Android APK, if the SDK is present) is built there. Releases never contain Barron's (`private/` is not bundled).
+
+**macOS is part of every release (standing rule, do not wait to be reminded).** Publishing triggers `.github/workflows/release-mac.yml`, which builds the Apple-silicon DMG, checks it is ad-hoc signed (`signingIdentity: "-"` in `tauri.conf.json`; without it macOS calls a downloaded app "damaged") and attaches `LadyBird-<version>-macos-arm64.dmg` to the release. When the owner asks to rebuild or replace the Mac build, run `scripts/release-mac.sh v<version>` on the Mac (needs `. ~/.cargo/env`, `gh auth login` and `cargo install tauri-cli --version "^2" --locked`); it uploads with `--clobber`. Never remove the signing identity. Release notes tell users to run `xattr -dr com.apple.quarantine /Applications/LadyBird.app` if macOS still objects (no paid Apple account, so no notarization).
 
 ## Commands
 
