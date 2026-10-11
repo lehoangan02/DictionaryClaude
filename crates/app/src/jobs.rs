@@ -86,6 +86,27 @@ Write the relation symbols the way they are used: = (same meaning), ≈ (similar
 Keep colons, brackets, slashes, Vietnamese words and abbreviations like sth as written. \
 Output only the transcription, with no comments, no numbering and no markdown.";
 
+/// Joins the indented second lines of a note back onto it ("court (v): please so to get what you want" /
+/// "try to get sth"): a short lowercase line with no colon or relation symbol belongs to the line above.
+pub fn join_continuations(text: &str) -> String {
+    let marks = [':', '=', '≈', '≠', '⍯', '>', '<'];
+    let mut out: Vec<String> = Vec::new();
+    for line in text.lines().map(str::trim).filter(|l| !l.is_empty()) {
+        let continuation = !line.contains(marks.as_slice())
+            && line.split_whitespace().count() <= 6
+            && line.chars().next().is_some_and(char::is_lowercase)
+            && out.last().is_some_and(|prev| prev.contains(marks.as_slice()));
+        match out.last_mut() {
+            Some(prev) if continuation => {
+                prev.push(' ');
+                prev.push_str(line);
+            }
+            _ => out.push(line.to_string()),
+        }
+    }
+    out.join("\n")
+}
+
 /// Reads a photo with a local vision model served by Ollama (`ollama:<model>`).
 fn ocr_ollama(model: &str, image: &Path) -> Result<String> {
     use base64::Engine;
@@ -112,7 +133,7 @@ fn ocr_ollama(model: &str, image: &Path) -> Result<String> {
     if text.is_empty() {
         bail!("the vision model returned nothing");
     }
-    Ok(text)
+    Ok(join_continuations(&text))
 }
 
 fn ocr_one(engine: &str, image: &Path) -> Result<String> {
@@ -519,5 +540,25 @@ mod tests {
         let m = merge(&[("claude", vec!["a".into()]), ("agy", vec!["a".into(), "b".into()])]);
         assert_eq!(m["alternatives"].as_array().unwrap().len(), 2);
         assert!(m["lines"].as_array().unwrap().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod join_tests {
+    use super::join_continuations;
+
+    #[test]
+    fn indented_continuations_rejoin_their_note() {
+        let raw = "court (v): please so to get what you want\ntry to get sth\nwoo: try to get the support of somebody\ndynamism: energy and enthusiasm\nto make thing happen/\nsucceed\nscornful of ≈ contempt ≈ disrespectful\nlaggardly: slow";
+        assert_eq!(
+            join_continuations(raw),
+            "court (v): please so to get what you want try to get sth\nwoo: try to get the support of somebody\ndynamism: energy and enthusiasm to make thing happen/ succeed\nscornful of ≈ contempt ≈ disrespectful\nlaggardly: slow"
+        );
+    }
+
+    #[test]
+    fn a_capitalised_or_long_line_stays_separate() {
+        assert_eq!(join_continuations("a = b\nFeign this and that\nc = d"), "a = b\nFeign this and that\nc = d");
+        assert_eq!(join_continuations("a = b\none two three four five six seven\nc = d").lines().count(), 3);
     }
 }
