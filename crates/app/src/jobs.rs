@@ -152,7 +152,7 @@ fn ocr_gemini_at(base: &str, key: &str, model: &str, image: &Path) -> Result<Str
     let bytes = std::fs::read(image)?;
     let mime = if image.extension().is_some_and(|e| e == "png") { "image/png" } else { "image/jpeg" };
     let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(120)))
+        .timeout_global(Some(Duration::from_secs(75)))
         .timeout_connect(Some(Duration::from_secs(10)))
         .http_status_as_error(false)
         .build()
@@ -202,7 +202,8 @@ fn ocr_gemini(image: &Path, hard: bool) -> Result<String> {
             match ocr_gemini_at(&base, &key, m, image) {
                 Ok(t) => return Ok(t),
                 Err(e) => {
-                    let busy = format!("{e:#}").contains("high demand") || format!("{e:#}").contains("not reachable");
+                    // Only "high demand" is worth a second try; a hang or any other error moves on to the next model.
+                    let busy = format!("{e:#}").contains("high demand");
                     last = e;
                     if !busy {
                         break;
