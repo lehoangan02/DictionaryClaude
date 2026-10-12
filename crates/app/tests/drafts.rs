@@ -228,3 +228,45 @@ fn one_broken_agent_does_not_sink_the_other() {
     assert_eq!(d["agent_status"], "failed");
     assert!(d["error"].as_str().unwrap().contains("could not start"), "{d}");
 }
+
+/// Uses the real `claude` and `agy` (and so a little of their quota): run by hand with
+/// `cargo test -p gredict-app --test drafts real_agents -- --ignored --nocapture`.
+#[test]
+#[ignore]
+fn real_agents_read_a_generated_photo_and_the_discussion_resolves() {
+    let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(api) = api("real-agents") else { return };
+    std::env::set_var("LEXIS_OCR", "none");
+    std::env::remove_var("LEXIS_CLAUDE_BIN");
+    std::env::remove_var("LEXIS_AGY_BIN");
+    std::env::set_var("LEXIS_AGENT_CAP", "8");
+    let id = draft(&api);
+    api.call("draft_agents", json!({"id": id, "mode": "both", "effort": "low"})).unwrap();
+    let t = std::time::Instant::now();
+    api.call("run_jobs", json!({})).unwrap();
+    let d = api.call("draft_get", json!({"id": id})).unwrap();
+    println!("{} s\n{}", t.elapsed().as_secs(), serde_json::to_string_pretty(&d["agents"]).unwrap());
+    assert_eq!(d["agent_status"], "done", "{d}");
+}
+
+#[test]
+fn agy_is_retried_without_effort_when_its_model_does_not_take_one() {
+    let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    if !have("convert") {
+        return;
+    }
+    let Some(api) = api("effort") else { return };
+    std::env::set_var("LEXIS_OCR", "none");
+    let bins = tmp("bins3");
+    std::env::set_var("LEXIS_CLAUDE_BIN", script(&bins, "claude", &format!("echo '{SAME}'")));
+    let agy = script(&bins, "agy", &format!("case \"$*\" in *--effort*) echo '{{\"status\":\"ERROR\",\"error\":\"invalid model selection: --effort is not supported for the current model\"}}' ;; *) echo '{SAME}' ;; esac"));
+    std::env::set_var("LEXIS_AGY_BIN", agy);
+    std::env::set_var("LEXIS_AGENT_CAP", "8");
+    let id = draft(&api);
+    api.call("draft_agents", json!({"id": id, "mode": "both", "effort": "high"})).unwrap();
+    api.call("run_jobs", json!({})).unwrap();
+    let d = api.call("draft_get", json!({"id": id})).unwrap();
+    assert_eq!(d["agent_status"], "done", "{d}");
+    assert!(d["agents"]["agy"]["error"].is_null(), "{d}");
+    assert_eq!(d["agents"]["agy"]["lines"][1]["text"], "lucid >< opaque");
+}

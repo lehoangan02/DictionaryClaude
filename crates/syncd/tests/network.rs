@@ -354,3 +354,25 @@ fn a_paired_device_sets_up_its_dictionaries_by_itself_at_home_and_waits_when_awa
     assert!(phone.take_reload());
     assert!(!phone.take_reload());
 }
+
+#[test]
+fn a_device_lists_the_others_and_removes_one_but_never_itself() {
+    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let (Some(mac), Some(phone)) = (client("mac"), client("phone")) else { return };
+    std::env::set_var("LEXIS_WIFI", "Anan");
+    let s = start();
+    mac.call("sync_pair", json!({"code": code(&s, "mac", Some(s.lan), Some(s.wan))})).unwrap();
+    phone.call("sync_pair", json!({"code": code(&s, "phone", Some(s.lan), Some(s.wan))})).unwrap();
+
+    let l = mac.call("devices_list", json!({})).unwrap();
+    assert_eq!(l["me"], "mac");
+    let names: Vec<&str> = l["devices"].as_array().unwrap().iter().map(|d| d["name"].as_str().unwrap()).collect();
+    assert_eq!(names, vec!["mac", "phone"]);
+    assert!(l["devices"][1]["created"].as_i64().unwrap() > 0);
+    assert!(l["devices"][0]["seen"].as_i64().unwrap() > 0, "the caller counts as seen");
+
+    assert!(mac.call("device_revoke", json!({"name": "mac"})).is_err(), "a device cannot remove itself");
+    assert_eq!(mac.call("device_revoke", json!({"name": "phone"})).unwrap()["revoked"], true);
+    assert!(phone.call("sync_now", json!({})).is_err() || phone.call("server_status", json!({"probe": true})).unwrap()["online"] != true, "the removed device is locked out");
+    assert_eq!(mac.call("devices_list", json!({})).unwrap()["devices"].as_array().unwrap().len(), 1);
+}

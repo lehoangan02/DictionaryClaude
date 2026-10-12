@@ -25,6 +25,11 @@ pub const MAX_BODY: u64 = 32 << 20;
 pub struct Token {
     pub name: String,
     pub hash: String,
+    /// When the device joined and when it last talked to the server (ms; 0 = before this was recorded).
+    #[serde(default)]
+    pub created: i64,
+    #[serde(default)]
+    pub seen: i64,
 }
 
 pub use gredict_app::pairing::Pairing;
@@ -82,7 +87,7 @@ impl Tokens {
     pub fn issue(&self, name: &str) -> Result<String> {
         let secret = format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple());
         let mut all: Vec<Token> = self.list().into_iter().filter(|t| t.name != name).collect();
-        all.push(Token { name: name.to_string(), hash: hash(&secret) });
+        all.push(Token { name: name.to_string(), hash: hash(&secret), created: now_ms(), seen: 0 });
         fs::write(&self.path, serde_json::to_vec_pretty(&all)?)?;
         #[cfg(unix)]
         {
@@ -105,6 +110,19 @@ impl Tokens {
         let kept: Vec<Token> = all.iter().filter(|t| t.name != name).cloned().collect();
         fs::write(&self.path, serde_json::to_vec_pretty(&kept)?)?;
         Ok(kept.len() != all.len())
+    }
+    /// Notes that a device was just heard from; the file is rewritten at most every 5 minutes per device.
+    pub fn touch(&self, name: &str) {
+        let now = now_ms();
+        let mut all = self.list();
+        let Some(t) = all.iter_mut().find(|t| t.name == name) else { return };
+        if now - t.seen < 300_000 {
+            return;
+        }
+        t.seen = now;
+        if let Ok(b) = serde_json::to_vec_pretty(&all) {
+            let _ = fs::write(&self.path, b);
+        }
     }
     pub fn check(&self, presented: &str) -> Option<String> {
         let h = hash(presented);
@@ -219,6 +237,7 @@ pub fn handle(api: &Api, tokens: &Tokens, private: &Path, enrolling: Option<&Enr
             return reply(req, 413, json!({"error": "request too large"}));
         }
     }
+    tokens.touch(&who);
     if path == "/v1/photo/put" {
         let name = req.headers().iter().find(|h| h.field.equiv("X-Photo")).map(|h| h.value.as_str().to_string()).unwrap_or_default();
         return match api.photo_store(&name, &body) {
@@ -269,6 +288,18 @@ pub fn handle(api: &Api, tokens: &Tokens, private: &Path, enrolling: Option<&Enr
         return;
     }
     let out = match path.as_str() {
+        "/v1/devices" => Ok(json!({"me": who, "devices": tokens.list().into_iter().map(|t| json!({"name": t.name, "created": t.created, "seen": t.seen})).collect::<Vec<_>>()})),
+        "/v1/device/revoke" => {
+            // Any paired device may remove another one (the owner's own); removing itself is "unpair" on the device.
+            let name = args.get("name").and_then(Value::as_str).unwrap_or("");
+            if name == who {
+                return reply(req, 400, json!({"error": "this device cannot remove itself here; use Unpair"}));
+            }
+            tokens.revoke(name).map(|gone| {
+                eprintln!("device `{who}` revoked `{name}`");
+                json!({"revoked": gone})
+            })
+        }
         "/v1/hello" => Ok(json!({"device": who, "time": now_ms()})),
         "/v1/push" => api.call("sync_apply", json!({"changes": args.get("changes").cloned().unwrap_or(Value::Null)})),
         "/v1/expand" => api.call("expand_terms", json!({"term": args.get("term").and_then(Value::as_str).unwrap_or("")})),

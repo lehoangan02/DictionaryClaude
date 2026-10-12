@@ -382,6 +382,14 @@ struct Agent {
 
 impl Agent {
     fn call(&self, dir: &Path, prompt: &str, effort: &str) -> Result<Vec<(String, bool, String)>> {
+        match self.call_with(dir, prompt, Some(effort)) {
+            // Some of agy's models take no effort setting: say nothing and use the model's own.
+            Err(e) if self.name == "agy" && format!("{e:#}").contains("--effort is not supported") => self.call_with(dir, prompt, None),
+            r => r,
+        }
+    }
+
+    fn call_with(&self, dir: &Path, prompt: &str, effort: Option<&str>) -> Result<Vec<(String, bool, String)>> {
         let mut c = Command::new(&self.bin);
         c.current_dir(dir).arg("-p").arg(prompt).args(["--output-format", "json", "--json-schema", SCHEMA]);
         match self.name {
@@ -391,7 +399,10 @@ impl Agent {
             }
             // Plan mode keeps agy from editing anything.
             _ => {
-                c.args(["--mode", "plan", "--effort", effort]);
+                c.args(["--mode", "plan"]);
+                if let Some(e) = effort {
+                    c.args(["--effort", e]);
+                }
             }
         }
         let r = run(c, AGENT_TIMEOUT).map_err(|e| anyhow!("{}: {e:#}", self.name))?;

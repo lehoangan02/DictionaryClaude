@@ -227,6 +227,12 @@ impl Api {
         Ok(json!({"paired": true, "name": p.name, "lan": p.lan, "wan": p.wan}))
     }
 
+    /// One authenticated call to the sync server over whichever route works.
+    pub(crate) fn server_post(&self, path: &str, body: Value) -> Result<Value> {
+        let (host, p, a) = self.server_conn(Duration::from_secs(20))?;
+        crate::net::post(&a, &host, &p.token, path, &body)
+    }
+
     pub(crate) fn sync_unpair(&self) -> Result<Value> {
         self.db.lock().unwrap().execute("DELETE FROM settings WHERE k LIKE 'sync.%'", [])?;
         // Someone who unpairs on purpose must not be paired again behind their back.

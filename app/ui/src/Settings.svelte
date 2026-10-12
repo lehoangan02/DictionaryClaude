@@ -100,6 +100,17 @@
     commit();
   }
 
+  // Devices paired with the server: a stale or lost one can be removed from here.
+  let devs = $state<{ me: string; devices: { name: string; created: number; seen: number }[] } | null>(null);
+  let devErr = $state('');
+  async function loadDevices() {
+    devErr = '';
+    try { devs = await call('devices_list'); } catch { devs = null; devErr = 'Connect to the server to see the paired devices.'; }
+  }
+  async function removeDevice(name: string) {
+    if (!confirm(`Remove ${name}? It will stop syncing until it is paired again.`)) return;
+    try { await call('device_revoke', { name }); await loadDevices(); } catch (e) { devErr = (e as Error).message; }
+  }
   async function unpair() { await call('sync_unpair'); await load(); bump(); msg = 'Unpaired. Your data stays on this device.'; }
   async function saveSsids() { await call('sync_set_home_ssids', { ssids }); msg = 'Saved.'; }
 </script>
@@ -134,6 +145,23 @@
       <button class="btn primary" disabled={busy} onclick={syncNow}>{busy ? 'Syncing…' : 'Sync now'}</button>
       <button class="btn ghost" onclick={unpair}>Unpair</button>
     </div>
+    <details class="alt" ontoggle={(e) => { if ((e.currentTarget as HTMLDetailsElement).open) loadDevices(); }}>
+      <summary>Paired devices</summary>
+      {#if devs}
+        <ul class="devs">
+          {#each devs.devices as d (d.name)}
+            <li>
+              <span class="nm"><b>{d.name}</b>{#if d.name === devs.me} <span class="muted small">(this device)</span>{/if}
+                <span class="muted small">{d.seen ? `last seen ${when(d.seen)}` : 'not seen since this list began'}</span></span>
+              {#if d.name !== devs.me}<button class="btn small ghost" onclick={() => removeDevice(d.name)}>Remove</button>{/if}
+            </li>
+          {/each}
+        </ul>
+      {:else}
+        <p class="muted small">{devErr || 'Loading…'}</p>
+      {/if}
+      {#if devErr && devs}<p class="muted small">{devErr}</p>{/if}
+    </details>
     <label class="f">Home Wi-Fi names (use the fast local port on these)
       <div class="row"><input type="text" bind:value={ssids} /><button class="btn small" onclick={saveSsids}>Save</button></div>
     </label>
@@ -221,6 +249,9 @@
   .seg button { background: var(--bg); border: 0; padding: 8px 18px; text-transform: capitalize; }
   .seg button.on { background: var(--blue); color: #fff; }
   .small { font-size: 13px; }
+  .devs { list-style: none; margin: 8px 0 0; padding: 0; }
+  .devs li { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
+  .devs .nm { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow-wrap: anywhere; }
   .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   .f { display: flex; flex-direction: column; gap: 4px; margin: 12px 0; font-size: 13px; color: var(--muted); }
   .f input, .f textarea { font-size: 15px; }

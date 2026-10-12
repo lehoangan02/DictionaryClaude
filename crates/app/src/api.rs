@@ -239,6 +239,8 @@ impl Api {
             "sync_apply" => self.sync_apply(args.get("changes").unwrap_or(&Value::Null)),
             "sync_pull" => self.sync_pull(n("cursor", 0), n("limit", 2000) as usize),
             "sync_pair" => self.sync_pair(&req("code")?),
+            "devices_list" => self.server_post("/v1/devices", json!({})),
+            "device_revoke" => self.server_post("/v1/device/revoke", json!({"name": req("name")?})),
             "sync_unpair" => self.sync_unpair(),
             "sync_autopair" => self.sync_autopair(),
             "sync_set_autopair_host" => {
