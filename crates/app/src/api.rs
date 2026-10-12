@@ -193,6 +193,7 @@ impl Api {
             "mw_status" => self.mw_status(),
             "mw_config" => self.mw_config(&args),
             "ox_status" => self.ox_status(),
+            "ox_raw" => Ok(json!({"json": self.ox_raw(&req("word")?)?})),
             "ox_config" => self.ox_config(&args),
             "search" => self.search(&req("q")?, a("source").as_deref()),
             "entry" => self.entry(&req("word")?, a("source").as_deref(), args.get("record").and_then(Value::as_bool).unwrap_or(true)),

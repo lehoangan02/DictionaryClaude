@@ -186,3 +186,15 @@ The repository is public (`github.com/lehoangan02/DictionaryClaude`). Never comm
 Day-to-day work happens on the Mac (this repo checkout, `gh` signed in, `scripts/release-mac.sh`). The Ubuntu box is reached over SSH when needed: `ssh -p 22 lhan@lhan.duckdns.org` at home, `ssh -p 2222 lhan@lhan.duckdns.org` when away or when Cloudflare WARP (1.1.1.1) is on. Authorize the Mac's key once with `ssh-copy-id -p 22 lhan@lhan.duckdns.org`. After pushing from the Mac, update the server with `ssh -p 22 lhan@lhan.duckdns.org 'cd ~/Documents/AILab/DictionaryClaude && git pull && . ~/.cargo/env && cargo build --release -p gredict-syncd && sudo systemctl restart gredict-syncd'` (the `sudo` step needs a terminal; run it with `ssh -t`).
 
 SSH key login from the Mac works because sshd also reads a root-owned key file: `/etc/ssh/authorized_keys/%u` (drop-in `/etc/ssh/sshd_config.d/50-extra-authorized-keys.conf`). `~/.ssh/authorized_keys` alone is ignored on the box, because `/home/lhan` is group-writable (shared with `lhan02`) and sshd's `StrictModes` refuses it. To authorize another machine, add its public key to `/etc/ssh/authorized_keys/lhan` with `sudo`.
+
+
+## Oxford Languages API (optional)
+
+Get an application id and key from the Oxford Languages developer portal (the plan's limits are on that site; the app stops at 40 new words a day by default). On the Ubuntu box save them in the server's data folder, then restart the service:
+
+```
+printf '%s\n%s\n' '<app id>' '<app key>' > /var/lib/lexis-syncd/oxford.cred && chmod 600 /var/lib/lexis-syncd/oxford.cred
+sudo systemctl restart gredict-syncd
+```
+
+Paired devices then show an **Oxford** tab: a word is requested from Oxford the first time anyone opens it there, kept in the server's database (`ref_cache`, created by migration 5, so it survives every update) and sent to devices from then on. A Mac used on its own can hold its own key under Settings → Oxford.

@@ -100,13 +100,20 @@ pub fn map_entries(word: &str, v: &Value) -> Result<Result<Entry, Vec<String>>> 
 }
 
 impl Api {
+    /// The id and key: this machine's own (the sync server's `oxford.cred`, an environment
+    /// variable, or Settings on a Mac used on its own).
     fn ox_creds(&self) -> Option<(String, String)> {
-        let (id, key) = (self.setting("ox.id")?, self.setting("ox.key")?);
+        let env = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
+        let (id, key) = match (env("OXFORD_APP_ID"), env("OXFORD_APP_KEY")) {
+            (Some(i), Some(k)) => (i, k),
+            _ => (self.setting("ox.id")?, self.setting("ox.key")?),
+        };
         (!id.trim().is_empty() && !key.trim().is_empty()).then(|| (id.trim().to_string(), key.trim().to_string()))
     }
 
+    /// Oxford is offered when this machine holds a key, or is paired with a server that may.
     pub(crate) fn ox_configured(&self) -> bool {
-        self.ox_creds().is_some()
+        self.ox_creds().is_some() || self.pairing().is_some()
     }
 
     fn ox_today(&self) -> String {
@@ -119,13 +126,12 @@ impl Api {
 
     pub(crate) fn ox_status(&self) -> Result<Value> {
         Ok(json!({
-            "configured": self.ox_configured(), "used_today": self.ox_used(), "limit": DAILY_STOP,
-            "cache_entries": self.cache.lock().unwrap().query_row("SELECT count(*) FROM mw WHERE kind='oxford'", [], |r| r.get::<_, i64>(0)).unwrap_or(0),
-            "keep_offline": self.setting("ox.keep").as_deref() != Some("0"),
+            "configured": self.ox_configured(), "own_key": self.ox_creds().is_some(), "via_server": self.ox_creds().is_none() && self.pairing().is_some(),
+            "used_today": self.ox_used(), "limit": DAILY_STOP, "cache_entries": self.ref_count("oxford"),
         }))
     }
 
-    /// Saves the id and key (both empty clears them) and the offline-cache choice.
+    /// Saves this machine's own id and key (both empty clears them); `clear_cache` forgets saved entries.
     pub(crate) fn ox_config(&self, args: &Value) -> Result<Value> {
         let (id, key) = (args.get("app_id").and_then(Value::as_str), args.get("app_key").and_then(Value::as_str));
         if let (Some(i), Some(k)) = (id, key) {
@@ -138,11 +144,8 @@ impl Api {
                 bail!("Oxford needs both the application id and the key");
             }
         }
-        if let Some(keep) = args.get("keep_offline").and_then(Value::as_bool) {
-            self.set_setting("ox.keep", if keep { "1" } else { "0" })?;
-        }
         if args.get("clear_cache").and_then(Value::as_bool) == Some(true) {
-            self.cache.lock().unwrap().execute("DELETE FROM mw WHERE kind='oxford'", [])?;
+            self.db.lock().unwrap().execute("DELETE FROM ref_cache WHERE kind='oxford'", [])?;
         }
         self.ox_status()
     }
@@ -168,28 +171,46 @@ impl Api {
         match status {
             200 => Ok(Some(serde_json::from_str(&body).map_err(|_| anyhow!("unreadable reply from Oxford"))?)),
             404 => Ok(None),
-            401 | 403 => bail!("Oxford refused the id or key (status {status}); check them in Settings"),
+            401 | 403 => bail!("Oxford refused the id or key (status {status}); check them"),
             429 => bail!("Oxford says the plan's request limit is reached"),
             _ => bail!("Oxford answered with status {status}"),
         }
     }
 
-    /// The entry for `word` from Oxford: the saved copy if there is one, otherwise one live lookup.
-    pub(crate) fn ox_entry(&self, word: &str) -> Result<Result<Entry, Vec<String>>> {
+    /// Server side of a lookup: the kept copy, else one live request that is then kept for good
+    /// (a missing word is kept too, so it is never asked twice).
+    pub(crate) fn ox_raw(&self, word: &str) -> Result<Value> {
         let k = gredict_core::lemma::key(word);
-        let keep = self.setting("ox.keep").as_deref() != Some("0");
-        let cached: Option<Value> = self.cache.lock().unwrap().query_row("SELECT json FROM mw WHERE kind='oxford' AND key=?1", [&k], |r| r.get::<_, String>(0)).ok().and_then(|j| serde_json::from_str(&j).ok());
-        let v = match cached {
+        if let Some(v) = self.ref_get("oxford", &k) {
+            return Ok(v);
+        }
+        let v = match self.ox_request(&k)? {
             Some(v) => v,
-            None => match self.ox_request(&k)? {
-                Some(v) => {
-                    if keep {
-                        self.cache.lock().unwrap().execute("INSERT OR REPLACE INTO mw(kind,key,json,fetched) VALUES ('oxford',?1,?2,?3)", rusqlite::params![k, v.to_string(), now_ms()])?;
-                    }
-                    v
-                }
-                None => return Ok(Err(vec![])),
-            },
+            None => json!({"results": []}),
+        };
+        self.ref_put("oxford", &k, &v)?;
+        Ok(v)
+    }
+
+    /// The entry for `word`: this machine's kept copy; else its own key; else the sync server
+    /// (which keeps every answer, so each word is paid for once across all devices).
+    pub(crate) fn ox_entry(&self, word: &str) -> Result<Result<Entry, Vec<String>>> {
+        let v = if self.ox_creds().is_some() || self.ref_get("oxford", &gredict_core::lemma::key(word)).is_some() {
+            self.ox_raw(word)?
+        } else {
+            let p = self.pairing().ok_or_else(|| anyhow!("no Oxford key is set and this device is not paired with the server"))?;
+            let (route, ..) = self.choose_route(&p);
+            let host = match route {
+                Some(crate::net::Route::Lan) => p.lan.clone(),
+                Some(crate::net::Route::Wan) => p.wan.clone(),
+                None => bail!("the sync server is not reachable, and this word is not saved on this device yet"),
+            }
+            .ok_or_else(|| anyhow!("no server address"))?;
+            let a = crate::net::agent(&p.cert, Duration::from_secs(30))?;
+            let v = crate::net::post(&a, &host, &p.token, "/v1/oxford", &json!({"word": word}))?;
+            let v = v.get("json").cloned().ok_or_else(|| anyhow!("the server sent no Oxford entry"))?;
+            self.ref_put("oxford", &gredict_core::lemma::key(word), &v)?;
+            v
         };
         map_entries(word, &v)
     }

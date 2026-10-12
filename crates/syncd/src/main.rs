@@ -73,6 +73,16 @@ fn main() -> Result<()> {
                     }
                 }
             }
+            // Oxford Languages API credentials, if any: <data>/oxford.cred holds the id on line 1 and the key on line 2.
+            if std::env::var_os("OXFORD_APP_ID").is_none() {
+                if let Ok(c) = std::fs::read_to_string(cli.data.join("oxford.cred")) {
+                    let mut l = c.lines().map(str::trim).filter(|l| !l.is_empty());
+                    if let (Some(id), Some(key)) = (l.next(), l.next()) {
+                        std::env::set_var("OXFORD_APP_ID", id);
+                        std::env::set_var("OXFORD_APP_KEY", key);
+                    }
+                }
+            }
             let api = Arc::new(Api::open_headless_serving(&cli.data, &cli.packs.clone().unwrap_or_else(|| cli.data.join("packs")))?);
             // Reads photographed notes (OCR) and serves agent requests.
             gredict_app::spawn_job_runner(api.clone(), std::time::Duration::from_secs(5));

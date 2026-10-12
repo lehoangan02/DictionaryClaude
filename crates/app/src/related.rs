@@ -37,12 +37,18 @@ fn parse_words(text: &str) -> Vec<String> {
 
 impl Api {
     fn expand_cached(&self, term: &str) -> Option<Vec<String>> {
+        if let Some(v) = self.ref_get("expand", term) {
+            return serde_json::from_value(v).ok();
+        }
+        // Answers saved by the first build (cache.sqlite) move into the migrated table on first use.
         let j: String = self.cache.lock().unwrap().query_row("SELECT words FROM expand WHERE term=?", [term], |r| r.get(0)).ok()?;
-        serde_json::from_str(&j).ok()
+        let words: Vec<String> = serde_json::from_str(&j).ok()?;
+        let _ = self.ref_put("expand", term, &json!(words));
+        Some(words)
     }
 
     fn expand_store(&self, term: &str, words: &[String]) {
-        let _ = self.cache.lock().unwrap().execute("INSERT OR REPLACE INTO expand VALUES(?1,?2,?3)", rusqlite::params![term, json!(words).to_string(), crate::userdb::now_ms()]);
+        let _ = self.ref_put("expand", term, &json!(words));
     }
 
     /// Where Gemini is reachable (the sync server has the key): ask it. Cached on this machine.
@@ -114,5 +120,22 @@ mod tests {
         assert!(clean_term("boring").is_ok());
         assert!(clean_term("drop table; --").is_err());
         assert!(clean_term("").is_err());
+    }
+}
+
+impl Api {
+    /// A kept answer from an outside service (see migration 5 of the user database).
+    pub(crate) fn ref_get(&self, kind: &str, key: &str) -> Option<Value> {
+        let j: String = self.db.lock().unwrap().query_row("SELECT json FROM ref_cache WHERE kind=?1 AND key=?2", [kind, key], |r| r.get(0)).ok()?;
+        serde_json::from_str(&j).ok()
+    }
+
+    pub(crate) fn ref_put(&self, kind: &str, key: &str, v: &Value) -> Result<()> {
+        self.db.lock().unwrap().execute("INSERT OR REPLACE INTO ref_cache(kind,key,json,fetched) VALUES (?1,?2,?3,?4)", rusqlite::params![kind, key, v.to_string(), crate::userdb::now_ms()])?;
+        Ok(())
+    }
+
+    pub(crate) fn ref_count(&self, kind: &str) -> i64 {
+        self.db.lock().unwrap().query_row("SELECT count(*) FROM ref_cache WHERE kind=?", [kind], |r| r.get(0)).unwrap_or(0)
     }
 }

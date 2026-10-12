@@ -142,6 +142,14 @@ pub const MIGRATIONS: &[&str] = &[
         ON CONFLICT(tbl,id) DO UPDATE SET seq=excluded.seq;
     END;
     ",
+    // 5: answers from outside services kept for good (Oxford lookups, related-word lists). Local to
+    // each machine, never synced (no triggers, not in sync::TABLES): the sync server fills it once
+    // and every device asks the server, so an update or a reinstall never loses what was paid for.
+    "
+    CREATE TABLE ref_cache(
+      kind TEXT NOT NULL, key TEXT NOT NULL, json TEXT NOT NULL, fetched INTEGER NOT NULL,
+      PRIMARY KEY(kind, key)) WITHOUT ROWID;
+    ",
 ];
 
 pub fn open(path: &Path) -> Result<Connection> {
