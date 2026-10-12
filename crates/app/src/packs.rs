@@ -22,8 +22,13 @@ const KNOWN: &[(&str, &str, &str, &str, &[&str])] = &[
     ("moby", "Moby Thesaurus", "Broad synonym lists that feed the GRE thesaurus.", "Public domain", &["moby.pack"]),
     ("ai", "Meaning search (AI model)", "A small language model (bge-small) that lets search find quiz sessions by meaning. It runs on this device, on the Neural Engine or phone NPU when there is one.", "MIT", &["bge-small-en-v1.5-q.onnx", "bge-small-en-v1.5-tokenizer.json"]),
     ("cmudict", "Pronunciations (CMU)", "IPA for words the dictionaries give none for.", "BSD", &["cmudict.pack"]),
-    ("oald", "OALD", "Oxford Advanced Learner's Dictionary: 57 000 entries with definitions, examples and IPA (personal extraction from the owner's Premium app).", "Personal use", &["oald.pack"]),
+    ("oald", "OALD", "Oxford Advanced Learner's Dictionary: 57 000 entries with definitions, examples and IPA (personal extraction from the owner's Premium app). Downloaded from your server on request, never bundled.", "Personal use", &["oald.pack"]),
+    ("oald-audio", "OALD recordings", "The Oxford voices: a UK and a US recording of every OALD headword, as in the Oxford app (large; without it OALD reads words with the system voice).", "Personal use", &["oald-audio.pack"]),
 ];
+
+/// Packs that are only downloaded when the person asks (from home or from afar); once installed they are kept up to date.
+/// OALD is Oxford's content, so it is never bundled into a build either, and its recordings are large.
+const MANUAL: &[&str] = &["oald", "oald-audio"];
 
 const SOURCES_FILES: &[(&str, &str)] = &[("wiktionary", "wiktionary.pack"), ("wordnet", "wordnet.pack"), ("gcide", "gcide.pack"), ("oald", "oald.pack")];
 
@@ -124,7 +129,7 @@ impl Api {
             let list = self.packs_catalog()?;
             for pk in list["packs"].as_array().into_iter().flatten() {
                 let id = pk["id"].as_str().unwrap_or("");
-                let missing = pk["downloaded"] != true && pk["built_in"] != true && pk["on_server"] == true;
+                let missing = pk["downloaded"] != true && pk["built_in"] != true && pk["on_server"] == true && !MANUAL.contains(&id);
                 let stale = pk["downloaded"] == true && pk["update"] == true;
                 if missing || stale {
                     if let Err(e) = self.pack_install_with(id, false) {

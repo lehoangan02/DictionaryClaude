@@ -223,6 +223,25 @@ ok(sawPassage, 'reading questions show their passage');
 await m.waitForSelector('.ring');
 ok(/\/ 20/.test(await m.$eval('body', (e) => e.innerText)), 'the pretest finishes with a score out of 20');
 
+// ---- OALD speaks with the Oxford recordings, not the system voice ----
+{
+  const o = await newPage(1100, 800);
+  await o.goto(BASE + '?w=laconic&source=oald', { waitUntil: 'networkidle0' });
+  await o.waitForSelector('.hw');
+  const buttons = await o.$$('.prons .pron');
+  ok(buttons.length === 2, 'an OALD entry shows a UK and a US pronunciation');
+  for (const [i, accent] of [[0, 'gb'], [1, 'us']]) {
+    const [resp] = await Promise.all([o.waitForResponse((r) => r.url().endsWith('/api/audio_get')), buttons[i].click()]);
+    const asked = JSON.parse(resp.request().postData()).url;
+    ok(new RegExp(`^oald:laconic#.*_${accent}_\\d+$`).test(asked), `the ${accent.toUpperCase()} button asks for the Oxford recording (${asked})`);
+    if (process.env.HAVE_OALD_AUDIO) {
+      const { data_url } = await resp.json();
+      const secs = await o.evaluate((u) => new Promise((res) => { const a = new Audio(u); a.onloadedmetadata = () => res(a.duration); a.onerror = () => res(-1); }), data_url);
+      ok(secs > 0.3 && secs < 3, `that recording plays and lasts like one word (${secs.toFixed(2)} s)`);
+    }
+  }
+}
+
 // ---- browser-style keyboard: Ctrl/Cmd+L, Ctrl/Cmd+F, arrows, History ----
 {
   const k = await newPage(1100, 700);

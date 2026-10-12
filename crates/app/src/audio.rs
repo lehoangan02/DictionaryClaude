@@ -1,5 +1,7 @@
 //! Recorded pronunciations: played from a local cache when present, otherwise
-//! fetched once (online) and kept for offline use.
+//! fetched once (online) and kept for offline use. `oald:<name>` recordings (the
+//! Oxford voices) come from the downloadable `oald-audio.pack` instead and never
+//! touch the network.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -33,7 +35,23 @@ fn mime(path: &std::path::Path) -> &'static str {
     if path.extension().is_some_and(|e| e == "ogg") { "audio/ogg" } else { "audio/mpeg" }
 }
 
+/// What `oald.pack` entries point their sounds at: `oald:laconic#_gb_2`.
+const OALD_SCHEME: &str = "oald:";
+const OALD_PACK: &str = "oald-audio.pack";
+
 impl Api {
+    /// One Oxford recording (MP3) from the recordings pack. Opened for each play: a click is rare, opening is cheap,
+    /// and a pack that was just downloaded or replaced is found without restarting anything.
+    fn oald_audio(&self, name: &str) -> Result<Vec<u8>> {
+        let path = crate::packs::locate(&self.data_dir, &self.packs_dir, OALD_PACK);
+        if !path.exists() {
+            bail!("the OALD recordings are not downloaded (Settings → Downloads)");
+        }
+        let conn = rusqlite::Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+        conn.query_row("SELECT mp3 FROM audio WHERE name = ?", [name], |r| r.get(0))
+            .map_err(|_| anyhow!("OALD has no recording called {name}"))
+    }
+
     fn audio_dir(&self) -> Result<PathBuf> {
         let d = self.data_dir.join("audio");
         std::fs::create_dir_all(&d)?;
@@ -77,11 +95,18 @@ impl Api {
 
     /// The recording's bytes (cached on first use), for players that cannot use a data URL.
     pub fn audio_bytes(&self, url: &str) -> Result<Vec<u8>> {
+        if let Some(name) = url.strip_prefix(OALD_SCHEME) {
+            return self.oald_audio(name);
+        }
         Ok(std::fs::read(self.audio_fetch(url)?)?)
     }
 
     /// A playable data URL for a recording, from the cache or the network.
     pub(crate) fn audio_get(&self, url: &str) -> Result<Value> {
+        if let Some(name) = url.strip_prefix(OALD_SCHEME) {
+            let bytes = self.oald_audio(name)?;
+            return Ok(json!({"data_url": format!("data:audio/mpeg;base64,{}", STANDARD.encode(bytes)), "cached": true}));
+        }
         let path = self.audio_fetch(url)?;
         let bytes = std::fs::read(&path)?;
         Ok(json!({"data_url": format!("data:{};base64,{}", mime(&path), STANDARD.encode(bytes)), "cached": true}))
@@ -153,5 +178,25 @@ mod tests {
         let n = cache_name("https://upload.wikimedia.org/a.mp3");
         assert_eq!(n, cache_name("https://upload.wikimedia.org/a.mp3"));
         assert!(n.ends_with(".mp3") && cache_name("https://upload.wikimedia.org/a.ogg").ends_with(".ogg"));
+    }
+
+    #[test]
+    fn oald_recordings_come_from_the_pack_and_never_the_network() {
+        let dir = std::env::temp_dir().join(format!("oald-play-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let api = Api::open_headless(&dir).unwrap();
+        let err = api.audio_bytes("oald:laconic#_gb_2").unwrap_err().to_string();
+        assert!(err.contains("not downloaded"), "without the pack the page falls back to the system voice: {err}");
+
+        std::fs::create_dir_all(dir.join("packs")).unwrap();
+        let c = rusqlite::Connection::open(dir.join("packs/oald-audio.pack")).unwrap();
+        c.execute_batch("CREATE TABLE audio(name TEXT PRIMARY KEY, mp3 BLOB NOT NULL)").unwrap();
+        c.execute("INSERT INTO audio VALUES('laconic#_gb_2', ?)", [vec![1u8, 2, 3]]).unwrap();
+        drop(c);
+        assert_eq!(api.audio_bytes("oald:laconic#_gb_2").unwrap(), vec![1, 2, 3]);
+        let v = api.audio_get("oald:laconic#_gb_2").unwrap();
+        assert_eq!(v["data_url"], "data:audio/mpeg;base64,AQID");
+        assert!(api.audio_bytes("oald:nothing#_gb_1").unwrap_err().to_string().contains("no recording"));
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

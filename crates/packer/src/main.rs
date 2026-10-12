@@ -3,6 +3,7 @@ mod cmudict;
 mod gcide;
 mod moby;
 mod oald;
+mod oald_audio;
 mod wiktionary;
 mod wordnet;
 
@@ -34,6 +35,12 @@ enum Cmd {
     /// Build the OALD pack from the extracted OALData directory.
     Oald {
         /// Path to the OALData directory (contains json/, sounds/, …).
+        dir: PathBuf,
+        out: PathBuf,
+    },
+    /// Build the OALD recordings pack (`oald-audio.pack`) from the MP3s build_oald_audio.py wrote.
+    OaldAudio {
+        /// Path to the OALData directory (contains json/oald_audio.json and audio/).
         dir: PathBuf,
         out: PathBuf,
     },
@@ -83,6 +90,7 @@ fn main() -> Result<()> {
         Cmd::Wordnet { input, out } => wordnet::build(&input, &out)?,
         Cmd::Moby { input, out } => moby::build(&input, &out)?,
         Cmd::Oald { dir, out } => oald::build(&dir, &out)?,
+        Cmd::OaldAudio { dir, out } => oald_audio::build(&dir, &out)?,
         Cmd::Lookup { pack, word, prefix } => {
             let p = gredict_core::pack::Pack::open(&pack)?;
             let key = gredict_core::lemma::key(&word);

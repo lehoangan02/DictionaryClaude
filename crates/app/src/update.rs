@@ -104,6 +104,19 @@ impl Api {
         std::fs::create_dir_all(&dir)?;
         let part = dir.join(format!("{name}.part"));
         let dest = dir.join(name);
+        // A file is only renamed into place after it was downloaded and checked, so one of the right size is the
+        // finished download. Coming back from Android's "allow installs" screen must not fetch 30 MB again.
+        if asset["size"].as_u64().is_some_and(|s| s > 0 && std::fs::metadata(&dest).is_ok_and(|m| m.len() == s)) {
+            DONE.store(asset["size"].as_u64().unwrap_or(0), Relaxed);
+            return Ok(json!({"path": dest, "sha256": null, "verified": true, "reused": true}));
+        }
+        // Older downloads (and half-finished ones) are not kept: they only take room on the phone.
+        for e in std::fs::read_dir(&dir)?.flatten() {
+            let other = e.file_name().to_string_lossy().to_string();
+            if other.starts_with("LadyBird-") && other != name {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
         let mut resp = agent(900).get(url).header("User-Agent", "LadyBird").call().map_err(|e| anyhow!("download failed ({e})"))?;
         if resp.status().as_u16() != 200 {
             bail!("the download answered {}", resp.status().as_u16());

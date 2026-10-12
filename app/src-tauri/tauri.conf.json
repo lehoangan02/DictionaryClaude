@@ -28,7 +28,16 @@
     "category": "Education",
     "shortDescription": "Offline GRE dictionary, thesaurus and quizzes",
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
-    "resources": { "../../data/packs/": "packs/" },
+    "resources": {
+      "../../data/packs/wiktionary.pack": "packs/wiktionary.pack",
+      "../../data/packs/wiktionary.fst": "packs/wiktionary.fst",
+      "../../data/packs/wordnet.pack": "packs/wordnet.pack",
+      "../../data/packs/gcide.pack": "packs/gcide.pack",
+      "../../data/packs/moby.pack": "packs/moby.pack",
+      "../../data/packs/cmudict.pack": "packs/cmudict.pack",
+      "../../data/packs/bge-small-en-v1.5-q.onnx": "packs/bge-small-en-v1.5-q.onnx",
+      "../../data/packs/bge-small-en-v1.5-tokenizer.json": "packs/bge-small-en-v1.5-tokenizer.json"
+    },
     "macOS": { "signingIdentity": "-", "entitlements": "entitlements.plist" }
   }
 }

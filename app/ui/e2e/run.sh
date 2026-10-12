@@ -16,6 +16,8 @@ printf '#!/bin/sh\necho {\"status\":\"ERROR\",\"error\":\"test stand-in\"}\nexit
 export LEXIS_CLAUDE_BIN="$DATA/bin/agent" LEXIS_AGY_BIN="$DATA/bin/agent"
 ./target/release/gredict-syncd --data "$DATA/syncd" --san 127.0.0.1 --san localhost serve --lan "127.0.0.1:$LAN" --wan "127.0.0.1:$WAN" >"$DATA/syncd.log" 2>&1 &
 PIDS+=($!)
+# The Oxford recordings are large and optional: the test of them runs only where they have been built.
+if [ -f private/oald-audio.pack ]; then mkdir -p "$DATA/a/packs"; ln -s "$PWD/private/oald-audio.pack" "$DATA/a/packs/oald-audio.pack"; export HAVE_OALD_AUDIO=1; fi
 ./target/release/gredict-server --port "$A" --data "$DATA/a" >"$DATA/a.log" 2>&1 &
 PIDS+=($!)
 ./target/release/gredict-server --port "$B" --data "$DATA/b" >"$DATA/b.log" 2>&1 &

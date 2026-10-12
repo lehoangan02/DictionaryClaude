@@ -13,6 +13,8 @@ install -d -o lhan -g lhan "$STATE" "$STATE/private" "$STATE/packs"
 if [ -f private/barrons.sqlite ]; then install -o lhan -g lhan -m 0644 private/barrons.sqlite "$STATE/private/barrons.sqlite"; fi
 # The dictionary packs paired devices can download (Settings -> Dictionaries).
 for f in data/packs/*.pack data/packs/*.fst data/packs/*.onnx data/packs/*.json; do [ -f "$f" ] && install -o lhan -g lhan -m 0644 "$f" "$STATE/packs/$(basename "$f")"; done
+# The OALD recordings (Oxford's copyrighted audio) live in private/ so no build bundles them; devices download them on request.
+if [ -f private/oald-audio.pack ]; then install -o lhan -g lhan -m 0644 private/oald-audio.pack "$STATE/packs/oald-audio.pack"; fi
 install -m 0644 deploy/gredict-syncd.service /etc/systemd/system/gredict-syncd.service
 systemctl daemon-reload
 systemctl enable gredict-syncd

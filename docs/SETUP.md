@@ -71,6 +71,8 @@ The launcher starts it with `WEBKIT_DISABLE_DMABUF_RENDERER=1`, which avoids a b
 
 Sound: the window's web engine cannot play audio inside an AppImage, so the desktop app plays recordings itself through the system audio output (the `rodio` library; ALSA/PipeWire on Linux, CoreAudio on a Mac). When no recording is saved and you are offline it speaks the word with `spd-say` (Linux) or `say` (Mac). `cargo run --example sound_check -- <file.mp3>` in `app/src-tauri` plays one recording to test the path.
 
+OALD voices: OALD entries point at `oald:<name>` recordings (a UK and a US MP3 per headword, the same ones the Oxford app plays), which come from `oald-audio.pack` (about 440 MB, downloaded on request in Settings → Downloads, never automatically). Without it OALD falls back to the system voice. Build: `python3 ../OALData/tools/build_oald_audio.py` (decodes the Speex recordings out of the app's sound containers, about 45 minutes), then `packer oald ../OALData data/packs/oald.pack` (adds the references) and `packer oald-audio ../OALData private/oald-audio.pack`. The recordings pack stays in `private/`, never in `data/packs/`, because everything in `data/packs/` is bundled into the AppImage; `deploy/install-syncd.sh` copies it to the server.
+
 During development you can instead run `./target/release/gredict-server` and open http://127.0.0.1:8787.
 
 ## 4. Data that is not in git

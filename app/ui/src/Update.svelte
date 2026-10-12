@@ -17,7 +17,8 @@
   // `banner`: a slim notice shown only when something newer exists; otherwise the full card body.
   let { banner = false, version = $bindable('') }: { banner?: boolean; version?: string } = $props();
   let info = $state<any>(null);
-  let phase = $state<'idle' | 'checking' | 'downloading' | 'installing'>('idle');
+  // 'waiting': Android sent the person to the "allow installs" page; the update carries on when they come back.
+  let phase = $state<'idle' | 'checking' | 'downloading' | 'installing' | 'waiting'>('idle');
   let msg = $state('');
   let progress = $state({ done: 0, total: 0, stage: 'idle' });
   const mb = (n: number) => (n / 1048576).toFixed(1);
@@ -41,9 +42,16 @@
     if (phase === 'installing') return isAndroid ? 'Opening the Android installer…' : 'Installing… LadyBird restarts by itself.';
     return msg;
   });
-  const label = $derived(phase === 'downloading' ? 'Downloading…' : phase === 'installing' ? 'Installing…' : msg.startsWith('Update failed') || msg.startsWith('Allow') ? 'Try again' : 'Update now');
+  const label = $derived(phase === 'downloading' ? 'Downloading…' : phase === 'installing' ? 'Installing…' : phase === 'waiting' ? 'Continue' : msg.startsWith('Update failed') ? 'Try again' : 'Update now');
+  // The buttons stay usable while waiting, in case the page is not told that the person came back.
+  const busy = $derived(phase !== 'idle' && phase !== 'waiting');
 
-  async function install() {
+  // The person is on Android's "allow installs" page: remember it, so that coming back (even to a page the system
+  // reloaded) carries on with the update by itself. The download is kept, so carrying on is instant.
+  const RESUME = 'update.resume';
+  const remember = (v: string | null) => { try { v ? localStorage.setItem(RESUME, v) : localStorage.removeItem(RESUME); } catch { /* private mode */ } };
+
+  async function install(auto = false) {
     if (!info?.asset) { msg = 'There is no download for this device in that release.'; return; }
     phase = 'downloading'; msg = ''; progress = { done: 0, total: info.asset.size ?? 0, stage: 'downloading' };
     const timer = setInterval(async () => { try { progress = await call('update_progress'); } catch { /* busy */ } }, 400);
@@ -52,21 +60,42 @@
       clearInterval(timer);
       phase = 'installing';
       const how = await native<string>('update_install', { path: r.path });
-      if (how === 'permission') {
-        msg = 'Allow installs from LadyBird in the settings page that just opened, come back here and press Update now again.';
+      if (how === 'permission' && !auto) {
+        phase = 'waiting'; remember(info.latest);
+        msg = 'Allow installs from LadyBird on the settings page that just opened, then come back: the update carries on by itself.';
+      } else if (how === 'permission') {
+        // Back from the settings page without having allowed it: ask once more, then leave it to the button.
+        msg = 'Installs from LadyBird are still not allowed. Turn them on in the settings page, come back and press Update now.';
       } else if (how === 'installer') {
+        remember(null);
         msg = 'The Android installer is open: press Install, then open LadyBird again.';
       }
-    } catch (e) { msg = `Update failed: ${(e as Error).message}`; }
+    } catch (e) { msg = `Update failed: ${(e as Error).message}`; remember(null); }
     clearInterval(timer);
     if (phase === 'downloading' || phase === 'installing') phase = 'idle';
   }
 
+  // Coming back to the app while it waits for the permission.
+  function back() {
+    if (phase === 'waiting' && document.visibilityState === 'visible') install(true);
+  }
+
   onMount(async () => {
     if (!version) version = (await native<string>('app_version').catch(() => null)) ?? '';
-    if (version) check();
+    if (!version) return;
+    await check();
+    // The system may have rebuilt the page while the person was on the settings page.
+    let pending: string | null = null;
+    try { pending = localStorage.getItem(RESUME); } catch { /* private mode */ }
+    if (pending) {
+      remember(null); // whichever copy of this card gets here first carries on; the other must not start a second install
+      if (isAndroid && info?.newer && info.latest === pending && info.asset) install(true);
+    }
   });
 </script>
+
+<svelte:document onvisibilitychange={back} />
+<svelte:window onfocus={back} />
 
 {#if banner}
   {#if info?.newer && info.asset}
@@ -76,7 +105,7 @@
         {#if status}<span class="small" class:bad={msg.startsWith('Update failed')}>{status}</span>{/if}
         {#if phase === 'downloading' && progress.total}<div class="bar"><i style="width:{Math.min(100, (100 * progress.done) / progress.total)}%"></i></div>{/if}
       </div>
-      <button class="btn small primary" disabled={phase !== 'idle'} onclick={install}>{label}</button>
+      <button class="btn small primary" disabled={busy} onclick={() => install()}>{label}</button>
     </div>
   {:else if msg.startsWith('Could not check')}
     <div class="ban card fadein"><span class="small bad">{msg}</span></div>
@@ -85,7 +114,7 @@
   {#if info?.newer}
     <p><b>Version {info.latest}</b> is available (you have {version}).</p>
     {#if info.notes}<p class="muted small notes">{info.notes}</p>{/if}
-    <button class="btn primary" disabled={phase !== 'idle' || !info.asset} onclick={install}>{label}</button>
+    <button class="btn primary" disabled={busy || !info.asset} onclick={() => install()}>{label}</button>
     {#if phase === 'downloading' && progress.total}<div class="bar"><i style="width:{Math.min(100, (100 * progress.done) / progress.total)}%"></i></div>{/if}
   {:else}
     <button class="btn small" disabled={phase !== 'idle'} onclick={() => check(true)}>{phase === 'checking' ? 'Checking…' : 'Check for updates'}</button>

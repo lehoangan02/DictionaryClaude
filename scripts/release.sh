@@ -93,7 +93,7 @@ ${CHANGES:-- (no changes recorded)}
 \`\`\`
 chmod +x $FILE && ./$FILE
 \`\`\`
-Check the download with \`sha256sum -c $FILE.sha256\`. The app carries its dictionaries (Wiktionary, CC BY-SA 4.0; WordNet, CC BY 4.0; Webster 1913, Moby and CMUdict, public domain). It does not contain Barron's.
+Check the download with \`sha256sum -c $FILE.sha256\`. The app carries its dictionaries (Wiktionary, CC BY-SA 4.0; WordNet, CC BY 4.0; Webster 1913, Moby and CMUdict, public domain). It does not contain Barron's or OALD (Oxford's dictionary and recordings are downloaded from your own server, on request).
 Android (arm64, for example the Galaxy S24 Ultra): install the .apk and download dictionaries in Settings → Downloads after pairing with your server. macOS (Apple silicon): open the .dmg and drag LadyBird to Applications; it is built and signed for you by the release-mac workflow. If macOS says the app is damaged, run \`xattr -dr com.apple.quarantine /Applications/LadyBird.app\` once."
 printf '%s\n' "$BODY" > "$OUT/$TAG.md"
 python3 - "$OUT" "$VERSION" "$FILE" "$SUM" <<'PY'

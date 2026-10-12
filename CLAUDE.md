@@ -28,6 +28,7 @@ Planned layout (see `docs/PLAN.md`):
 - **No scraping** of Oxford, Merriam-Webster or Cambridge. Dictionary content comes only from open datasets (Wiktionary/kaikki, Open English WordNet, GCIDE, Moby, CMUdict) and the official MW API, cached.
 - **Merriam-Webster API terms:** non-commercial, 1,000 queries/day per reference work, at most two reference works, and *no automated or recorded queries* (their section 5(a)). So MW is looked up only when the user opens a word in that tab, never pre-fetched in bulk; the key is kept in `settings` and is never logged or returned to the UI; the official MW logos (`app/ui/public/mw-logo-*.png`, downloaded unmodified from their brand page) must stay visible on MW entries. The owner chose to ship the two free keys in `crates/app/defaults/mw.json` (public repo); app shells call `seed_defaults()`, tests do not.
 - **Barron's material is copyrighted.** The PDF and everything derived from it live in `private/` (gitignored). Never commit, publish or embed it in distributable builds.
+- **OALD is Oxford's content (the owner's personal extraction): never bundled into any build or release.** `oald.pack` and `oald-audio.pack` are served by the owner's sync server and downloaded on request (Settings → Downloads, home or remote). The AppImage bundles an explicit allow-list of packs in `app/src-tauri/tauri.conf.json`: a new pack is not bundled until someone adds it there on purpose. (v0.9.0 and v0.10.0 AppImages shipped with `oald.pack` inside; fixed from the next release.)
 - **The UI mimics the Oxford Learner's look without Oxford names or logos.**
 - **User data references words by normalized lemma key, never by pack row IDs**, so dictionary packs stay swappable.
 - **User DB schema changes are new forward-only numbered migrations.** Anything the server keeps for good (related-word lists, future caches) lives in a migrated table, never in an ad-hoc `CREATE IF NOT EXISTS`, so updates never lose it. Never edit a shipped migration; changes to oplog op formats need an upcaster.
@@ -61,6 +62,9 @@ cargo build --release                  # packer, gredict-server, gredict-syncd
 ./target/release/packer moby data/raw/mthesaur.txt data/packs/moby.pack
 ./target/release/packer fst data/packs/wiktionary.pack data/packs/wiktionary.fst
 ./target/release/packer barrons private/barrons-essential-words-4e.pdf --out private/barrons.sqlite   # validates every unit/key; refuses to write on any problem
+./target/release/packer oald ../OALData data/packs/oald.pack                                           # OALD dictionary (adds oald:<name> recording references when OALData/json/oald_audio.json exists)
+python3 ../OALData/tools/build_oald_audio.py                                                           # OALD recordings -> OALData/audio/*.mp3 + json/oald_audio.json (about 45 min)
+./target/release/packer oald-audio ../OALData private/oald-audio.pack                                  # the recordings pack: keep it in private/, everything in data/packs/ is bundled into the AppImage
 ./target/release/packer lookup data/packs/wiktionary.pack loquacious                                   # inspect an entry
 
 # Run the app in a browser (same JSON API the Tauri shell will use)

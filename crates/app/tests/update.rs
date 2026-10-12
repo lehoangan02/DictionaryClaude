@@ -7,6 +7,9 @@ use sha2::{Digest, Sha256};
 /// The tests point the app at their own server through an environment variable, so they must not overlap.
 static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+/// How many times the installer file itself (not its checksum) was fetched.
+static FETCHES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
 fn serve(good_sum: bool) -> u16 {
     let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
     let port = server.server_addr().to_ip().unwrap().port();
@@ -25,6 +28,7 @@ fn serve(good_sum: bool) -> u16 {
             } else if url.ends_with(".sha256") {
                 format!("{sum}  file\n").into_bytes()
             } else {
+                FETCHES.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 file.clone()
             };
             let _ = req.respond(tiny_http::Response::from_data(body));
@@ -70,4 +74,27 @@ fn a_download_that_fails_its_checksum_is_discarded() {
     }
     let err = a.call("update_download", json!({"asset": up["asset"]})).unwrap_err().to_string();
     assert!(err.contains("checksum"), "{err}");
+}
+
+#[test]
+fn a_finished_download_is_reused_when_the_person_comes_back() {
+    use std::sync::atomic::Ordering::SeqCst;
+    let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let port = serve(true);
+    std::env::set_var("LEXIS_UPDATE_URL", format!("http://127.0.0.1:{port}/latest"));
+    let a = api("again");
+    let asset = a.call("update_check", json!({"current": "0.6.0"})).unwrap()["asset"].clone();
+    let before = FETCHES.load(SeqCst);
+    let first = a.call("update_download", json!({"asset": asset})).unwrap();
+    assert_eq!(FETCHES.load(SeqCst), before + 1);
+    // Android sends the person to a settings page and back; pressing the button again must be instant.
+    let second = a.call("update_download", json!({"asset": asset})).unwrap();
+    assert_eq!(FETCHES.load(SeqCst), before + 1, "the finished file is not downloaded again");
+    assert_eq!(first["path"], second["path"]);
+    // An older release's file is cleaned away when a newer one is downloaded.
+    let old = std::path::Path::new(first["path"].as_str().unwrap()).with_file_name("LadyBird-0.6.0-old.apk");
+    std::fs::write(&old, b"old").unwrap();
+    let newer = json!({"name": "LadyBird-0.7.1-x86_64.AppImage", "url": format!("http://127.0.0.1:{port}/dl/LadyBird-0.7.1-x86_64.AppImage"), "size": 28});
+    a.call("update_download", json!({"asset": newer})).unwrap();
+    assert!(!old.exists(), "old downloads are removed");
 }
