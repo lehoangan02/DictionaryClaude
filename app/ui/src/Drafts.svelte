@@ -23,7 +23,15 @@
   // While something is being read, look again soon; syncing brings the result.
   const working = $derived(drafts.some((d) => ['queued', 'processing'].includes(d.status) || ['requested', 'running'].includes(d.agent_status)));
   onMount(() => {
-    const t = setInterval(() => { if (working) load().catch(() => {}); }, 4000);
+    // Syncing is what carries the photo up and the reading back; do not wait for the five-minute rhythm.
+    let syncing = false;
+    const t = setInterval(async () => {
+      if (!working || syncing) return;
+      syncing = true;
+      try { await call('sync_now'); } catch { /* offline or not paired: the next try will do */ }
+      syncing = false;
+      load().catch(() => {});
+    }, 4000);
     return () => clearInterval(t);
   });
 
@@ -49,6 +57,7 @@
       await call('draft_create', { photos: picked.map((p) => p.url), session_date: date });
       picked = [];
       bump(); await load();
+      call('sync_now').then(load).catch(() => {});
     } catch (e) { error = (e as Error).message; }
     busy = false;
   }

@@ -72,6 +72,7 @@ if [ "$ANDROID" = 1 ] && [ -d "$HOME/Android/Sdk/ndk" ] && [ -f "$HOME/.lexis-ke
   APK="LadyBird-${VERSION}-android-arm64.apk"
   "$BT/apksigner" sign --ks "$HOME/.lexis-keys/ladybird.jks" --ks-pass "file:$HOME/.lexis-keys/ladybird.pass" --out "$OUT/$APK" /tmp/lb-aligned.apk
   rm -f /tmp/lb-aligned.apk "$OUT/$APK.idsig"
+  (cd "$OUT" && sha256sum "$APK" > "$APK.sha256")
 else
   echo "NOTE: skipping the Android APK (no NDK or signing key here)"
 fi
@@ -112,7 +113,7 @@ git tag -a "$TAG" -m "LadyBird $VERSION"
 if [ "$PUBLISH" = 1 ]; then
   step "publishing to GitHub"
   git push -q origin "$BRANCH" "$TAG"
-  gh release create "$TAG" "$OUT/$FILE" "$OUT/$FILE.sha256" ${APK:+"$OUT/$APK"} --title "LadyBird $VERSION" --notes-file "$OUT/$TAG.md"
+  gh release create "$TAG" "$OUT/$FILE" "$OUT/$FILE.sha256" ${APK:+"$OUT/$APK" "$OUT/$APK.sha256"} --title "LadyBird $VERSION" --notes-file "$OUT/$TAG.md"
 fi
 if [ "$PUBLISH" = 1 ]; then
   echo "NOTE: the macOS DMG is attached a few minutes later by the release-mac workflow (to redo it: scripts/release-mac.sh $TAG on a Mac)"
