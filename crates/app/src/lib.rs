@@ -13,6 +13,7 @@ mod packs;
 pub mod pairing;
 mod quiz;
 mod sync;
+mod oxford;
 mod related;
 mod update;
 pub mod userdb;

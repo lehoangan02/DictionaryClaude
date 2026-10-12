@@ -155,7 +155,10 @@ impl Api {
         let n = |k: &str, d: i64| args.get(k).and_then(Value::as_i64).unwrap_or(d);
         if self.sources.is_empty() && matches!(cmd, "search" | "entry") {
             // Merriam-Webster is looked up online and needs no pack, so it works on a device that has none yet.
-            if self.mw_configured() {
+            if self.ox_configured() && cmd == "entry" && a("source").as_deref() == Some("ox") {
+                return self.entry_ox(&req_word(&args)?, &lemma::key(&req_word(&args)?), args.get("record").and_then(Value::as_bool).unwrap_or(true));
+            }
+            if self.mw_configured() || self.ox_configured() {
                 if cmd == "search" {
                     return Ok(json!({"suggestions": [], "did_you_mean": []}));
                 }
@@ -173,6 +176,9 @@ impl Api {
                 if self.mw_configured() {
                     v.push(json!({"id": "mw", "name": "Merriam-Webster", "entries": null}));
                 }
+                if self.ox_configured() {
+                    v.push(json!({"id": "ox", "name": "Oxford", "entries": null}));
+                }
                 Ok(json!(v))
             }
             "packs_list" => self.packs_list(),
@@ -181,9 +187,13 @@ impl Api {
             "pack_remove" => self.pack_remove(&req("id")?),
             "ai_status" => self.ai_status(),
             "ai_test" => self.ai_test(),
+            "packs_auto_status" => self.packs_auto_status(),
+            "packs_auto_now" => self.packs_auto_now(),
             "pack_progress" => Ok(self.pack_progress_now()),
             "mw_status" => self.mw_status(),
             "mw_config" => self.mw_config(&args),
+            "ox_status" => self.ox_status(),
+            "ox_config" => self.ox_config(&args),
             "search" => self.search(&req("q")?, a("source").as_deref()),
             "entry" => self.entry(&req("word")?, a("source").as_deref(), args.get("record").and_then(Value::as_bool).unwrap_or(true)),
             "draft_create" => {
@@ -358,6 +368,9 @@ impl Api {
         if source == Some("mw") && self.mw_configured() {
             return self.entry_mw(word, &key, record);
         }
+        if source == Some("ox") && self.ox_configured() {
+            return self.entry_ox(word, &key, record);
+        }
         let primary = self.source(source);
         let mut found_in = Vec::new();
         let mut shown: Option<(&Source, Entry)> = None;
@@ -423,6 +436,26 @@ impl Api {
             }
             Ok(Err(suggestions)) => out["did_you_mean"] = json!(suggestions),
             // Offline, a bad key, the daily limit: shown in place of the entry.
+            Err(e) => out["mw_error"] = json!(format!("{e:#}")),
+        }
+        Ok(out)
+    }
+
+    fn entry_ox(&self, word: &str, key: &str, record: bool) -> Result<Value> {
+        let mut out = json!({
+            "key": key, "source": {"id": "ox", "name": "Oxford"}, "found_in": self.sources.iter().filter(|s| s.pack.lock().unwrap().get(key).ok().flatten().is_some()).map(|s| s.id).collect::<Vec<_>>(), "ipa_fallback": null,
+            "barrons": self.barrons().and_then(|b| b.entries.get(key).cloned()), "thesaurus": self.thesaurus(key)?, "entry": null,
+        });
+        match self.ox_entry(word) {
+            Ok(Ok(e)) => {
+                if record {
+                    self.record_lookup(key, &e.word, "ox")?;
+                }
+                out["syl"] = json!(self.sources.iter().find_map(|s| s.pack.lock().unwrap().get(key).ok().flatten().and_then(|x| x.syl)));
+                out["entry"] = json!(e);
+            }
+            Ok(Err(suggestions)) => out["did_you_mean"] = json!(suggestions),
+            // Offline, a bad key, the day's stop: shown in place of the entry (same field the page already shows).
             Err(e) => out["mw_error"] = json!(format!("{e:#}")),
         }
         Ok(out)

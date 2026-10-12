@@ -96,16 +96,21 @@ impl Api {
     /// Only over the home network (the packs are hundreds of megabytes and the
     /// remote route might be mobile data); failures are retried after ten minutes.
     pub fn packs_auto(&self) {
-        if self.setting("packs.auto").as_deref() == Some("0") {
+        self.packs_auto_with(false)
+    }
+
+    /// `force` is the person pressing "Download now": no waiting after a failure, and any working route will do.
+    pub fn packs_auto_with(&self, force: bool) {
+        if !force && self.setting("packs.auto").as_deref() == Some("0") {
             return;
         }
         let now = crate::userdb::now_ms();
-        if self.setting("packs.auto.fail").and_then(|v| v.parse::<i64>().ok()).is_some_and(|t| now - t < 600_000) {
+        if !force && self.setting("packs.auto.fail").and_then(|v| v.parse::<i64>().ok()).is_some_and(|t| now - t < 600_000) {
             return;
         }
         let Some(p) = self.pairing() else { return };
         let (route, ..) = self.choose_route(&p);
-        if route != Some(crate::net::Route::Lan) {
+        if route.is_none() || (!force && route != Some(crate::net::Route::Lan)) {
             return;
         }
         let run = || -> Result<()> {
@@ -133,12 +138,42 @@ impl Api {
         };
         match run() {
             Ok(()) => {
-                let _ = self.db.lock().unwrap().execute("DELETE FROM settings WHERE k='packs.auto.fail'", []);
+                let _ = self.db.lock().unwrap().execute("DELETE FROM settings WHERE k IN ('packs.auto.fail','packs.auto.err')", []);
             }
-            Err(_) => {
+            Err(e) => {
                 let _ = self.set_setting("packs.auto.fail", &now.to_string());
+                let _ = self.set_setting("packs.auto.err", &format!("{e:#}"));
             }
         }
+    }
+
+    /// What the setup notice shows: whether a download can start, the last failure and when the next try is.
+    pub(crate) fn packs_auto_status(&self) -> Result<Value> {
+        let now = crate::userdb::now_ms();
+        let paired = self.pairing();
+        let route = paired.as_ref().map(|p| match self.choose_route(p).0 {
+            Some(crate::net::Route::Lan) => "home",
+            Some(crate::net::Route::Wan) => "remote",
+            None => "none",
+        });
+        let next = self.setting("packs.auto.fail").and_then(|v| v.parse::<i64>().ok()).map(|t| ((600_000 - (now - t)) / 1000).max(0));
+        Ok(json!({"paired": paired.is_some(), "route": route, "error": self.setting("packs.auto.err"), "retry_in_s": next,
+                  "installed": self.sources.iter().map(|s| s.id).collect::<Vec<_>>()}))
+    }
+
+    /// "Download now": asks the background loop (which wakes every few seconds) to start at once.
+    pub(crate) fn packs_auto_now(&self) -> Result<Value> {
+        self.set_setting("packs.auto.now", "1")?;
+        Ok(json!({"started": true}))
+    }
+
+    /// Run by the background loop: true when the person asked for a download right now.
+    pub fn packs_now_requested(&self) -> bool {
+        let asked = self.setting("packs.auto.now").is_some();
+        if asked {
+            let _ = self.db.lock().unwrap().execute("DELETE FROM settings WHERE k='packs.auto.now'", []);
+        }
+        asked
     }
 
     fn own_packs(&self) -> PathBuf {

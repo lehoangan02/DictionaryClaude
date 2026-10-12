@@ -463,7 +463,7 @@ pub fn spawn_background_sync(api: Arc<Api>, every: Duration) -> std::thread::Joi
         let mut last = Instant::now() - every;
         let mut last_try = Instant::now() - Duration::from_secs(60);
         loop {
-            std::thread::sleep(Duration::from_secs(15));
+            std::thread::sleep(Duration::from_secs(5));
             let Some(api) = weak.upgrade() else { return };
             if api.pairing().is_none() {
                 // Not paired: on the home Wi-Fi, join by ourselves (at most once a minute).
@@ -474,6 +474,10 @@ pub fn spawn_background_sync(api: Arc<Api>, every: Duration) -> std::thread::Joi
                         last = Instant::now();
                     }
                 }
+                continue;
+            }
+            if api.packs_now_requested() {
+                api.packs_auto_with(true);
                 continue;
             }
             // Photos waiting to be read (or agents at work) on the server: look often.
