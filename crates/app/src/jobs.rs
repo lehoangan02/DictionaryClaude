@@ -188,7 +188,26 @@ fn ocr_gemini(image: &Path) -> Result<String> {
     let key = gemini_key().ok_or_else(|| anyhow!("no GEMINI_API_KEY is set on the server"))?;
     let base = std::env::var("LEXIS_GEMINI_URL").unwrap_or_else(|_| "https://generativelanguage.googleapis.com".into());
     let model = std::env::var("LEXIS_GEMINI_MODEL").unwrap_or_else(|_| "gemini-3.6-flash".into());
-    ocr_gemini_at(&base, &key, &model, image)
+    // New models are often "in high demand" (503): try each twice, then the steadier older one.
+    let mut last = anyhow!("no model tried");
+    for m in [model.as_str(), "gemini-2.5-flash"] {
+        for attempt in 0..2 {
+            match ocr_gemini_at(&base, &key, m, image) {
+                Ok(t) => return Ok(t),
+                Err(e) => {
+                    let busy = format!("{e:#}").contains("high demand") || format!("{e:#}").contains("not reachable");
+                    last = e;
+                    if !busy {
+                        break;
+                    }
+                    if attempt == 0 {
+                        std::thread::sleep(Duration::from_secs(3));
+                    }
+                }
+            }
+        }
+    }
+    Err(last)
 }
 
 fn ocr_one(engine: &str, image: &Path) -> Result<String> {
