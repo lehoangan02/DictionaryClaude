@@ -43,6 +43,7 @@ const SOURCES: &[(&str, &str, &str)] = &[
     ("wiktionary", "Wiktionary", "wiktionary.pack"),
     ("wordnet", "WordNet", "wordnet.pack"),
     ("gcide", "Webster 1913", "gcide.pack"),
+    ("oald", "OALD", "oald.pack"),
 ];
 
 fn open_cache(dir: &std::path::Path) -> Result<Connection> {

@@ -2,6 +2,7 @@ mod barrons;
 mod cmudict;
 mod gcide;
 mod moby;
+mod oald;
 mod wiktionary;
 mod wordnet;
 
@@ -30,6 +31,12 @@ enum Cmd {
     Wordnet { input: PathBuf, out: PathBuf },
     /// Build the Moby thesaurus pack from mthesaur.txt.
     Moby { input: PathBuf, out: PathBuf },
+    /// Build the OALD pack from the extracted OALData directory.
+    Oald {
+        /// Path to the OALData directory (contains json/, sounds/, …).
+        dir: PathBuf,
+        out: PathBuf,
+    },
     /// Print an entry (or key-prefix matches) from a pack, for inspection.
     Lookup {
         pack: PathBuf,
@@ -75,6 +82,7 @@ fn main() -> Result<()> {
         Cmd::Fst { pack, out } => println!("{} keys", gredict_core::fuzzy::Fuzzy::build(&pack, &out)?),
         Cmd::Wordnet { input, out } => wordnet::build(&input, &out)?,
         Cmd::Moby { input, out } => moby::build(&input, &out)?,
+        Cmd::Oald { dir, out } => oald::build(&dir, &out)?,
         Cmd::Lookup { pack, word, prefix } => {
             let p = gredict_core::pack::Pack::open(&pack)?;
             let key = gredict_core::lemma::key(&word);
