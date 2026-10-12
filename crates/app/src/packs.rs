@@ -231,7 +231,8 @@ impl Api {
                     find(f).is_some_and(|x| self.setting(&format!("packs.sha.{f}")).is_some_and(|have| x["sha256"].as_str() != Some(have.as_str())))
                 });
             out.push(json!({"id": id, "title": title, "about": about, "licence": licence, "downloaded": downloaded, "built_in": built_in,
-                            "size": if size_local > 0 { size_local } else { size_remote }, "remote_size": size_remote, "on_server": on_server, "update": update}));
+                            "size": if size_local > 0 { size_local } else { size_remote }, "remote_size": size_remote, "on_server": on_server, "update": update,
+                            "error": self.setting(&format!("packs.err.{id}")).filter(|e| !e.is_empty())}));
         }
         Ok(json!({"packs": out, "checked": remote["at"], "paired": self.pairing().is_some()}))
     }
@@ -277,6 +278,8 @@ impl Api {
             Ok(())
         })();
         self.pack_progress.lock().unwrap().remove(id);
+        // Kept so the list can say why a download stopped even after the screen was left and reopened.
+        let _ = self.set_setting(&format!("packs.err.{id}"), &result.as_ref().err().map(|e| format!("{e:#}")).unwrap_or_default());
         result?;
         if signal {
             self.reload.store(true, std::sync::atomic::Ordering::SeqCst);

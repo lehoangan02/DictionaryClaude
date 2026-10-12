@@ -8,25 +8,36 @@
   let err = $state('');
   let checking = $state(false);
   let timer: ReturnType<typeof setInterval> | undefined;
+  let wasBusy = false;
 
   const mb = (n: number) => (n >= 1e9 ? (n / 1e9).toFixed(2) + ' GB' : Math.max(1, Math.round(n / 1e6)) + ' MB');
   async function load() { list = await call('packs_list'); }
-  $effect(() => { void app.version; load().catch(() => {}); return () => clearInterval(timer); });
+  async function refreshApp() { app.sources = await call('sources'); bump(); }
+
+  // The app itself does the downloading, whatever screen is open, so this list only watches it:
+  // coming back to Settings (or the page reloading) picks the running downloads up again.
+  async function tick() {
+    try { prog = await call('pack_progress'); } catch { return; /* busy */ }
+    const busy = Object.keys(prog).length > 0;
+    if (busy) { wasBusy = true; return; }
+    clearInterval(timer); timer = undefined;
+    if (wasBusy) { wasBusy = false; await load().catch(() => {}); await refreshApp().catch(() => {}); }
+  }
+  function watch() { if (!timer) timer = setInterval(tick, 500); }
+  $effect(() => { void app.version; load().catch(() => {}); tick().then(() => { if (Object.keys(prog).length) watch(); }); return () => clearInterval(timer); });
 
   async function check() {
     checking = true; err = '';
     try { list = await call('packs_catalog'); } catch (e) { err = (e as Error).message; }
     checking = false;
   }
-  async function refreshApp() { app.sources = await call('sources'); bump(); }
   async function install(id: string) {
     err = '';
     prog = { ...prog, [id]: { done: 0, total: 0 } };
-    timer = setInterval(async () => { try { prog = { ...prog, ...(await call('pack_progress')) }; } catch { /* busy */ } }, 400);
-    try { await call('pack_install', { id }); await load(); await refreshApp(); }
+    wasBusy = true; watch();
+    try { await call('pack_install', { id }); }
     catch (e) { err = (e as Error).message; }
-    clearInterval(timer);
-    const { [id]: _gone, ...rest } = prog; prog = rest;
+    await tick();
   }
   async function remove(id: string) {
     err = '';
@@ -48,6 +59,7 @@
           <b>{p.title}</b>
           <span class="muted small">{p.about}</span>
           <span class="muted small">{p.licence}{p.size ? ' · ' + mb(p.size) : ''}{p.built_in ? ' · built in' : ''}</span>
+          {#if p.error && !prog[p.id]}<span class="err small">Stopped: {p.error}</span>{/if}
           {#if prog[p.id]}
             <div class="bar" role="progressbar" aria-valuenow={prog[p.id].done} aria-valuemax={prog[p.id].total}>
               <i style="transform: scaleX({prog[p.id].total ? prog[p.id].done / prog[p.id].total : 0})"></i></div>

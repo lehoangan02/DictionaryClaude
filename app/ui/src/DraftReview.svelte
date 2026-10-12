@@ -13,7 +13,7 @@
   let edges = $state<{ a: string; b: string; rel: keyof typeof REL }[]>([]);
   let error = $state('');
   let busy = $state(false);
-  let mode = $state('both');
+  let mode = $state('claude');
   let effort = $state('medium');
   let confirmAsk = $state(false);
   let timer: ReturnType<typeof setTimeout>;
