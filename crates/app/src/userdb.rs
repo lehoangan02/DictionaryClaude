@@ -142,7 +142,7 @@ pub const MIGRATIONS: &[&str] = &[
         ON CONFLICT(tbl,id) DO UPDATE SET seq=excluded.seq;
     END;
     ",
-    // 5: answers from outside services kept for good (Oxford lookups, related-word lists). Local to
+    // 5: answers from outside services kept for good (related-word lists from Gemini, and whatever comes next). Local to
     // each machine, never synced (no triggers, not in sync::TABLES): the sync server fills it once
     // and every device asks the server, so an update or a reinstall never loses what was paid for.
     "

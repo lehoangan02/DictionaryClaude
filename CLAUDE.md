@@ -30,7 +30,7 @@ Planned layout (see `docs/PLAN.md`):
 - **Barron's material is copyrighted.** The PDF and everything derived from it live in `private/` (gitignored). Never commit, publish or embed it in distributable builds.
 - **The UI mimics the Oxford Learner's look without Oxford names or logos.**
 - **User data references words by normalized lemma key, never by pack row IDs**, so dictionary packs stay swappable.
-- **User DB schema changes are new forward-only numbered migrations.** Anything the server keeps for good (Oxford answers, related-word lists, future caches) lives in a migrated table, never in an ad-hoc `CREATE IF NOT EXISTS`, so updates never lose it. Never edit a shipped migration; changes to oplog op formats need an upcaster.
+- **User DB schema changes are new forward-only numbered migrations.** Anything the server keeps for good (related-word lists, future caches) lives in a migrated table, never in an ad-hoc `CREATE IF NOT EXISTS`, so updates never lose it. Never edit a shipped migration; changes to oplog op formats need an upcaster.
 - **Agent jobs (`claude -p` / `agy -p`) run only when the user triggers them**, because quota is limited. They never write user notes directly; the user approves every change.
 - **On-device AI uses the NPU, then the GPU, then the CPU**, through the single `core::ai` runtime.
 
