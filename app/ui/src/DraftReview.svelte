@@ -56,6 +56,15 @@
   }
   async function discard() { await call('draft_reject', { id }); bump(); onclose(); }
 
+  // Gemini's strongest model reads the photos again; the text below is replaced, so ask first.
+  let confirmReread = $state(false);
+  async function reread() {
+    busy = true; error = ''; confirmReread = false;
+    try { await call('draft_reread', { id }); call('sync_now').catch(() => {}); bump(); onclose(); }
+    catch (e) { error = (e as Error).message; }
+    busy = false;
+  }
+
   async function ask() {
     busy = true; error = ''; confirmAsk = false;
     try { await call('draft_update', { id, text }); d = await call('draft_agents', { id, mode, effort }); bump(); }
@@ -111,6 +120,15 @@
     {#if agentsRunning}
       <p>The agents are reading the photos{d.agents?.request?.mode === 'both' ? ' and will compare notes if they differ' : ''}… this can take a minute or two.</p>
     {:else}
+      <p class="muted small">Not happy with the reading? A stronger model can read the photos again (slower; it replaces the text above).</p>
+      <div class="row">
+        {#if confirmReread}
+          <button class="btn primary" disabled={busy} onclick={reread}>Yes, replace the text</button>
+          <button class="btn ghost" onclick={() => (confirmReread = false)}>Cancel</button>
+        {:else}
+          <button class="btn" disabled={busy || d.status === 'queued'} onclick={() => (confirmReread = true)}>Read again carefully</button>
+        {/if}
+      </div>
       <p class="muted small">Ask Claude and/or agy to read the photos. This uses your agent quota, so it only happens when you press the button.</p>
       <div class="row">
         <label class="f">Who <select bind:value={mode}>

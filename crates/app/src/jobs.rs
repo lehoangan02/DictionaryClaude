@@ -184,13 +184,20 @@ fn gemini_key() -> Option<String> {
     ["GEMINI_API_KEY", "GOOGLE_API_KEY"].iter().find_map(|k| std::env::var(k).ok()).filter(|k| !k.trim().is_empty())
 }
 
-fn ocr_gemini(image: &Path) -> Result<String> {
+/// `hard` is the owner's "read again carefully" button: a stronger (slower) model goes first.
+fn ocr_gemini(image: &Path, hard: bool) -> Result<String> {
     let key = gemini_key().ok_or_else(|| anyhow!("no GEMINI_API_KEY is set on the server"))?;
     let base = std::env::var("LEXIS_GEMINI_URL").unwrap_or_else(|_| "https://generativelanguage.googleapis.com".into());
-    let model = std::env::var("LEXIS_GEMINI_MODEL").unwrap_or_else(|_| "gemini-3.6-flash".into());
+    let model = std::env::var("LEXIS_GEMINI_MODEL").unwrap_or_else(|_| "gemini-3.8-flash".into());
+    let strong = std::env::var("LEXIS_GEMINI_HARD_MODEL").unwrap_or_else(|_| "gemini-3.1-pro-preview".into());
+    let mut order = Vec::new();
+    if hard {
+        order.push(strong.as_str());
+    }
+    order.extend([model.as_str(), "gemini-2.5-flash"]);
     // New models are often "in high demand" (503): try each twice, then the steadier older one.
     let mut last = anyhow!("no model tried");
-    for m in [model.as_str(), "gemini-2.5-flash"] {
+    for m in order {
         for attempt in 0..2 {
             match ocr_gemini_at(&base, &key, m, image) {
                 Ok(t) => return Ok(t),
@@ -213,12 +220,13 @@ fn ocr_gemini(image: &Path) -> Result<String> {
 fn ocr_one(engine: &str, image: &Path) -> Result<String> {
     match engine {
         "none" => bail!("OCR is turned off"),
-        "gemini" => ocr_gemini(image),
+        "gemini" => ocr_gemini(image, false),
+        "gemini-hard" => ocr_gemini(image, true),
         // The default: Gemini when the server has a key, else a local vision model (far better
         // than tesseract at handwriting); tesseract stays as the last fallback.
         "auto" => {
             if gemini_key().is_some() {
-                match ocr_gemini(image) {
+                match ocr_gemini(image, false) {
                     Ok(t) => return Ok(t),
                     Err(e) => eprintln!("Gemini OCR failed ({e:#}); trying the local model"),
                 }
@@ -440,7 +448,9 @@ impl Api {
         self.draft_set(id, "status='processing'", params![now_ms(), id])?;
         let d = self.draft_get(id)?;
         let photos = self.draft_photos(&d);
-        let engine = self.env_or("LEXIS_OCR", "auto");
+        // "Read again carefully" asked for the strong Gemini model and replaces the text.
+        let hard = d["ocr_engine"] == "gemini-hard";
+        let engine = if hard { "gemini-hard".to_string() } else { self.env_or("LEXIS_OCR", "auto") };
         let (mut pages, mut error) = (Vec::new(), String::new());
         if photos.is_empty() {
             error = "the photos have not arrived on the server yet".into();
@@ -453,7 +463,7 @@ impl Api {
         }
         let text = pages.into_iter().filter(|p| !p.is_empty()).collect::<Vec<_>>().join("\n\n");
         // Whatever the OCR found is the starting text, unless the person already typed some.
-        let keep = d["text"].as_str().is_some_and(|t| !t.trim().is_empty());
+        let keep = !hard && d["text"].as_str().is_some_and(|t| !t.trim().is_empty());
         self.db.lock().unwrap().execute(
             "UPDATE drafts SET status='needs_review', ocr_text=?2, ocr_engine=?3, text=CASE WHEN ?4 THEN text ELSE ?2 END, error=?5, updated=?6 WHERE id=?1",
             params![id, text, engine, keep, error, now_ms()],
@@ -633,7 +643,7 @@ mod tests {
         std::env::set_var("LEXIS_GEMINI_URL", format!("http://127.0.0.1:{port}"));
         std::env::set_var("GEMINI_API_KEY", "k");
         std::env::set_var("LEXIS_GEMINI_MODEL", "gemini-9-flash");
-        let text = ocr_gemini(&img).unwrap();
+        let text = ocr_gemini(&img, false).unwrap();
         assert_eq!(text, "woo: try to get support");
         let tried = tried.join().unwrap();
         // The busy model is tried twice, then the fallback answers.

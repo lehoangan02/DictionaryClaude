@@ -171,6 +171,12 @@ impl Api {
         Ok(json!({"ok": true}))
     }
 
+    /// "Read again carefully": the server reads the photos once more with the strong model.
+    pub(crate) fn draft_reread(&self, id: &str) -> Result<Value> {
+        self.draft_set(id, "status='queued', ocr_engine='gemini-hard', error=''", params![now_ms(), id])?;
+        Ok(json!({"ok": true}))
+    }
+
     /// A photo's bytes as a data URL, from this device or (when paired) the server.
     pub(crate) fn photo_data(&self, name: &str) -> Result<Value> {
         let bytes = self.photo_read(name).or_else(|| self.photo_fetch_from_server(name).ok().flatten()).ok_or_else(|| anyhow!("that photo is not on this device yet; sync to receive it"))?;
