@@ -279,7 +279,7 @@ fn urlencode(s: &str) -> String {
     s.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
 }
 
-pub(crate) const CACHE_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS mw(kind TEXT NOT NULL, key TEXT NOT NULL, json TEXT NOT NULL, fetched INTEGER NOT NULL, PRIMARY KEY(kind, key)); CREATE TABLE IF NOT EXISTS session_vec(session_id TEXT PRIMARY KEY, hash TEXT NOT NULL, vec BLOB NOT NULL)";
+pub(crate) const CACHE_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS mw(kind TEXT NOT NULL, key TEXT NOT NULL, json TEXT NOT NULL, fetched INTEGER NOT NULL, PRIMARY KEY(kind, key)); CREATE TABLE IF NOT EXISTS expand(term TEXT PRIMARY KEY, words TEXT NOT NULL, at INTEGER NOT NULL); CREATE TABLE IF NOT EXISTS session_vec(session_id TEXT PRIMARY KEY, hash TEXT NOT NULL, vec BLOB NOT NULL)";
 
 #[cfg(test)]
 mod tests {

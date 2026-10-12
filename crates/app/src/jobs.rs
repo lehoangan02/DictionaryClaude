@@ -180,7 +180,39 @@ fn ocr_gemini_at(base: &str, key: &str, model: &str, image: &Path) -> Result<Str
     Ok(join_continuations(&text))
 }
 
-fn gemini_key() -> Option<String> {
+/// One plain-text Gemini answer (no image), with the same busy-model retries and fallback as photo reading.
+pub(crate) fn gemini_text(prompt: &str) -> Result<String> {
+    let key = gemini_key().ok_or_else(|| anyhow!("no GEMINI_API_KEY is set on the server"))?;
+    let base = std::env::var("LEXIS_GEMINI_URL").unwrap_or_else(|_| "https://generativelanguage.googleapis.com".into());
+    let model = std::env::var("LEXIS_GEMINI_MODEL").unwrap_or_else(|_| "gemini-3.6-flash".into());
+    let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(40))).timeout_connect(Some(Duration::from_secs(10))).http_status_as_error(false).build().into();
+    let mut last = anyhow!("no model tried");
+    for m in [model.as_str(), "gemini-2.5-flash"] {
+        let body = json!({"contents": [{"parts": [{"text": prompt}]}], "generationConfig": {"temperature": 0}});
+        let sent = agent.post(&format!("{base}/v1beta/models/{m}:generateContent")).header("Content-Type", "application/json").header("x-goog-api-key", &key).send(serde_json::to_vec(&body)?);
+        let mut resp = match sent {
+            Ok(r) => r,
+            Err(e) => {
+                last = anyhow!("Gemini is not reachable ({e})");
+                continue;
+            }
+        };
+        let status = resp.status().as_u16();
+        let v: Value = serde_json::from_str(&resp.body_mut().read_to_string()?).unwrap_or(Value::Null);
+        if status != 200 {
+            last = anyhow!("Gemini said: {}", v["error"]["message"].as_str().unwrap_or("an error"));
+            continue;
+        }
+        let text: String = v["candidates"][0]["content"]["parts"].as_array().into_iter().flatten().filter_map(|p| p["text"].as_str()).collect();
+        if !text.trim().is_empty() {
+            return Ok(text.trim().to_string());
+        }
+        last = anyhow!("Gemini returned nothing");
+    }
+    Err(last)
+}
+
+pub(crate) fn gemini_key() -> Option<String> {
     ["GEMINI_API_KEY", "GOOGLE_API_KEY"].iter().find_map(|k| std::env::var(k).ok()).filter(|k| !k.trim().is_empty())
 }
 

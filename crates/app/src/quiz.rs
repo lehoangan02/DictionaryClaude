@@ -552,6 +552,16 @@ impl Api {
                 syn.sort();
                 expanded.extend(syn.into_iter().take(150));
             }
+            // Gemini's list of close words (cached; empty when offline), so "boring" reaches "mundane".
+            let mut related: Vec<String> = Vec::new();
+            for t in terms.iter().take(3) {
+                related.extend(self.related_words(t).into_iter().filter(|w| !w.contains(' ')));
+            }
+            related.sort();
+            related.dedup();
+            if !related.is_empty() {
+                run(&related.iter().map(|t| quote(t)).collect::<Vec<_>>().join(" OR "), 0.8, &mut scored)?;
+            }
             expanded.sort();
             expanded.dedup();
             if !expanded.is_empty() {
