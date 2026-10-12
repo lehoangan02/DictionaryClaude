@@ -86,6 +86,15 @@ Write the relation symbols the way they are used: = (same meaning), ≈ (similar
 Keep colons, brackets, slashes, Vietnamese words and abbreviations like sth as written. \
 Output only the transcription, with no comments, no numbering and no markdown.";
 
+/// What Gemini is told: the same literal copy, plus the page's quirks.
+const GEMINI_PROMPT: &str = "This is a photo of a page from a student's handwritten GRE vocabulary notebook, in English with some Vietnamese. \
+Transcribe every line exactly as written, one note per line, in reading order, keeping the writer's own spelling and Vietnamese diacritics. \
+A line that is indented under another continues that line: join it onto the line above. \
+Write the relation symbols the way they are used: = (same meaning), ≈ (similar, often handwritten as a wavy equals), >< (opposite), ≠ (different). \
+Keep colons, brackets, slashes, (v) (n) (adj) tags, usage notes like (of a child) and abbreviations like sth as written. \
+Ignore bleed-through from the other side of the page and shadows. Put crossed-out text between ~~ marks. \
+Output only the transcription, with no comments, no numbering and no markdown.";
+
 /// Joins the indented second lines of a note back onto it ("court (v): please so to get what you want" /
 /// "try to get sth"): a short lowercase line with no colon or relation symbol belongs to the line above.
 pub fn join_continuations(text: &str) -> String {
@@ -136,12 +145,65 @@ fn ocr_ollama(model: &str, image: &Path) -> Result<String> {
     Ok(join_continuations(&text))
 }
 
+/// Reads a photo with Google's Gemini API. The key lives in the server's environment
+/// (`GEMINI_API_KEY`), never in the repo or in the app; the photo is sent to Google.
+fn ocr_gemini_at(base: &str, key: &str, model: &str, image: &Path) -> Result<String> {
+    use base64::Engine;
+    let bytes = std::fs::read(image)?;
+    let mime = if image.extension().is_some_and(|e| e == "png") { "image/png" } else { "image/jpeg" };
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(120)))
+        .timeout_connect(Some(Duration::from_secs(10)))
+        .http_status_as_error(false)
+        .build()
+        .into();
+    let body = json!({
+        "contents": [{"parts": [{"text": GEMINI_PROMPT}, {"inline_data": {"mime_type": mime, "data": base64::engine::general_purpose::STANDARD.encode(bytes)}}]}],
+        "generationConfig": {"temperature": 0},
+    });
+    let mut resp = agent
+        .post(&format!("{base}/v1beta/models/{model}:generateContent"))
+        .header("Content-Type", "application/json")
+        .header("x-goog-api-key", key)
+        .send(serde_json::to_vec(&body)?)
+        .map_err(|e| anyhow!("Gemini is not reachable ({e})"))?;
+    let status = resp.status().as_u16();
+    let v: Value = serde_json::from_str(&resp.body_mut().read_to_string()?).unwrap_or(Value::Null);
+    if status != 200 {
+        bail!("Gemini said: {}", v["error"]["message"].as_str().unwrap_or("an error"));
+    }
+    let text: String = v["candidates"][0]["content"]["parts"].as_array().into_iter().flatten().filter_map(|p| p["text"].as_str()).collect();
+    let text = text.trim().trim_start_matches("```").trim_end_matches("```").trim().to_string();
+    if text.is_empty() {
+        bail!("Gemini returned nothing");
+    }
+    Ok(join_continuations(&text))
+}
+
+fn gemini_key() -> Option<String> {
+    ["GEMINI_API_KEY", "GOOGLE_API_KEY"].iter().find_map(|k| std::env::var(k).ok()).filter(|k| !k.trim().is_empty())
+}
+
+fn ocr_gemini(image: &Path) -> Result<String> {
+    let key = gemini_key().ok_or_else(|| anyhow!("no GEMINI_API_KEY is set on the server"))?;
+    let base = std::env::var("LEXIS_GEMINI_URL").unwrap_or_else(|_| "https://generativelanguage.googleapis.com".into());
+    let model = std::env::var("LEXIS_GEMINI_MODEL").unwrap_or_else(|_| "gemini-2.5-flash".into());
+    ocr_gemini_at(&base, &key, &model, image)
+}
+
 fn ocr_one(engine: &str, image: &Path) -> Result<String> {
     match engine {
         "none" => bail!("OCR is turned off"),
-        // The default: a local vision model reads handwriting far better than tesseract,
-        // which stays as the fallback when Ollama or the model is missing.
+        "gemini" => ocr_gemini(image),
+        // The default: Gemini when the server has a key, else a local vision model (far better
+        // than tesseract at handwriting); tesseract stays as the last fallback.
         "auto" => {
+            if gemini_key().is_some() {
+                match ocr_gemini(image) {
+                    Ok(t) => return Ok(t),
+                    Err(e) => eprintln!("Gemini OCR failed ({e:#}); trying the local model"),
+                }
+            }
             let model = std::env::var("LEXIS_OCR_MODEL").unwrap_or_else(|_| "qwen2.5vl:3b".into());
             ocr_ollama(&model, image).or_else(|e| {
                 eprintln!("vision OCR unavailable ({e:#}); using tesseract");
@@ -501,6 +563,45 @@ pub fn spawn_job_runner(api: Arc<Api>, every: Duration) -> std::thread::JoinHand
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gemini_reads_a_photo_through_a_stand_in_server() {
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let port = server.server_addr().to_ip().unwrap().port();
+        let seen = std::thread::spawn(move || {
+            let mut req = server.recv().unwrap();
+            let mut body = String::new();
+            std::io::Read::read_to_string(req.as_reader(), &mut body).unwrap();
+            let key = req.headers().iter().find(|h| h.field.equiv("x-goog-api-key")).map(|h| h.value.to_string());
+            let reply = json!({"candidates": [{"content": {"parts": [{"text": "court (v): please so\nto get what you want\nwoo: try to get support"}]}}]});
+            let url = req.url().to_string();
+            let _ = req.respond(tiny_http::Response::from_string(reply.to_string()));
+            (url, key, body)
+        });
+        let img = std::env::temp_dir().join(format!("gemini-test-{}.jpg", std::process::id()));
+        std::fs::write(&img, b"\xff\xd8 not really a photo").unwrap();
+        let text = ocr_gemini_at(&format!("http://127.0.0.1:{port}"), "secret-key", "gemini-test", &img).unwrap();
+        // The indented second line is rejoined, and the key travels in a header, never in the URL.
+        assert_eq!(text, "court (v): please so to get what you want\nwoo: try to get support");
+        let (url, key, body) = seen.join().unwrap();
+        assert_eq!(url, "/v1beta/models/gemini-test:generateContent");
+        assert_eq!(key.as_deref(), Some("secret-key"));
+        assert!(body.contains("inline_data") && body.contains("image/jpeg"));
+    }
+
+    #[test]
+    fn gemini_errors_do_not_leak_the_key() {
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let port = server.server_addr().to_ip().unwrap().port();
+        std::thread::spawn(move || {
+            let req = server.recv().unwrap();
+            let _ = req.respond(tiny_http::Response::from_string(r#"{"error":{"message":"API key not valid"}}"#).with_status_code(400));
+        });
+        let img = std::env::temp_dir().join(format!("gemini-test2-{}.jpg", std::process::id()));
+        std::fs::write(&img, b"x").unwrap();
+        let e = ocr_gemini_at(&format!("http://127.0.0.1:{port}"), "secret-key", "m", &img).unwrap_err();
+        assert!(format!("{e:#}").contains("API key not valid") && !format!("{e:#}").contains("secret-key"));
+    }
 
     #[test]
     fn symbol_cleanup() {

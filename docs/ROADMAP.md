@@ -20,6 +20,7 @@ Kept current by whoever changes the app (Claude Code included): when you fix som
 - **Self-update (built, never run on a device):** Settings → About and a banner show a newer GitHub release, download it, verify the SHA-256 and install it (Mac: swaps the app bundle and reopens; Linux: replaces the AppImage; Android: hands the APK to the system installer, which asks once to allow installs from LadyBird). Tested against a stand-in for GitHub only.
 
 **Still open (reported by the owner)**
+- **Gemini note reading (built, needs the owner's key):** the server has a `gemini` OCR engine (tested against a stand-in only). Waiting for an AI Studio API key to be installed on the box (SETUP, "Handwriting OCR engines"); then run page 2 through it and compare with `docs/OCR-SAMPLES.md`. Idea from the owner's chat: a structured JSON schema per headword (senses, synonyms, derived forms, confidence) feeding the review screen, and linking synonym chains to Barron's cards.
 - **Note reading, remaining work:** run page 2 through the reader and compare; show per-line confidence; the notes grammar still builds a relation from anything with `=`, so odd lines can produce odd relations.
 
 **Known defects and gaps**
