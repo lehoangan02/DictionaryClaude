@@ -609,6 +609,38 @@ mod tests {
     }
 
     #[test]
+    fn a_busy_gemini_model_falls_back_to_2_5_flash() {
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let port = server.server_addr().to_ip().unwrap().port();
+        let tried = std::thread::spawn(move || {
+            let mut tried = Vec::new();
+            for _ in 0..3 {
+                let req = server.recv().unwrap();
+                let url = req.url().to_string();
+                let busy = !url.contains("gemini-2.5-flash");
+                tried.push(url);
+                let r = if busy {
+                    tiny_http::Response::from_string(r#"{"error":{"message":"This model is currently experiencing high demand."}}"#).with_status_code(503)
+                } else {
+                    tiny_http::Response::from_string(json!({"candidates": [{"content": {"parts": [{"text": "woo: try to get support"}]}}]}).to_string())
+                };
+                let _ = req.respond(r);
+            }
+            tried
+        });
+        let img = std::env::temp_dir().join(format!("gemini-test3-{}.jpg", std::process::id()));
+        std::fs::write(&img, b"x").unwrap();
+        std::env::set_var("LEXIS_GEMINI_URL", format!("http://127.0.0.1:{port}"));
+        std::env::set_var("GEMINI_API_KEY", "k");
+        std::env::set_var("LEXIS_GEMINI_MODEL", "gemini-9-flash");
+        let text = ocr_gemini(&img).unwrap();
+        assert_eq!(text, "woo: try to get support");
+        let tried = tried.join().unwrap();
+        // The busy model is tried twice, then the fallback answers.
+        assert!(tried[0].contains("gemini-9-flash") && tried[1].contains("gemini-9-flash") && tried[2].contains("gemini-2.5-flash"));
+    }
+
+    #[test]
     fn gemini_errors_do_not_leak_the_key() {
         let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
         let port = server.server_addr().to_ip().unwrap().port();
