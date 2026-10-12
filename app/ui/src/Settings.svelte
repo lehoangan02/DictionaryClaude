@@ -62,22 +62,6 @@
     dl.running = false;
   }
 
-  // Oxford Languages API: normally the sync server holds the key and keeps every answer; a device may hold its own.
-  let ox = $state<any>({ configured: false });
-  let oxId = $state('');
-  let oxKey = $state('');
-  let oxMsg = $state('');
-  async function loadOx() { ox = await call('ox_status'); }
-  $effect(() => { void app.version; loadOx().catch(() => {}); });
-  async function saveOx(extra: Record<string, unknown> = {}) {
-    try {
-      ox = await call('ox_config', { ...(oxId || oxKey ? { app_id: oxId, app_key: oxKey } : {}), ...extra });
-      oxId = ''; oxKey = '';
-      app.sources = await call('sources');
-      oxMsg = 'Saved.';
-    } catch (e) { oxMsg = (e as Error).message; }
-  }
-
   // Merriam-Webster: keys stay on this device and are never shown again after saving.
   let mw = $state<any>({ configured: false });
   let mwKey = $state('');
@@ -130,7 +114,7 @@
       <li class:off={!r.shown} animate:flip={{ duration: flipDur() }}>
         <span class="n">{i + 1}</span>
         <span class="nm"><b>{r.name}</b>
-          <span class="muted small">{r.id === 'mw' ? 'looked up online when you open a word' : r.id === 'ox' ? 'looked up through your server, kept there for good' : r.entries != null ? `${r.entries.toLocaleString()} entries` : ''}</span></span>
+          <span class="muted small">{r.id === 'mw' ? 'looked up online when you open a word' : r.entries != null ? `${r.entries.toLocaleString()} entries` : ''}</span></span>
         <button class="mv" disabled={i === 0} onclick={() => move(i, -1)} aria-label="Move {r.name} up"><Icon name="up" size={22} /></button>
         <button class="mv" disabled={i === rows.length - 1} onclick={() => move(i, 1)} aria-label="Move {r.name} down"><Icon name="down" size={22} /></button>
         <label class="sw" title="Show this dictionary"><input type="checkbox" checked={r.shown} onchange={() => toggle(i)} /><span></span></label>
@@ -203,26 +187,6 @@
     {#if mw.cache_entries}<button class="btn small ghost" onclick={() => saveMw({ clear_cache: true })}>Clear saved entries</button>{/if}
   {/if}
   {#if mwMsg}<p class="msg small">{mwMsg}</p>{/if}
-</section>
-
-<section class="card rise" style="--i:5">
-  <h3>Oxford</h3>
-  <p class="muted small">
-    Optional. Words are looked up through the Oxford Languages API only when you open one in the Oxford tab. Your server holds the key and keeps every answer for good,
-    so each word is fetched once for all your devices.
-  </p>
-  <p class="small">{ox.via_server ? `Through your server. ${ox.cache_entries} word${ox.cache_entries === 1 ? '' : 's'} saved on this device.` : ox.own_key ? `This device has its own key. Used today: ${ox.used_today} of ${ox.limit}; ${ox.cache_entries} saved.` : 'Pair this device with your server to use Oxford.'}</p>
-  <details class="alt">
-    <summary>Use my own key on this device</summary>
-    <label class="f">Application id <input type="text" bind:value={oxId} placeholder={ox.own_key ? '(saved)' : 'app id'} autocomplete="off" /></label>
-    <label class="f">Application key <input type="password" bind:value={oxKey} placeholder={ox.own_key ? '•••••••• (saved)' : 'app key'} autocomplete="off" /></label>
-    <div class="row">
-      <button class="btn primary" disabled={!oxId || !oxKey} onclick={() => saveOx()}>Save</button>
-      {#if ox.own_key}<button class="btn ghost" onclick={() => saveOx({ app_id: '', app_key: '' })}>Remove</button>{/if}
-    </div>
-  </details>
-  {#if ox.cache_entries}<button class="btn small ghost" onclick={() => saveOx({ clear_cache: true })}>Clear saved Oxford words on this device</button>{/if}
-  {#if oxMsg}<p class="msg small">{oxMsg}</p>{/if}
 </section>
 
 <section class="card rise" style="--i:6">

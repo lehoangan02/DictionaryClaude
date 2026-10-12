@@ -20,7 +20,7 @@
     timer = setTimeout(async () => {
       if (!q.trim()) { sugg = []; did = []; return; }
       try {
-        const r = await call('search', { q, source: app.source === 'mw' || app.source === 'ox' ? undefined : app.source });
+        const r = await call('search', { q, source: app.source === 'mw' ? undefined : app.source });
         if (mine !== seq) return; // a newer keystroke superseded this answer
         sugg = r.suggestions; did = r.did_you_mean; idx = -1;
       } catch { /* the entry view shows errors */ }

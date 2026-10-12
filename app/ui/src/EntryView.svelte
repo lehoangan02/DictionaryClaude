@@ -25,7 +25,7 @@
       .then(async (d) => {
         if (mine !== seq) return;
         data = d; did = [];
-        if (!d.entry) did = (await call('search', { q: word, source: source === 'mw' || source === 'ox' ? undefined : source })).did_you_mean;
+        if (!d.entry) did = (await call('search', { q: word, source: source === 'mw' ? undefined : source })).did_you_mean;
       })
       .catch((e) => { if (mine === seq) error = e.message; })
       .finally(() => { if (mine === seq) loading = false; });
@@ -37,8 +37,8 @@
     entry ? [...new Set<string>(entry.blocks.map((b: any) => b.etymology).filter(Boolean))] : [],
   );
   const tabs = $derived((void app.orderVersion, orderedSources().visible));
-  // A dictionary without the word is greyed out and cannot be opened; Merriam-Webster and Oxford are live lookups, so they are always allowed.
-  const has = (id: string) => id === 'mw' || id === 'ox' || !!data?.found_in.includes(id);
+  // A dictionary without the word is greyed out and cannot be opened; Merriam-Webster is a live lookup, so it is always allowed.
+  const has = (id: string) => id === 'mw' || !!data?.found_in.includes(id);
   const shownId = $derived<string>(data?.source?.id ?? app.source);
 
   // Short, modern sentences first; dated quotations stay one click away.
@@ -206,10 +206,6 @@
           <img class="mwl dark" src="./mw-logo-dark.png" alt="" aria-hidden="true" width="50" height="50" />
           Definitions from <b>Merriam-Webster's Collegiate® Dictionary</b> and <b>Thesaurus</b>, © Merriam-Webster, Inc.
         </p>
-      {/if}
-
-      {#if data.source.id === 'ox'}
-        <p class="attr">Definitions from <b>Oxford Languages</b> (Oxford University Press), through the Oxford Languages API.</p>
       {/if}
 
       <Thesaurus data={data.thesaurus} word={entry.word} />

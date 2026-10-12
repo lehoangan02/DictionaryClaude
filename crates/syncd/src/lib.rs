@@ -272,7 +272,6 @@ pub fn handle(api: &Api, tokens: &Tokens, private: &Path, enrolling: Option<&Enr
         "/v1/hello" => Ok(json!({"device": who, "time": now_ms()})),
         "/v1/push" => api.call("sync_apply", json!({"changes": args.get("changes").cloned().unwrap_or(Value::Null)})),
         "/v1/expand" => api.call("expand_terms", json!({"term": args.get("term").and_then(Value::as_str).unwrap_or("")})),
-        "/v1/oxford" => api.call("ox_raw", json!({"word": args.get("word").and_then(Value::as_str).unwrap_or("")})),
         "/v1/pull" => api.call("sync_pull", json!({"cursor": args.get("cursor").and_then(Value::as_i64).unwrap_or(0), "limit": args.get("limit").and_then(Value::as_i64).unwrap_or(2000)})),
         _ => return reply(req, 404, json!({"error": "not found"})),
     };
