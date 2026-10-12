@@ -19,3 +19,7 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+# The Rust side calls MainActivity.installApk through JNI, so nothing in Java refers to it and
+# the release optimizer would remove it (the app then died with NoSuchMethodError on update).
+-keep class dev.lexis.gre.MainActivity { public *; }
+-keepclassmembers class dev.lexis.gre.MainActivity$Voice { @android.webkit.JavascriptInterface <methods>; }
