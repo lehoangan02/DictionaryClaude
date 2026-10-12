@@ -77,8 +77,12 @@
           <span class="mark">{r.correct === true ? '✓' : r.correct === false ? '✗' : '–'}</span>
           <div>
             <p class="pr">{r.item.prompt}</p>
-            {#if r.given}<p class="g">You: {r.given}</p>{/if}
-            <p class="e">Answer: {r.expected.join(' · ')}</p>
+            {#if r.correct === true}
+              <p class="e">{r.expected.join(' · ')}</p>
+            {:else}
+              {#if r.given}<p class="g">You: {r.given}</p>{:else}<p class="muted">Not answered</p>{/if}
+              <p class="e">Answer: {r.expected.join(' · ')}</p>
+            {/if}
             {#if r.explanation}<p class="x">{r.explanation}</p>{/if}
           </div>
         </li>
