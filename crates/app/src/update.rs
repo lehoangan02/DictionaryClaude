@@ -39,7 +39,21 @@ fn agent(secs: u64) -> ureq::Agent {
     ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(secs))).http_status_as_error(false).build().into()
 }
 
+/// Download progress the page polls: bytes done, bytes expected, and a stage name.
+static DONE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static TOTAL: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static STAGE: std::sync::Mutex<&'static str> = std::sync::Mutex::new("idle");
+
+fn stage(s: &'static str) {
+    *STAGE.lock().unwrap() = s;
+}
+
 impl Api {
+    pub(crate) fn update_progress(&self) -> Value {
+        use std::sync::atomic::Ordering::Relaxed;
+        json!({"done": DONE.load(Relaxed), "total": TOTAL.load(Relaxed), "stage": *STAGE.lock().unwrap()})
+    }
+
     /// What the newest release offers this device, and whether it is newer than `current`.
     pub(crate) fn update_check(&self, current: &str) -> Result<Value> {
         let base = std::env::var("LEXIS_UPDATE_URL").unwrap_or_else(|_| LATEST.to_string());
@@ -66,6 +80,17 @@ impl Api {
 
     /// Downloads the asset into the app's data folder and verifies it; returns where it is.
     pub(crate) fn update_download(&self, asset: &Value) -> Result<Value> {
+        use std::sync::atomic::Ordering::Relaxed;
+        DONE.store(0, Relaxed);
+        TOTAL.store(asset["size"].as_u64().unwrap_or(0), Relaxed);
+        stage("downloading");
+        let r = self.update_download_inner(asset);
+        stage(if r.is_ok() { "done" } else { "idle" });
+        r
+    }
+
+    fn update_download_inner(&self, asset: &Value) -> Result<Value> {
+        use std::sync::atomic::Ordering::Relaxed;
         let name = asset["name"].as_str().ok_or_else(|| anyhow!("missing the file name"))?;
         let url = asset["url"].as_str().ok_or_else(|| anyhow!("missing the download address"))?;
         // Only a plain release file name, never a path.
@@ -95,8 +120,10 @@ impl Api {
                 }
                 hasher.update(&buf[..n]);
                 out.write_all(&buf[..n])?;
+                DONE.fetch_add(n as u64, Relaxed);
             }
         }
+        stage("verifying");
         let got: String = hasher.finalize().iter().map(|b| format!("{b:02x}")).collect();
         let verified = match asset["sha256_url"].as_str() {
             Some(u) => {

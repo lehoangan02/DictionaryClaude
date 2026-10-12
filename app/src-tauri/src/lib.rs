@@ -73,7 +73,7 @@ fn app_version() -> String {
 /// Installs a downloaded update and restarts into it. The file must be one the app itself
 /// downloaded (inside its `updates` folder).
 #[tauri::command]
-async fn update_install(app: tauri::AppHandle, state: tauri::State<'_, State>, path: String) -> Result<(), String> {
+async fn update_install(app: tauri::AppHandle, state: tauri::State<'_, State>, path: String) -> Result<String, String> {
     let dir = state.1.data_dir.join("updates").canonicalize().map_err(|e| e.to_string())?;
     let file = PathBuf::from(&path).canonicalize().map_err(|e| e.to_string())?;
     if !file.starts_with(&dir) || !file.file_name().is_some_and(|n| n.to_string_lossy().starts_with("LadyBird-")) {
@@ -83,7 +83,7 @@ async fn update_install(app: tauri::AppHandle, state: tauri::State<'_, State>, p
 }
 
 #[cfg(target_os = "macos")]
-fn install_update(app: &tauri::AppHandle, file: &std::path::Path) -> anyhow::Result<()> {
+fn install_update(app: &tauri::AppHandle, file: &std::path::Path) -> anyhow::Result<String> {
     use std::process::{Command, Stdio};
     let exe = std::env::current_exe()?;
     let bundle = exe.ancestors().find(|p| p.extension().is_some_and(|e| e == "app")).ok_or_else(|| anyhow::anyhow!("this copy is not running from an app bundle"))?.to_path_buf();
@@ -104,11 +104,11 @@ open "$APP"
     std::fs::write(&sh, script)?;
     Command::new("/bin/sh").arg(&sh).arg(std::process::id().to_string()).arg(file).arg(&bundle).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn()?;
     app.exit(0);
-    Ok(())
+    Ok("restarting".into())
 }
 
 #[cfg(all(target_os = "linux", not(target_os = "android")))]
-fn install_update(app: &tauri::AppHandle, file: &std::path::Path) -> anyhow::Result<()> {
+fn install_update(app: &tauri::AppHandle, file: &std::path::Path) -> anyhow::Result<String> {
     use std::os::unix::fs::PermissionsExt;
     let target = PathBuf::from(std::env::var("APPIMAGE").map_err(|_| anyhow::anyhow!("self-update needs the AppImage build"))?);
     let staged = target.with_extension("AppImage.new");
@@ -117,23 +117,37 @@ fn install_update(app: &tauri::AppHandle, file: &std::path::Path) -> anyhow::Res
     std::fs::rename(&staged, &target)?;
     std::process::Command::new(&target).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn()?;
     app.exit(0);
-    Ok(())
+    Ok("restarting".into())
 }
 
-/// Android: the system installer takes over (MainActivity.installApk).
+/// Android: the system installer takes over (MainActivity.installApk, which says what it did).
 #[cfg(target_os = "android")]
-fn install_update(app: &tauri::AppHandle, file: &std::path::Path) -> anyhow::Result<()> {
-    use jni::objects::JValue;
+fn install_update(app: &tauri::AppHandle, file: &std::path::Path) -> anyhow::Result<String> {
+    use jni::objects::{JString, JValue};
     let window = app.get_webview_window("main").ok_or_else(|| anyhow::anyhow!("no window"))?;
     let path = file.to_string_lossy().to_string();
+    let (tx, rx) = std::sync::mpsc::channel::<Result<String, String>>();
     window.with_webview(move |webview| {
         webview.jni_handle().exec(move |env, activity, _webview| {
-            if let Ok(p) = env.new_string(&path) {
-                let _ = env.call_method(activity, "installApk", "(Ljava/lang/String;)V", &[JValue::Object(&p)]);
+            let result = (|| -> Result<String, String> {
+                let p = env.new_string(&path).map_err(|e| e.to_string())?;
+                let out = env.call_method(activity, "installApk", "(Ljava/lang/String;)Ljava/lang/String;", &[JValue::Object(&p)]).map_err(|e| e.to_string())?.l().map_err(|e| e.to_string())?;
+                let s: String = env.get_string(&JString::from(out)).map_err(|e| e.to_string())?.into();
+                Ok(s)
+            })();
+            // A pending Java exception would kill the app when this returns; swallow it and report.
+            if env.exception_check().unwrap_or(false) {
+                let _ = env.exception_clear();
             }
+            let _ = tx.send(result);
         });
     })?;
-    Ok(())
+    match rx.recv_timeout(Duration::from_secs(15)) {
+        Ok(Ok(s)) if s.starts_with("error") => Err(anyhow::anyhow!(s)),
+        Ok(Ok(s)) => Ok(s),
+        Ok(Err(e)) => Err(anyhow::anyhow!("could not start the installer ({e})")),
+        Err(_) => Err(anyhow::anyhow!("the installer did not answer")),
+    }
 }
 
 #[tauri::command]

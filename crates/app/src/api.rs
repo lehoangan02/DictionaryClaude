@@ -219,6 +219,7 @@ impl Api {
             "quiz_answer" => self.quiz_answer(&args),
             "quiz_resume" => self.quiz_resume(&args),
             "update_check" => self.update_check(&a("current").unwrap_or_default()),
+            "update_progress" => Ok(self.update_progress()),
             "update_download" => self.update_download(args.get("asset").unwrap_or(&Value::Null)),
             "session_get" => self.session_get(&req("id")?),
             "sessions_list" => self.sessions_list(a("q").as_deref(), n("limit", 50)),
