@@ -22,7 +22,7 @@ const KNOWN: &[(&str, &str, &str, &str, &[&str])] = &[
     ("moby", "Moby Thesaurus", "Broad synonym lists that feed the GRE thesaurus.", "Public domain", &["moby.pack"]),
     ("ai", "Meaning search (AI model)", "A small language model (bge-small) that lets search find quiz sessions by meaning. It runs on this device, on the Neural Engine or phone NPU when there is one.", "MIT", &["bge-small-en-v1.5-q.onnx", "bge-small-en-v1.5-tokenizer.json"]),
     ("cmudict", "Pronunciations (CMU)", "IPA for words the dictionaries give none for.", "BSD", &["cmudict.pack"]),
-    ("oald", "OALD", "Oxford Advanced Learner's Dictionary: 100 entries with definitions, examples and IPA (personal extraction).", "Personal use", &["oald.pack"]),
+    ("oald", "OALD", "Oxford Advanced Learner's Dictionary: 57 000 entries with definitions, examples and IPA (personal extraction from the owner's Premium app).", "Personal use", &["oald.pack"]),
 ];
 
 const SOURCES_FILES: &[(&str, &str)] = &[("wiktionary", "wiktionary.pack"), ("wordnet", "wordnet.pack"), ("gcide", "gcide.pack"), ("oald", "oald.pack")];

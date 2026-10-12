@@ -49,7 +49,7 @@ Kept current by whoever changes the app (Claude Code included): when you fix som
 - Qualcomm QNN provider for the Hexagon NPU (needs Qualcomm's SDK; NNAPI is the route used today).
 
 **Ideas, not committed**
-- Oxford content is out: the official API is not free (owner, 2026-10-12) and the extracted `OALData` is not used. Better open-data entry pages (level tags, collocations) are the alternative.
+- **OALD full extraction (done, 2026-10-12):** 57 397 entries (149 792 senses, 205 864 examples) extracted from the owner's OALD Premium app (`com.oup.elt.oald10_gp` v1.0.5970). Route: installed the APK on a rooted Android 9 emulator, the app downloaded all content from Paragon's still-alive Azure CDN, pulled the SDC files with root, decoded them with the CharChain text decoder (SlovoEd CE format, `structSize=16`). Source SDC files archived in `OALData/source_sdc/`. The Oxford *API* is still not used (not free).
 - Notarized macOS builds (needs an Apple Developer account).
 - A device list in Settings with revoke and rename.
 - Read the Wi-Fi name on macOS (Location permission) so auto-pair does not depend on the subnet check.
