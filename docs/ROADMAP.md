@@ -49,6 +49,7 @@ Kept current by whoever changes the app (Claude Code included): when you fix som
 ## Upcoming
 
 **Next up**
+- **Settings redesign (owner, 2026-10-13, next version after v0.11.1):** organise Settings like the iPhone's: a short grouped list of sections (Dictionaries, Sync & devices, Downloads, Pronunciation, On-device AI, Merriam-Webster, Appearance, About), each opening its own page, instead of every card expanded on one long page. Back closes a section page (use `openDetail`).
 - **Self-update, device check:** install v0.7.0 by hand once, then run the update on the Mac, a Linux AppImage and the phone when v0.7.1 is out.
 1. Real-device test pass on the Mac and the S24 Ultra, recording what the NPU actually uses.
 2. Keep SSH from the Mac to the box working (key login is set up; see SETUP "Which machine is which").
