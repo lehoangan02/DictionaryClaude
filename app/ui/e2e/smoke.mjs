@@ -223,6 +223,89 @@ ok(sawPassage, 'reading questions show their passage');
 await m.waitForSelector('.ring');
 ok(/\/ 20/.test(await m.$eval('body', (e) => e.innerText)), 'the pretest finishes with a score out of 20');
 
+// ---- browser-style keyboard: Ctrl/Cmd+L, Ctrl/Cmd+F, arrows, History ----
+{
+  const k = await newPage(1100, 700);
+  const chord = async (mod, key) => { await k.keyboard.down(mod); await k.keyboard.press(key); await k.keyboard.up(mod); };
+  const hw = () => plain(k, '.hw');
+  const hwIs = (w) => k.waitForFunction((x) => document.querySelector('.hw')?.textContent.replace(/·/g, '') === x, {}, w);
+  for (const w of ['taciturn', 'loquacious', 'abate']) {
+    await k.goto(BASE + '?w=' + w, { waitUntil: 'networkidle0' });
+    await k.waitForSelector('.hw');
+  }
+
+  // A word opened from History stands on its latest visit: Back and Forward are the words around it.
+  await clickText(k, '.desk button', 'History');
+  await k.waitForSelector('.list .w');
+  await clickText(k, '.list .w', 'loquacious');
+  await hwIs('loquacious');
+  ok((await text(k, '.hn button:first-child span')) === 'taciturn' && (await text(k, '.hn button.r span')) === 'abate',
+    'a word opened from History has the words around its latest visit as Back and Forward');
+
+  // Ctrl+L / Cmd+L: the search box, text selected.
+  const selected = () => k.evaluate(() => { const a = document.activeElement; return a?.id === 'lexis-q' && a.value.length > 0 && a.selectionStart === 0 && a.selectionEnd === a.value.length; });
+  await chord('Control', 'l');
+  ok(await selected(), 'Ctrl+L focuses the search box and selects its text');
+  await k.keyboard.press('ArrowLeft');
+  ok((await hw()) === 'loquacious', 'Left arrow while typing moves the caret, not the history');
+  await k.evaluate(() => document.activeElement.blur());
+  await chord('Meta', 'l');
+  ok(await selected(), 'Cmd+L does the same');
+  await k.evaluate(() => document.activeElement.blur());
+
+  // Left / Right: history, like Back and Forward.
+  await k.keyboard.press('ArrowLeft');
+  await hwIs('taciturn');
+  ok(true, 'Left arrow goes back to the previous word');
+  await k.keyboard.press('ArrowRight');
+  await hwIs('loquacious');
+  ok(true, 'Right arrow goes forward again');
+
+  // Up / Down scroll the page.
+  await k.keyboard.press('ArrowDown');
+  await k.waitForFunction(() => scrollY > 0, { timeout: 4000 }).catch(() => {});
+  const y1 = await k.evaluate(() => scrollY);
+  ok(y1 > 0, 'Down arrow scrolls the page');
+  await k.keyboard.press('ArrowUp');
+  await k.waitForFunction((y) => scrollY < y, { timeout: 4000 }, y1).catch(() => {});
+  ok((await k.evaluate(() => scrollY)) < y1, 'Up arrow scrolls back up');
+
+  // Ctrl+F / Cmd+F: find on page.
+  const state = () => k.evaluate(() => ({
+    bar: !!document.querySelector('[role=search] input'),
+    focus: document.activeElement?.closest('[role=search]') != null,
+    n: document.querySelector('.findbar .n')?.textContent.trim() ?? '',
+    painted: CSS.highlights.get('find')?.size ?? 0,
+    current: CSS.highlights.get('find-cur')?.size ?? 0,
+  }));
+  await chord('Control', 'f');
+  await k.waitForSelector('[role=search] input');
+  ok((await state()).focus, 'Ctrl+F opens the find bar with the cursor in it');
+  await k.keyboard.type('the');
+  let s = await state();
+  const total = Number((s.n.match(/of (\d+)/) ?? [])[1] ?? 0);
+  ok(/^1 of \d+$/.test(s.n) && total >= 2, `find counts the matches (${s.n})`);
+  ok(s.painted === total && s.current === 1, 'every match is highlighted and the current one stands out');
+  await k.keyboard.press('Enter');
+  ok((await state()).n === `2 of ${total}`, 'Enter goes to the next match');
+  await k.keyboard.down('Shift'); await k.keyboard.press('Enter'); await k.keyboard.up('Shift');
+  await k.keyboard.down('Shift'); await k.keyboard.press('Enter'); await k.keyboard.up('Shift');
+  ok((await state()).n === `${total} of ${total}`, 'Shift+Enter goes back, wrapping round to the last match');
+  await k.keyboard.press('ArrowLeft');
+  ok((await hw()) === 'loquacious', 'arrows inside the find box do not walk the history');
+  await k.keyboard.down('Control'); await k.keyboard.press('a'); await k.keyboard.up('Control');
+  await k.keyboard.type('zzqqxx');
+  ok((await state()).n === 'No matches', 'find says when nothing matches');
+  await k.keyboard.press('Escape');
+  s = await state();
+  ok(!s.bar && s.painted === 0, 'Escape closes the find bar and clears the highlights');
+  await chord('Meta', 'f');
+  await k.waitForSelector('[role=search] input');
+  ok((await state()).focus, 'Cmd+F opens it too');
+  await k.screenshot({ path: `${OUT}/find.png` });
+  await k.keyboard.press('Escape');
+}
+
 // ---- two devices through a real sync server ----
 const BASE_B = process.env.BASE_B;
 if (BASE_B && process.env.PAIR_A) {

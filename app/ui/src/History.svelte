@@ -1,6 +1,6 @@
 <script lang="ts">
   import { call } from './lib/api';
-  import { app, open, bump } from './lib/store.svelte';
+  import { app, openFromHistory, bump } from './lib/store.svelte';
   import { when } from './lib/format';
   import { flip } from 'svelte/animate';
   import { item as leave, flipDur } from './lib/motion';
@@ -60,7 +60,7 @@
   <ul class="list">
     {#each g.items as h (h.id)}
       <li animate:flip={{ duration: flipDur() }} out:leave>
-        <button class="w" onclick={() => open(h.word)}>{h.word}</button>
+        <button class="w" onclick={() => openFromHistory(h.word)}>{h.word}</button>
         <span class="muted t">{new Date(h.ts).toLocaleTimeString(undefined, { timeStyle: 'short' })} · {h.sources.join(', ')}</span>
         <button class="ic" class:on={h.starred} onclick={() => star(h)} aria-label={h.starred ? 'Unstar' : 'Star'}>{h.starred ? '★' : '☆'}</button>
         <button class="ic" onclick={() => del(h)} aria-label="Remove">✕</button>

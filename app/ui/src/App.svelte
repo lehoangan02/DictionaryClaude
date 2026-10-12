@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { app, boot, type Tab } from './lib/store.svelte';
+  import { app, boot, goBack, goForward, type Tab } from './lib/store.svelte';
   import SearchBar from './SearchBar.svelte';
   import EntryView from './EntryView.svelte';
   import History from './History.svelte';
@@ -12,6 +12,7 @@
   import Logo from './Logo.svelte';
   import SetupNotice from './SetupNotice.svelte';
   import Update from './Update.svelte';
+  import FindBar from './FindBar.svelte';
   import { call } from './lib/api';
   import { bump } from './lib/store.svelte';
   import { enter, softFade } from './lib/motion';
@@ -21,6 +22,7 @@
 
   let ready = $state(false);
   let error = $state('');
+  let find: FindBar;
 
   // Dictionaries can arrive on their own (the background setup): pick them up.
   async function refreshSources() {
@@ -47,9 +49,37 @@
     { id: 'notes', label: 'Notes', icon: 'notes' },
     { id: 'settings', label: 'Settings', icon: 'settings' },
   ];
+
+  // Keys that are text editing, or have their own meaning inside a control, are left alone.
+  function typing(t: EventTarget | null) {
+    if (!(t instanceof HTMLElement)) return false;
+    if (t.isContentEditable || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT') return true;
+    return t instanceof HTMLInputElement && !['checkbox', 'button', 'submit', 'reset', 'image', 'file'].includes(t.type);
+  }
+
+  // Browser-style shortcuts. Up and Down scroll the page natively; they are left alone, never taken.
+  function onKey(e: KeyboardEvent) {
+    if (e.defaultPrevented || e.isComposing) return;
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
+      const k = e.key.toLowerCase();
+      if (k === 'l') { // the "address bar": jump to the search box with its text selected
+        e.preventDefault();
+        const box = document.getElementById('lexis-q') as HTMLInputElement | null;
+        box?.focus(); box?.select();
+      } else if (k === 'f') { e.preventDefault(); find?.show(); }
+      return;
+    }
+    if (e.key === 'Escape' && find?.isOpen() && (e.target as HTMLElement | null)?.id !== 'lexis-q') { find.hide(); return; }
+    if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey || e.repeat || typing(e.target)) return;
+    // Left and Right walk the words looked up, like a browser's Back and Forward.
+    if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && app.tab === 'search' && !app.focus) {
+      e.preventDefault();
+      if (e.key === 'ArrowLeft') goBack(); else goForward();
+    }
+  }
 </script>
 
-<svelte:window onscroll={() => (scrolled = window.scrollY > 4)} />
+<svelte:window onscroll={() => (scrolled = window.scrollY > 4)} onkeydown={onKey} />
 
 <header class="top" class:scrolled>
   <div class="wrap bar">
@@ -64,6 +94,7 @@
       <button class:on={app.tab === t.id} onclick={() => (app.tab = t.id)}>{t.label}</button>
     {/each}
   </nav>
+  <FindBar bind:this={find} />
 </header>
 
 <main class="wrap page">

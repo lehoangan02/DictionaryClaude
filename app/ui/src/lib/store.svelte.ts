@@ -42,6 +42,15 @@ function show() {
 export function goBack() { if (canBack()) { nav.i--; show(); } }
 export function goForward() { if (canForward()) { nav.i++; show(); } }
 
+/** A word picked from the History list: stand on its latest visit in the trail, so Back and Forward are the words around that visit. */
+export async function openFromHistory(word: string) {
+  await loadTrail(); // the trail as the History list shows it, not as this session's Back/Forward left it
+  const j = nav.stack.lastIndexOf(word);
+  if (j < 0) { open(word); return; } // older than the trail: treat it as a new lookup
+  nav.i = j;
+  show();
+}
+
 /** Recent lookups (oldest first) so Back works across restarts. */
 export async function loadTrail() {
   try {
