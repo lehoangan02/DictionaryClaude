@@ -188,7 +188,7 @@ fn gemini_key() -> Option<String> {
 fn ocr_gemini(image: &Path, hard: bool) -> Result<String> {
     let key = gemini_key().ok_or_else(|| anyhow!("no GEMINI_API_KEY is set on the server"))?;
     let base = std::env::var("LEXIS_GEMINI_URL").unwrap_or_else(|_| "https://generativelanguage.googleapis.com".into());
-    let model = std::env::var("LEXIS_GEMINI_MODEL").unwrap_or_else(|_| "gemini-3.8-flash".into());
+    let model = std::env::var("LEXIS_GEMINI_MODEL").unwrap_or_else(|_| "gemini-3.6-flash".into());
     let strong = std::env::var("LEXIS_GEMINI_HARD_MODEL").unwrap_or_else(|_| "gemini-3.1-pro-preview".into());
     let mut order = Vec::new();
     if hard {
