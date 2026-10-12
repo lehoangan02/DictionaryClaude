@@ -23,6 +23,8 @@ PIDS+=($!)
 ./target/release/gredict-server --port "$B" --data "$DATA/b" >"$DATA/b.log" 2>&1 &
 PIDS+=($!)
 for p in $A $B; do for _ in $(seq 50); do curl -sf -X POST "localhost:$p/api/sources" >/dev/null && break; sleep 0.2; done; done
+# Never let a test device auto-pair with the real sync server (the default address is the owner's own box).
+for p in $A $B; do curl -sf -X POST "localhost:$p/api/sync_set_autopair_host" -d '{"host":"127.0.0.1:1"}' >/dev/null; done
 pair() { ./target/release/gredict-syncd --data "$DATA/syncd" --san 127.0.0.1 --san localhost pair "$1" --lan "127.0.0.1:$LAN" --wan "127.0.0.1:$WAN"; }
 export PAIR_A=$(pair device-a) PAIR_B=$(pair device-b)
 BASE="http://127.0.0.1:$A/" BASE_B="http://127.0.0.1:$B/" node "${SCRIPT:-app/ui/e2e/smoke.mjs}"
