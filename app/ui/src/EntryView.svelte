@@ -1,6 +1,6 @@
 <script lang="ts">
   import { call } from './lib/api';
-  import { app, open, setSource, orderedSources } from './lib/store.svelte';
+  import { app, open, goTab, setSource, orderedSources } from './lib/store.svelte';
   import { highlight, posLabel, pronunciations, speak } from './lib/format';
   import Thesaurus from './Thesaurus.svelte';
   import HistoryNav from './HistoryNav.svelte';
@@ -127,7 +127,7 @@
             <p><i>{posLabel(b.pos.replace('.', ''))}</i> {b.definition}</p>
             {#each (b.examples ?? []).slice(0, 2) as ex}<p class="ex">{@render hl(ex, entry.word)}</p>{/each}
           {/each}
-          <button class="btn small" onclick={() => { app.quizUnit = data.barrons[0].unit; app.tab = 'quiz'; }}>Practice unit {data.barrons[0].unit} →</button>
+          <button class="btn small" onclick={() => { app.quizUnit = data.barrons[0].unit; goTab('quiz'); }}>Practice unit {data.barrons[0].unit} →</button>
         </aside>
       {/if}
 

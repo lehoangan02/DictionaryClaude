@@ -323,6 +323,28 @@ ok(/\/ 20/.test(await m.$eval('body', (e) => e.innerText)), 'the pretest finishe
   ok((await state()).focus, 'Cmd+F opens it too');
   await k.screenshot({ path: `${OUT}/find.png` });
   await k.keyboard.press('Escape');
+
+  // The phone's Back button: a word opened from History goes back to History, then to where you were.
+  const tabNow = () => k.evaluate(() => document.querySelector('.desk button.on')?.textContent.trim());
+  const back = async (want) => { await k.evaluate(() => history.back()); await k.waitForFunction((w) => document.querySelector('.desk button.on')?.textContent.trim() === w, { timeout: 4000 }, want).catch(() => {}); };
+  ok((await tabNow()) === 'Dictionary', 'on the Dictionary after opening a word from History');
+  await back('History');
+  ok((await tabNow()) === 'History', 'Back from a word opened in History returns to History, not home');
+  await back('Dictionary');
+  ok((await tabNow()) === 'Dictionary', 'Back again returns to the Dictionary where you were');
+  // Tabs keep their own stacks, so tapping them never builds a loop: one Back from History returns to the Dictionary.
+  await clickText(k, '.desk button', 'History');
+  await clickText(k, '.desk button', 'Dictionary');
+  await clickText(k, '.desk button', 'History');
+  await back('Dictionary');
+  ok((await tabNow()) === 'Dictionary', 'after tapping tabs back and forth, one Back from History is the Dictionary');
+  // And a word opened from History: Back is History, Back again is where you were.
+  await clickText(k, '.desk button', 'History');
+  await k.waitForSelector('.list .w');
+  await clickText(k, '.list .w', 'loquacious');
+  await k.waitForFunction(() => document.querySelector('.desk button.on')?.textContent.trim() === 'Dictionary', { timeout: 4000 });
+  await back('History');
+  ok((await tabNow()) === 'History', 'Back from a word opened in History returns to History again');
 }
 
 // ---- two devices through a real sync server ----

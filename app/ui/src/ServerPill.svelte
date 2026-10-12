@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { call } from './lib/api';
-  import { app, bump } from './lib/store.svelte';
+  import { app, bump, goTab } from './lib/store.svelte';
   import { when } from './lib/format';
   import { pop, grow } from './lib/motion';
 
@@ -72,7 +72,7 @@
       <b>Sync server</b>
       {#if !st.paired}
         <p>Not paired. Everything works offline on this device; pair a server in Settings to keep your notes, history and quizzes in step across devices.</p>
-        <button class="btn small primary" onclick={() => { app.tab = 'settings'; open = false; }}>Set up sync</button>
+        <button class="btn small primary" onclick={() => { goTab('settings'); open = false; }}>Set up sync</button>
       {:else}
         <dl>
           <dt>Status</dt>

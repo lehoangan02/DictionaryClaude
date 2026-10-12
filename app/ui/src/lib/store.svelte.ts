@@ -39,8 +39,8 @@ function show() {
   app.tab = 'search';
   app.word = nav.stack[nav.i] ?? '';
 }
-export function goBack() { if (canBack()) { nav.i--; show(); } }
-export function goForward() { if (canForward()) { nav.i++; show(); } }
+export function goBack() { if (canBack()) { nav.i--; replace = true; setTimeout(() => (replace = false), 0); show(); } }
+export function goForward() { if (canForward()) { nav.i++; replace = true; setTimeout(() => (replace = false), 0); show(); } }
 
 /** A word picked from the History list: stand on its latest visit in the trail, so Back and Forward are the words around that visit. */
 export async function openFromHistory(word: string) {
@@ -49,6 +49,99 @@ export async function openFromHistory(word: string) {
   if (j < 0) { open(word); return; } // older than the trail: treat it as a new lookup
   nav.i = j;
   show();
+}
+
+// Back behaves as Android's Navigation component does (bottom navigation with several back stacks):
+//  - Home (the Dictionary start screen) is the base of every stack.
+//  - Each tab keeps its own stack. Tapping a tab saves the stack you are leaving and restores that tab's own,
+//    so tab taps never build loops: Home -> History -> word -> Home leaves just Home.
+//  - Opening something from another tab (a word from History) is pushed on that tab's stack, so Back returns to it.
+//  - Back pops one place; from a tab's first screen it goes to Home; at Home it leaves the app.
+type Place = { tab: Tab; word: string; seg: Tab; close?: () => void };
+const BASE: Place = { tab: 'search', word: '', seg: 'search' };
+let stack: Place[] = [BASE];
+const saved: Partial<Record<Tab, Place[]>> = {};
+let replace = false; // the next change steps along the word trail (the arrows): it replaces the place
+let armed = false; // the system history holds one spare step, so the Back button reaches us instead of leaving
+let leaving = false; // a step is being taken out of the system history; wait for it before touching the history again
+
+const top = () => stack[stack.length - 1];
+const same = (p: Place) => p.tab === app.tab && (p.tab !== 'search' || p.word === app.word);
+
+function apply() {
+  const t = top();
+  app.tab = t.tab;
+  if (t.tab === 'search') {
+    app.word = t.word;
+    const j = t.word ? nav.stack.lastIndexOf(t.word) : -1;
+    if (j >= 0) nav.i = j; else if (!t.word) nav.i = nav.stack.length;
+  }
+}
+
+/** One spare history step exists exactly while there is somewhere to go back to inside the app. */
+function arm() {
+  if (leaving) return;
+  if (stack.length > 1 && !armed) { history.pushState({ lexis: 1 }, ''); armed = true; }
+  else if (stack.length <= 1 && armed) { armed = false; leaving = true; history.back(); }
+}
+
+export function goTab(t: Tab) {
+  const here = top().seg;
+  if (t === here) {
+    // Already in this tab's stack, perhaps on a word opened from it: tapping the tab goes back to the tab itself.
+    while (stack.length > 1 && top().tab !== t) stack.pop()!.close?.();
+    apply(); arm();
+    return;
+  }
+  saved[here] = stack.slice(1);
+  const own = (saved[t] ?? []);
+  saved[t] = undefined;
+  // Only the places that belong to the tab itself come back (not a word opened from it that lives in Dictionary).
+  while (own.length && own[own.length - 1].tab !== t) own.pop();
+  stack = t === 'search' ? [BASE, ...own] : [BASE, ...(own.length ? own : [{ tab: t, word: '', seg: t }])];
+  apply(); arm();
+}
+export function goHome() { stack = [BASE]; for (const k of Object.keys(saved)) saved[k as Tab] = undefined; apply(); arm(); }
+
+// A screen opened on top of a tab (a past session, a photographed note, the camera): Back closes it first.
+export function openDetail(close: () => void) {
+  stack.push({ ...top(), close });
+  arm();
+}
+/** Closes the open detail the way Back does. */
+export function closeDetail() { if (top().close) back(); }
+
+/** Back: one place, as Android does. Returns false when there is nowhere left (the app should leave). */
+function back(): boolean {
+  if (stack.length <= 1) return false;
+  const gone = stack.pop()!;
+  if (stack.length === 1 && saved.search?.length) { stack = [BASE, ...saved.search]; saved.search = undefined; }
+  gone.close?.();
+  apply(); arm();
+  return true;
+}
+
+/** Records the current tab and word as a place; called whenever either changes by other means than goTab/Back. */
+export function trackLocation() {
+  const [step] = [replace];
+  replace = false;
+  if (same(top())) return;
+  const here: Place = { tab: app.tab, word: app.tab === 'search' ? app.word : '', seg: top().seg };
+  if (step && !top().close && top() !== BASE) stack[stack.length - 1] = here;
+  else stack.push(here);
+  arm();
+}
+
+export function listenForBack() {
+  window.addEventListener('popstate', () => {
+    if (leaving) { leaving = false; arm(); return; } // our own step out finished; the stack may have changed meanwhile
+    // The spare step was used up by this Back press.
+    armed = false;
+    // A quiz in progress asks to pause instead of letting Back leave it.
+    if (app.focus) { arm(); window.dispatchEvent(new Event('lexis:back')); return; }
+    if (!back()) return;
+  });
+  arm();
 }
 
 /** Recent lookups (oldest first) so Back works across restarts. */

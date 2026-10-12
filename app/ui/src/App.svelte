@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { app, boot, goBack, goForward, type Tab } from './lib/store.svelte';
+  import { app, boot, goBack, goForward, goTab, goHome, trackLocation, listenForBack, type Tab } from './lib/store.svelte';
   import SearchBar from './SearchBar.svelte';
   import EntryView from './EntryView.svelte';
   import History from './History.svelte';
@@ -37,10 +37,13 @@
     try {
       await boot();
       ready = true;
+      listenForBack();
     } catch (e) {
       error = (e as Error).message;
     }
   });
+
+  $effect(() => { void app.tab; void app.word; if (ready) trackLocation(); });
 
   const tabs: { id: Tab; label: string; icon: string }[] = [
     { id: 'search', label: 'Dictionary', icon: 'book' },
@@ -83,7 +86,7 @@
 
 <header class="top" class:scrolled>
   <div class="wrap bar">
-    <button class="brand" onclick={() => { app.tab = 'search'; app.word = ''; }} aria-label="Home">
+    <button class="brand" onclick={goHome} aria-label="Home">
       <Logo size={36} /><span class="name">LadyBird</span>
     </button>
     <div class="search"><SearchBar /></div>
@@ -91,7 +94,7 @@
   </div>
   <nav class="wrap desk" aria-label="Sections">
     {#each tabs as t (t.id)}
-      <button class:on={app.tab === t.id} onclick={() => (app.tab = t.id)}>{t.label}</button>
+      <button class:on={app.tab === t.id} onclick={() => goTab(t.id)}>{t.label}</button>
     {/each}
   </nav>
   <FindBar bind:this={find} />
@@ -133,7 +136,7 @@
 {#if !app.focus}
 <nav class="tabbar" aria-label="Sections" in:enter={{ y: 40, duration: 260 }} out:softFade>
   {#each tabs as t (t.id)}
-    <button class:on={app.tab === t.id} onclick={() => (app.tab = t.id)} aria-label={t.label}>
+    <button class:on={app.tab === t.id} onclick={() => goTab(t.id)} aria-label={t.label}>
       <Icon name={t.icon} size={24} /><span>{t.label}</span>
     </button>
   {/each}

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { call } from './lib/api';
-  import { app } from './lib/store.svelte';
+  import { app, openDetail, closeDetail } from './lib/store.svelte';
   import { pct, when } from './lib/format';
   import QuizPlayer from './QuizPlayer.svelte';
   import { flip } from 'svelte/animate';
@@ -52,7 +52,7 @@
     catch (e) { error = (e as Error).message; }
     finally { busy = false; }
   }
-  async function openReview(id: string) { review = await call('session_get', { id }); live = null; }
+  async function openReview(id: string) { review = await call('session_get', { id }); live = null; openDetail(() => (review = null)); }
   async function remove(id: string) { await call('session_delete', { id }); await loadSessions(); }
   function done() { live = null; loadSessions(); }
 
@@ -64,7 +64,7 @@
   <QuizPlayer session={live} ondone={done} onretry={(id: string) => start({ kind: 'retry', session_id: id })} />
 {:else if review}
   <section class="fadein">
-    <button class="btn small ghost" onclick={() => (review = null)}>← Back</button>
+    <button class="btn small ghost" onclick={() => closeDetail()}>← Back</button>
     <h1>{review.title}</h1>
     <p class="muted">{when(review.started)} · {review.correct}/{review.total} correct ({pct(review.correct, review.total)}%)</p>
     <div class="act">

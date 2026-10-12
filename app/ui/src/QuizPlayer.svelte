@@ -22,7 +22,10 @@
 
   $effect(() => {
     app.focus = true;
-    return () => { app.focus = false; };
+    // The phone's Back button pauses the quiz (the session is kept) instead of dropping you out of the app.
+    const back = () => ondone();
+    window.addEventListener('lexis:back', back);
+    return () => { app.focus = false; window.removeEventListener('lexis:back', back); };
   });
 
   const item = $derived(items[i]);

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { call } from './lib/api';
-  import { app, bump } from './lib/store.svelte';
+  import { app, bump, openDetail, closeDetail } from './lib/store.svelte';
   import { shrink } from './lib/image';
   import DraftReview from './DraftReview.svelte';
   import Camera from './Camera.svelte';
@@ -71,18 +71,18 @@
 </script>
 
 {#if camera}
-  <Camera onshot={(f) => addFiles([f])} onclose={() => (camera = false)} />
+  <Camera onshot={(f) => addFiles([f])} onclose={() => closeDetail()} />
 {/if}
 
 {#if open}
-  <DraftReview id={open} onclose={() => { open = null; load(); }} />
+  <DraftReview id={open} onclose={() => closeDetail()} />
 {:else}
   <section class="card rise">
     <h3>Photograph your notes</h3>
     <p class="muted small">Take or choose photos of handwritten notes. The server reads them; you check the result before anything is saved.</p>
     <div class="row">
       {#if desktopCamera}
-        <button class="btn" onclick={() => (camera = true)}>📷 Take photo</button>
+        <button class="btn" onclick={() => { camera = true; openDetail(() => (camera = false)); }}>📷 Take photo</button>
       {:else}
         <label class="btn">📷 Take photo<input type="file" accept="image/*" capture="environment" onchange={add} hidden /></label>
       {/if}
@@ -105,7 +105,7 @@
   {#if drafts.length}
     <h2>Waiting for review</h2>
     {#each drafts as d (d.id)}
-      <button class="draft card rise" style="--i:{drafts.indexOf(d)}" onclick={() => (open = d.id)}>
+      <button class="draft card rise" style="--i:{drafts.indexOf(d)}" onclick={() => { open = d.id; openDetail(() => { open = null; load(); }); }}>
         <span class="st" class:ready={d.status === 'needs_review'} class:bad={d.status === 'failed'}>{label(d)}</span>
         <span class="meta">{d.photos.length} photo{d.photos.length > 1 ? 's' : ''} · {d.session_date || 'undated'}</span>
         <span class="pv">{(d.text || d.ocr_text || '').split('\n')[0]}</span>
