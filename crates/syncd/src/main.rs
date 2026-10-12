@@ -65,6 +65,14 @@ fn main() -> Result<()> {
     match cli.cmd {
         Cmd::Serve { lan, wan, advertise_lan, advertise_wan, no_auto_enroll } => {
             let tls = ensure_tls(&cli.data.join("tls"), &cli.sans)?;
+            // A Gemini key for note reading may sit in <data>/gemini.key (readable by the service only).
+            if std::env::var_os("GEMINI_API_KEY").is_none() {
+                if let Ok(k) = std::fs::read_to_string(cli.data.join("gemini.key")) {
+                    if !k.trim().is_empty() {
+                        std::env::set_var("GEMINI_API_KEY", k.trim());
+                    }
+                }
+            }
             let api = Arc::new(Api::open_headless_serving(&cli.data, &cli.packs.clone().unwrap_or_else(|| cli.data.join("packs")))?);
             // Reads photographed notes (OCR) and serves agent requests.
             gredict_app::spawn_job_runner(api.clone(), std::time::Duration::from_secs(5));

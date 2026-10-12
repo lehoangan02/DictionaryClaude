@@ -12,8 +12,6 @@ Environment=LEXIS_CLAUDE_BIN=/home/lhan/.local/bin/claude
 Environment=LEXIS_AGY_BIN=/home/lhan/.local/bin/agy
 # Photos are read by a local vision model (Ollama: `ollama pull qwen2.5vl:3b`), with tesseract as the fallback.
 Environment=LEXIS_OCR=auto
-# Optional Gemini key for note reading (GEMINI_API_KEY=...), kept outside the repo; see docs/SETUP.md.
-EnvironmentFile=-/etc/lexis-syncd.env
 Environment=LEXIS_OCR_MODEL=qwen2.5vl:3b
 Environment=LEXIS_AGENT_CAP=8
 ExecStart=/usr/local/bin/gredict-syncd --data /var/lib/lexis-syncd --private /var/lib/lexis-syncd/private serve --lan 0.0.0.0:25 --wan 0.0.0.0:5025
