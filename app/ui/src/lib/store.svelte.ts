@@ -249,7 +249,7 @@ export async function startAudioDownload() {
   try {
     while (!stopAudio) {
       let r;
-      try { r = await call('audio_prefetch', { limit: 4 }); }
+      try { r = await call('audio_prefetch', { limit: 12 }); }
       catch (e) { audioDl.note = `${(e as Error).message}`; break; }
       audioDl.done = r.done; audioDl.total = r.total;
       if (r.done >= r.total) { audioDl.note = 'All recordings are on this device.'; break; }

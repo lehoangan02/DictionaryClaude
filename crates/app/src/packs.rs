@@ -249,7 +249,8 @@ impl Api {
 
     pub(crate) fn pack_progress_now(&self) -> Value {
         let m = self.pack_progress.lock().unwrap();
-        json!(m.iter().map(|(k, (done, total))| (k.clone(), json!({"done": done, "total": total}))).collect::<serde_json::Map<_, _>>())
+        let route = self.setting("packs.route").unwrap_or_default();
+        json!(m.iter().map(|(k, (done, total))| (k.clone(), json!({"done": done, "total": total, "route": route}))).collect::<serde_json::Map<_, _>>())
     }
 
     pub(crate) fn pack_install(&self, id: &str) -> Result<Value> {
@@ -308,6 +309,7 @@ impl Api {
             let step = (|| -> Result<()> {
                 if have < size {
                     let (host, p, a) = self.server_conn(Duration::from_secs(3600))?;
+                    let _ = self.set_setting("packs.route", if p.lan.as_deref() == Some(host.as_str()) { "home network" } else { "remote" });
                     let mut resp = a
                         .post(&format!("https://{host}/v1/pack/get"))
                         .header("Authorization", &format!("Bearer {}", p.token))

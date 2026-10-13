@@ -4,7 +4,7 @@
   import { when } from './lib/format';
 
   let list = $state<any>({ packs: [], paired: false });
-  let prog = $state<Record<string, { done: number; total: number }>>({});
+  let prog = $state<Record<string, { done: number; total: number; route?: string }>>({});
   let err = $state('');
   let checking = $state(false);
   let timer: ReturnType<typeof setInterval> | undefined;
@@ -16,8 +16,29 @@
 
   // The app itself does the downloading, whatever screen is open, so this list only watches it:
   // coming back to Settings (or the page reloading) picks the running downloads up again.
+  // Speed: bytes since the last look, smoothed, so a stalled or slow link is visible instead of guessed at.
+  let last: Record<string, { done: number; at: number; bps: number }> = {};
+  let speed = $state<Record<string, number>>({});
+  function measure() {
+    const now = Date.now();
+    for (const [id, p] of Object.entries(prog) as [string, any][]) {
+      const l = last[id];
+      if (l && now > l.at) {
+        const inst = Math.max(0, (p.done - l.done) / ((now - l.at) / 1000));
+        last[id] = { done: p.done, at: now, bps: l.bps ? l.bps * 0.8 + inst * 0.2 : inst };
+      } else if (!l) last[id] = { done: p.done, at: now, bps: 0 };
+      speed[id] = last[id].bps;
+    }
+    for (const id of Object.keys(last)) if (!(id in prog)) { delete last[id]; delete speed[id]; }
+  }
+  const rate = (bps: number) => (bps >= 1e6 ? (bps / 1e6).toFixed(1) + ' MB/s' : Math.round(bps / 1e3) + ' kB/s');
+  const eta = (p: any, bps: number) => {
+    if (!p.total || bps < 1000) return '';
+    const s = (p.total - p.done) / bps;
+    return s > 90 ? `about ${Math.round(s / 60)} min left` : `about ${Math.round(s)} s left`;
+  };
   async function tick() {
-    try { prog = await call('pack_progress'); } catch { return; /* busy */ }
+    try { prog = await call('pack_progress'); measure(); } catch { return; /* busy */ }
     const busy = Object.keys(prog).length > 0;
     if (busy) { wasBusy = true; return; }
     clearInterval(timer); timer = undefined;
@@ -59,27 +80,28 @@
           <b>{p.title}</b>
           <span class="muted small">{p.about}</span>
           <span class="muted small">{p.licence}{p.size ? ' · ' + mb(p.size) : ''}{p.built_in ? ' · built in' : ''}</span>
-          {#if p.error && !prog[p.id]}<span class="err small">Stopped: {p.error}</span>{/if}
+          {#if p.error && !prog[p.id]}<span class="err small">Stopped: {p.error}{#if p.want} It starts again by itself when the connection is back.{/if}</span>{/if}
           {#if prog[p.id]}
             <div class="bar" role="progressbar" aria-valuenow={prog[p.id].done} aria-valuemax={prog[p.id].total}>
               <i style="transform: scaleX({prog[p.id].total ? prog[p.id].done / prog[p.id].total : 0})"></i></div>
-            <span class="muted small">{mb(prog[p.id].done)} of {prog[p.id].total ? mb(prog[p.id].total) : '…'}</span>
+            <span class="muted small">{mb(prog[p.id].done)} of {prog[p.id].total ? mb(prog[p.id].total) : '…'}{#if speed[p.id] > 0} · {rate(speed[p.id])}{/if}{#if prog[p.id].route} · via {prog[p.id].route}{/if}{#if eta(prog[p.id], speed[p.id])} · {eta(prog[p.id], speed[p.id])}{/if}</span>
+            {#if speed[p.id] < 20000 && prog[p.id].done > 0}<span class="muted small">Very slow right now. It keeps trying and continues when the connection improves.</span>{/if}
           {/if}
         </div>
         {#if prog[p.id]}
-          <button class="btn small" disabled>Downloading…</button>
+          <span class="muted small">Downloading…</span>
         {:else if p.downloaded}
           {#if p.update}<button class="btn small primary" onclick={() => install(p.id)}>Update</button>{/if}
           <button class="btn small ghost" onclick={() => remove(p.id)}>Remove</button>
         {:else if p.built_in}
           <span class="muted small">Installed</span>
         {:else}
-          <button class="btn small primary" disabled={!list.paired || (list.checked && !p.on_server)} onclick={() => install(p.id)}>Download</button>
+          <button class="btn small primary" disabled={!list.paired || (list.checked && !p.on_server)} onclick={() => install(p.id)}>{p.error ? 'Resume' : 'Download'}</button>
         {/if}
       </li>
     {/each}
   </ul>
-  {#if list.paired}<button class="btn small" disabled={checking} onclick={check}>{checking ? 'Checking…' : 'Check the server'}</button>{/if}
+  {#if list.paired && Object.keys(prog).length === 0}<button class="btn small ghost" disabled={checking} onclick={check}>{checking ? 'Checking…' : 'Refresh the list from the server'}</button>{/if}
   {#if err}<p class="msg">{err}</p>{/if}
 </section>
 

@@ -24,7 +24,9 @@ class MainActivity : TauriActivity() {
     val content = findViewById<View>(android.R.id.content)
     ViewCompat.setOnApplyWindowInsetsListener(content) { v, insets ->
       val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
-      v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+      // The on-screen keyboard: shrink the page by its height so the message box stays visible above it.
+      val keyboard = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+      v.setPadding(bars.left, bars.top, bars.right, maxOf(bars.bottom, keyboard))
       WindowInsetsCompat.CONSUMED
     }
   }

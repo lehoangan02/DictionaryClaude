@@ -137,28 +137,30 @@ impl Api {
         let mut last_error = None;
         let mut rate_limited = false;
         let mut retry_after = 0u64;
-        for (n, u) in pending.iter().take(limit).enumerate() {
-            if n > 0 {
-                // Be gentle: one recording at a time, not a burst.
-                std::thread::sleep(Duration::from_millis(2000));
-            }
-            match self.audio_fetch(u) {
-                Ok(_) => fetched += 1,
-                Err(e) if format!("{e:#}").contains(RATE_LIMITED) => {
-                    rate_limited = true;
-                    let msg = format!("{e:#}");
-                    retry_after = msg.rsplit("retry after ").next().and_then(|t| t.trim_end_matches('s').parse().ok()).unwrap_or(30);
-                    last_error = Some(msg);
-                    break;
-                }
-                Err(e) => {
-                    failed += 1;
-                    last_error = Some(format!("{e:#}"));
-                    // Offline or blocked: stop instead of failing every word in turn.
-                    if failed >= 3 && fetched == 0 {
-                        break;
+        // A few at a time (not one every two seconds): the host only asks us to slow down when it says so (429).
+        for group in pending.iter().take(limit).collect::<Vec<_>>().chunks(4) {
+            let results: Vec<Result<PathBuf>> = std::thread::scope(|sc| {
+                let hs: Vec<_> = group.iter().map(|u| sc.spawn(move || self.audio_fetch(u))).collect();
+                hs.into_iter().map(|h| h.join().unwrap_or_else(|_| Err(anyhow!("download crashed")))).collect()
+            });
+            for r in results {
+                match r {
+                    Ok(_) => fetched += 1,
+                    Err(e) if format!("{e:#}").contains(RATE_LIMITED) => {
+                        rate_limited = true;
+                        let msg = format!("{e:#}");
+                        retry_after = msg.rsplit("retry after ").next().and_then(|t| t.trim_end_matches('s').parse().ok()).unwrap_or(30);
+                        last_error = Some(msg);
+                    }
+                    Err(e) => {
+                        failed += 1;
+                        last_error = Some(format!("{e:#}"));
                     }
                 }
+            }
+            // Offline or blocked, or told to slow down: stop instead of failing every word in turn.
+            if rate_limited || (failed >= 3 && fetched == 0) {
+                break;
             }
         }
         Ok(json!({"total": total, "done": have + fetched, "no_audio": none, "fetched": fetched, "failed": failed, "rate_limited": rate_limited, "retry_after": retry_after, "error": last_error}))
