@@ -232,7 +232,8 @@ impl Api {
                 });
             out.push(json!({"id": id, "title": title, "about": about, "licence": licence, "downloaded": downloaded, "built_in": built_in,
                             "size": if size_local > 0 { size_local } else { size_remote }, "remote_size": size_remote, "on_server": on_server, "update": update,
-                            "error": self.setting(&format!("packs.err.{id}")).filter(|e| !e.is_empty())}));
+                            "error": self.setting(&format!("packs.err.{id}")).filter(|e| !e.is_empty()),
+                            "want": self.setting(&format!("packs.want.{id}")).is_some_and(|w| w == "1")}));
         }
         Ok(json!({"packs": out, "checked": remote["at"], "paired": self.pairing().is_some()}))
     }
@@ -261,6 +262,8 @@ impl Api {
         if self.pack_progress.lock().unwrap().contains_key(id) {
             bail!("already downloading");
         }
+        // "Wanted" outlives this call: when the connection or the app is lost, the UI starts the download again on return.
+        let _ = self.set_setting(&format!("packs.want.{id}"), "1");
         self.packs_catalog()?;
         let remote: Value = self.setting("packs.remote").and_then(|s| serde_json::from_str(&s).ok()).unwrap_or(Value::Null);
         let total: u64 = files.iter().filter_map(|f| remote["files"].as_array()?.iter().find(|x| x["file"] == *f)?["size"].as_u64()).sum();
@@ -280,6 +283,10 @@ impl Api {
         self.pack_progress.lock().unwrap().remove(id);
         // Kept so the list can say why a download stopped even after the screen was left and reopened.
         let _ = self.set_setting(&format!("packs.err.{id}"), &result.as_ref().err().map(|e| format!("{e:#}")).unwrap_or_default());
+        let keep = result.as_ref().err().is_some_and(|e| format!("{e:#}").contains("will resume"));
+        if !keep {
+            let _ = self.set_setting(&format!("packs.want.{id}"), "0");
+        }
         result?;
         if signal {
             self.reload.store(true, std::sync::atomic::Ordering::SeqCst);

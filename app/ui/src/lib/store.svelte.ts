@@ -230,6 +230,7 @@ export function stopAudioDownload() { stopAudio = true; }
 export async function startAudioDownload() {
   if (audioDl.running) return;
   audioDl.running = true; audioDl.note = ''; stopAudio = false;
+  try { localStorage.setItem('audio.want', '1'); } catch { /* private window */ }
   let waitS = 10;
   try {
     while (!stopAudio) {
@@ -248,5 +249,29 @@ export async function startAudioDownload() {
       }
       waitS = 10; audioDl.note = '';
     }
-  } finally { audioDl.running = false; if (stopAudio && !audioDl.note.startsWith('All')) audioDl.note = 'Stopped. It resumes where it left off.'; }
+  } finally {
+    if (stopAudio || audioDl.note.startsWith('All')) { try { localStorage.removeItem('audio.want'); } catch { /* private window */ } }
+    audioDl.running = false; if (stopAudio && !audioDl.note.startsWith('All')) audioDl.note = 'Stopped. It resumes where it left off.'; }
+}
+
+// Downloads the person asked for but that were cut off (leaving the app, losing the connection): start them again
+// when the app comes back, at launch, and every so often while it is open. They continue from where they stopped.
+let resuming = false;
+export async function resumeDownloads() {
+  try { if (localStorage.getItem('audio.want') && !audioDl.running) startAudioDownload(); } catch { /* private window */ }
+  if (resuming) return;
+  resuming = true;
+  try {
+    const [list, prog] = await Promise.all([call('packs_list'), call('pack_progress')]);
+    if (!list.paired) return;
+    for (const p of list.packs) {
+      if (p.want && !(p.id in prog)) call('pack_install', { id: p.id }).then(() => call('sources').then((s) => { app.sources = s; bump(); })).catch(() => {});
+    }
+  } catch { /* offline or busy: next time */ } finally { resuming = false; }
+}
+export function keepDownloadsGoing() {
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) resumeDownloads(); });
+  window.addEventListener('online', () => resumeDownloads());
+  setInterval(resumeDownloads, 20000);
+  resumeDownloads();
 }
