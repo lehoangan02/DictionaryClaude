@@ -154,6 +154,24 @@ pub const MIGRATIONS: &[&str] = &[
     "
     ALTER TABLE drafts ADD COLUMN chat TEXT NOT NULL DEFAULT '[]';
     ",
+    // 7: the general chat with Claude (one conversation, row "main"; messages and their ideas as JSON; synced).
+    "
+    CREATE TABLE talks(
+      id TEXT PRIMARY KEY, created INTEGER NOT NULL, updated INTEGER NOT NULL, deleted INTEGER NOT NULL DEFAULT 0,
+      -- '' | asked | running
+      state TEXT NOT NULL DEFAULT '', msgs TEXT NOT NULL DEFAULT '[]');
+    CREATE INDEX talks_updated ON talks(updated);
+    CREATE TRIGGER talks_ai AFTER INSERT ON talks BEGIN
+      UPDATE sync_counter SET n = n + 1;
+      INSERT INTO sync_seq(tbl,id,seq) VALUES('talks', NEW.id, (SELECT n FROM sync_counter))
+        ON CONFLICT(tbl,id) DO UPDATE SET seq=excluded.seq;
+    END;
+    CREATE TRIGGER talks_au AFTER UPDATE ON talks BEGIN
+      UPDATE sync_counter SET n = n + 1;
+      INSERT INTO sync_seq(tbl,id,seq) VALUES('talks', NEW.id, (SELECT n FROM sync_counter))
+        ON CONFLICT(tbl,id) DO UPDATE SET seq=excluded.seq;
+    END;
+    ",
 ];
 
 pub fn open(path: &Path) -> Result<Connection> {

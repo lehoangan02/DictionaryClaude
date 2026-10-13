@@ -15,7 +15,7 @@ use serde_json::{json, Map, Value};
 use crate::api::Api;
 
 /// Parents before children so a batch applies cleanly.
-pub const TABLES: [&str; 5] = ["notes", "lookups", "sessions", "attempts", "drafts"];
+pub const TABLES: [&str; 6] = ["notes", "lookups", "sessions", "attempts", "drafts", "talks"];
 
 fn columns(db: &Connection, table: &str) -> Result<Vec<String>> {
     let mut st = db.prepare(&format!("PRAGMA table_info({table})"))?;

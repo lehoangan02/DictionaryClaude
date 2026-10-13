@@ -220,3 +220,33 @@ export function setSource(id: string) {
   app.source = id;
   localStorage.setItem('source', id);
 }
+
+// Barron's pronunciation download. It lives here, not in the Settings screen, so it keeps going when you leave
+// Settings, and a lost connection makes it wait and try again instead of stopping.
+export const audioDl = $state({ running: false, done: 0, total: 0, note: '' });
+let stopAudio = false;
+const nap = (ms: number) => new Promise((r) => setTimeout(r, ms));
+export function stopAudioDownload() { stopAudio = true; }
+export async function startAudioDownload() {
+  if (audioDl.running) return;
+  audioDl.running = true; audioDl.note = ''; stopAudio = false;
+  let waitS = 10;
+  try {
+    while (!stopAudio) {
+      let r;
+      try { r = await call('audio_prefetch', { limit: 4 }); }
+      catch (e) { audioDl.note = `${(e as Error).message}`; break; }
+      audioDl.done = r.done; audioDl.total = r.total;
+      if (r.done >= r.total) { audioDl.note = 'All recordings are on this device.'; break; }
+      if (r.rate_limited) { audioDl.note = 'Waiting politely for the server…'; await nap(((r.retry_after ?? 5) + 2) * 1000); continue; }
+      if (r.failed && !r.fetched) {
+        // No connection (or a hiccup): wait, then try again, a little longer each time.
+        audioDl.note = `No connection, trying again in ${waitS} s. ${r.done} of ${r.total} are saved.`;
+        for (let i = 0; i < waitS && !stopAudio; i++) await nap(1000);
+        waitS = Math.min(waitS * 2, 120);
+        continue;
+      }
+      waitS = 10; audioDl.note = '';
+    }
+  } finally { audioDl.running = false; if (stopAudio && !audioDl.note.startsWith('All')) audioDl.note = 'Stopped. It resumes where it left off.'; }
+}

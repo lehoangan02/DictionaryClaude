@@ -1,6 +1,6 @@
 <script lang="ts">
   import { call, native } from './lib/api';
-  import { app, setTheme, bump, orderedSources, saveOrder } from './lib/store.svelte';
+  import { app, setTheme, bump, orderedSources, saveOrder, audioDl, startAudioDownload, stopAudioDownload } from './lib/store.svelte';
   import Icon from './Icon.svelte';
   import PackManager from './PackManager.svelte';
   import Update from './Update.svelte';
@@ -44,24 +44,6 @@
     catch (e) { msg = (e as Error).message; }
     busy = false; await load();
   }
-  // Pronunciation downloads: a few recordings at a time, waiting when the host asks us to slow down.
-  let dl = $state({ running: false, done: 0, total: 0, note: '' });
-  let stopDl = false;
-  async function downloadAudio() {
-    dl = { running: true, done: dl.done, total: dl.total, note: '' };
-    stopDl = false;
-    try {
-      while (!stopDl) {
-        const r = await call('audio_prefetch', { limit: 4 });
-        dl = { running: true, done: r.done, total: r.total, note: r.rate_limited ? 'Waiting politely for the server…' : '' };
-        if (r.done >= r.total) { dl.note = 'All recordings are on this device.'; break; }
-        if (r.failed && !r.fetched && !r.rate_limited) { dl.note = r.error ?? 'Could not download (offline?).'; break; }
-        if (r.rate_limited) await new Promise((res) => setTimeout(res, ((r.retry_after ?? 5) + 2) * 1000));
-      }
-    } catch (e) { dl.note = (e as Error).message; }
-    dl.running = false;
-  }
-
   // Merriam-Webster: keys stay on this device and are never shown again after saving.
   let mw = $state<any>({ configured: false });
   let mwKey = $state('');
@@ -220,15 +202,15 @@
   <h3>Pronunciation</h3>
   <p class="muted small">Recordings play from this device once downloaded; until then the app speaks the word. Download the Barron's words so they work without internet.</p>
   <div class="row">
-    {#if dl.running}
-      <button class="btn" onclick={() => (stopDl = true)}>Stop</button>
+    {#if audioDl.running}
+      <button class="btn" onclick={stopAudioDownload}>Stop</button>
     {:else}
-      <button class="btn primary" onclick={downloadAudio}>Download Barron's pronunciations</button>
+      <button class="btn primary" onclick={startAudioDownload}>Download Barron's pronunciations</button>
     {/if}
-    {#if dl.total}<span class="muted">{dl.done} / {dl.total}</span>{/if}
+    {#if audioDl.total}<span class="muted">{audioDl.done} / {audioDl.total}</span>{/if}
   </div>
-  {#if dl.total}<progress max={dl.total} value={dl.done} style="width:100%;margin-top:8px"></progress>{/if}
-  {#if dl.note}<p class="muted small">{dl.note}</p>{/if}
+  {#if audioDl.total}<progress max={audioDl.total} value={audioDl.done} style="width:100%;margin-top:8px"></progress>{/if}
+  {#if audioDl.note}<p class="muted small">{audioDl.note}</p>{/if}
 </section>
 
 <section class="card rise" style="--i:7">

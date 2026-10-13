@@ -381,7 +381,7 @@ if (BASE_B && process.env.PAIR_A) {
   await a.bringToFront();
   const photoPath = `${OUT}/handwriting.jpg`;
   execFileSync('convert', ['-size', '1000x300', 'xc:white', '-fill', 'black', '-pointsize', '54', '-annotate', '+40+130', 'mellifluous = dulcet', photoPath]);
-  await a.goto(BASE + '?tab=claude', { waitUntil: 'networkidle0' });
+  await a.goto(BASE + '?tab=notes', { waitUntil: 'networkidle0' });
   await a.waitForSelector('input[type=file][multiple]');
   await (await a.$('input[type=file][multiple]')).uploadFile(photoPath);
   await a.waitForSelector('.thumbs img');
@@ -392,7 +392,7 @@ if (BASE_B && process.env.PAIR_A) {
   let ready = false;
   for (let n = 0; n < 30 && !ready; n++) {
     await a.evaluate(() => fetch('/api/sync_now', { method: 'POST', body: '{}' }));
-    await a.goto(BASE + '?tab=claude', { waitUntil: 'networkidle0' });
+    await a.goto(BASE + '?tab=notes', { waitUntil: 'networkidle0' });
     ready = (await a.$eval('.draft .st', (e) => e.textContent).catch(() => '')).includes('Ready to review');
     if (!ready) await new Promise((r) => setTimeout(r, 1000));
   }
@@ -404,31 +404,33 @@ if (BASE_B && process.env.PAIR_A) {
   await a.waitForSelector('.photos img');
   ok(true, 'the photo is shown beside the text');
   await a.type('.cols textarea', '\nmellifluous = honeyed');
-  // Chatting with Claude: a message goes out only when sent (the stand-in answers with an error, never spends quota).
-  ok((await a.$eval('body', (e) => e.textContent)).includes('Chat with Claude'), 'the review screen has a chat with Claude');
-  ok(!(await a.$('.m')), 'the chat is empty until the person writes');
-  await a.type('.send textarea', 'Is line one right?');
-  await clickText(a, '.send button', 'Send');
-  await a.waitForSelector('.m.me');
-  ok((await a.$eval('.m.me', (e) => e.textContent)).includes('Is line one right?'), 'the message appears in the chat');
-  await a.waitForSelector('.m.bad', { timeout: 30000 });
-  ok((await a.$eval('.m.bad', (e) => e.textContent)).includes('test stand-in'), 'a problem with Claude is shown in the chat, not hidden');
   await a.screenshot({ path: `${OUT}/draft-review.png`, fullPage: true });
   await clickText(a, 'button', 'Save as note');
-  await a.waitForSelector('.draft, .empty', { hidden: true, timeout: 8000 }).catch(() => {});
+  await a.waitForFunction(() => !document.querySelector('.cols textarea'), { timeout: 8000 });
   await a.goto(BASE + '?tab=notes', { waitUntil: 'networkidle0' });
   await a.waitForSelector('.nt');
   const became = await a.evaluate(() => [...document.querySelectorAll('.nt pre')].some((p) => p.textContent.includes('mellifluous = honeyed')));
   ok(became, 'the reviewed text became a note');
-  await a.goto(BASE + '?tab=claude', { waitUntil: 'networkidle0' });
+  await a.goto(BASE + '?tab=notes', { waitUntil: 'networkidle0' });
   ok(!(await a.$('.draft')), 'the draft left the review list');
+
+  // The Claude tab is a general chat: a message goes out only when sent (the stand-in answers with an error, never spends quota).
+  await a.goto(BASE + '?tab=claude', { waitUntil: 'networkidle0' });
+  ok(!(await a.$('.m')), 'the Claude chat is empty until the person writes');
+  await a.type('.send textarea', 'The History tab feels slow');
+  await clickText(a, '.send button', 'Send');
+  await a.waitForSelector('.m.me');
+  ok((await a.$eval('.m.me', (e) => e.textContent)).includes('History tab feels slow'), 'the message appears in the chat');
+  await a.waitForSelector('.m.bad', { timeout: 30000 });
+  ok((await a.$eval('.m.bad', (e) => e.textContent)).includes('test stand-in'), 'a problem with Claude is shown in the chat, not hidden');
 
   // Device B pairs and receives it, including its effect on the thesaurus.
   const b = await newPage(1000, 900);
   await pairVia(b, BASE_B, process.env.PAIR_B);
   await b.goto(BASE_B + '?tab=notes', { waitUntil: 'networkidle0' });
   await b.waitForSelector('.nt');
-  ok((await b.$eval('.nt pre', (e) => e.textContent)).includes('garrulous = loquacious = voluble'), "device B received device A's note");
+  await b.waitForFunction(() => [...document.querySelectorAll('.nt pre')].some((p) => p.textContent.includes('garrulous = loquacious = voluble')), { timeout: 10000 }).catch(() => {});
+  ok(await b.evaluate(() => [...document.querySelectorAll('.nt pre')].some((p) => p.textContent.includes('garrulous = loquacious = voluble'))), "device B received device A's note");
   await b.goto(BASE_B + '?w=loquacious', { waitUntil: 'networkidle0' });
   await b.waitForSelector('.box.mine');
   const mineB = await b.$eval('.box.mine', (e) => e.textContent);

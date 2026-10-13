@@ -293,7 +293,10 @@ impl Api {
         let dir = self.own_packs();
         std::fs::create_dir_all(&dir)?;
         let part = dir.join(format!("{file}.part"));
-        for attempt in 0..4 {
+        // Patient: a phone leaving Wi-Fi or going through a tunnel loses the connection for a while. Keep trying
+        // (waiting a little longer each time, about ten minutes in all) and start the count again whenever bytes arrive.
+        let (mut attempt, mut last_len) = (0u32, u64::MAX);
+        loop {
             let have = std::fs::metadata(&part).map(|m| m.len()).unwrap_or(0).min(size);
             let step = (|| -> Result<()> {
                 if have < size {
@@ -329,12 +332,18 @@ impl Api {
             if len == size {
                 break;
             }
-            if let Err(e) = step {
-                if attempt == 3 {
-                    return Err(e).context("the download was interrupted (it will resume next time)");
-                }
+            if len != last_len {
+                attempt = 0;
+                last_len = len;
             }
-            std::thread::sleep(Duration::from_secs(2));
+            if attempt >= 12 {
+                return match step {
+                    Err(e) => Err(e).context("the connection was lost for too long (it will resume where it stopped)"),
+                    Ok(()) => Err(anyhow!("the download is incomplete (it will resume where it stopped)")),
+                };
+            }
+            attempt += 1;
+            std::thread::sleep(Duration::from_secs((2u64 << attempt.min(5)).min(60)));
         }
         if std::fs::metadata(&part).map(|m| m.len()).unwrap_or(0) != size {
             bail!("the download is incomplete (it will resume next time)");

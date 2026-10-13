@@ -30,9 +30,7 @@
     load().catch((e) => (error = e.message));
     const t = setInterval(async () => {
       if (!d) return;
-      // The server answers; asking it for news keeps the reply coming without waiting for the next background sync.
-      if (['chat', 'chat_running'].includes(d.agent_status)) await call('sync_now').catch(() => {});
-      if (['queued', 'processing'].includes(d.status) || ['requested', 'running', 'chat', 'chat_running'].includes(d.agent_status)) load().catch(() => {});
+      if (['queued', 'processing'].includes(d.status) || ['requested', 'running'].includes(d.agent_status)) load().catch(() => {});
     }, 3000);
     return () => clearInterval(t);
   });
@@ -66,22 +64,6 @@
     catch (e) { error = (e as Error).message; }
     busy = false;
   }
-
-  // The chat with Claude about this reading. Each message costs one agent call, so nothing is sent unasked.
-  let msg = $state('');
-  let sending = $state(false);
-  const chatting = $derived(['chat', 'chat_running'].includes(d?.agent_status));
-  const chat = $derived<any[]>(d?.chat ?? []);
-  async function send() {
-    const m = msg.trim();
-    if (!m || chatting || sending) return;
-    sending = true; error = '';
-    try { d = await call('draft_chat', { id, message: m }); msg = ''; call('sync_now').catch(() => {}); bump(); }
-    catch (e) { error = (e as Error).message; }
-    sending = false;
-  }
-  function useProposal(t: string) { text = t; edited = true; parse(); }
-  function sendKey(e: KeyboardEvent) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }
 </script>
 
 <button class="btn small ghost" onclick={onclose}>← Back</button>
@@ -127,30 +109,6 @@
     </div>
   </section>
 
-  <section class="card chat rise" style="--i:2" aria-label="Chat with Claude">
-    <h3>Chat with Claude</h3>
-    <p class="muted small">Ask Claude to look at the photo again, or tell it what a word should be. It never changes your text by itself: when it suggests a new version you choose to use it. Each message uses one agent call.</p>
-    <div class="msgs" aria-live="polite">
-      {#each chat as m}
-        {#if m.role === 'user'}<div class="m me">{m.text}</div>
-        {:else if m.role === 'error'}<div class="m bad">{m.text}</div>
-        {:else}
-          <div class="m ai">{m.text}
-            {#if m.proposal}
-              <pre class="prop">{m.proposal}</pre>
-              <button class="btn small primary" onclick={() => useProposal(m.proposal)}>Use this text</button>
-            {/if}
-          </div>
-        {/if}
-      {/each}
-      {#if chatting}<div class="m ai wait">Claude is looking at the photo…</div>{/if}
-    </div>
-    <div class="send">
-      <textarea rows="2" bind:value={msg} onkeydown={sendKey} placeholder="Line 3 should be “imbibition”, can you check?" disabled={d.status === 'queued'}></textarea>
-      <button class="btn primary" disabled={!msg.trim() || chatting || sending || d.status === 'queued'} onclick={send}>Send</button>
-    </div>
-  </section>
-
   {#if error}<p class="err">{error}</p>{/if}
   <div class="row act">
     <button class="btn primary" disabled={busy || !text.trim() || d.status === 'queued'} onclick={save}>Save as note</button>
@@ -172,16 +130,7 @@
   .pv { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
   .pill { display: inline-flex; align-items: center; background: var(--bg); border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
   .pill span { padding: 2px 10px; } .pill b { background: var(--navy); color: #fff; padding: 2px 9px; font-family: 'Lexis Symbols', ui-monospace, 'DejaVu Sans Mono', monospace; }
-  .agents, .chat { margin-top: 16px; }
-  .msgs { display: grid; gap: 8px; margin: 10px 0; }
-  .m { max-width: 92%; padding: 8px 12px; border-radius: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
-  .m.me { justify-self: end; background: var(--blue); color: #fff; border-bottom-right-radius: 4px; }
-  .m.ai { justify-self: start; background: var(--panel); border-bottom-left-radius: 4px; }
-  .m.bad { justify-self: start; background: var(--bad-bg); color: var(--bad); }
-  .m.wait { color: var(--muted); font-style: italic; }
-  .prop { margin: 8px 0; padding: 8px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; white-space: pre-wrap; font-family: 'Lexis Symbols', ui-monospace, Menlo, monospace; font-size: 14px; }
-  .send { display: flex; gap: 8px; align-items: end; }
-  .send textarea { flex: 1; font-size: 16px; }
+  .agents { margin-top: 16px; }
   .row { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; }
   .small { font-size: 13px; }
   .act { margin-top: 16px; }

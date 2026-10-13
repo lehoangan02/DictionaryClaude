@@ -375,9 +375,9 @@ pub fn merge(versions: &[(&str, Vec<String>)]) -> Value {
     }
 }
 
-struct Agent {
-    name: &'static str,
-    bin: String,
+pub(crate) struct Agent {
+    pub(crate) name: &'static str,
+    pub(crate) bin: String,
 }
 
 impl Agent {
@@ -395,7 +395,7 @@ impl Agent {
     }
 
     /// One non-interactive call of the CLI in `dir`; its raw output, or what it reported as the error.
-    fn run_cli(&self, dir: &Path, prompt: &str, schema: &str, effort: Option<&str>) -> Result<String> {
+    pub(crate) fn run_cli(&self, dir: &Path, prompt: &str, schema: &str, effort: Option<&str>) -> Result<String> {
         let mut c = Command::new(&self.bin);
         c.current_dir(dir).arg("-p").arg(prompt).args(["--output-format", "json", "--json-schema", schema]);
         match self.name {
@@ -497,19 +497,19 @@ fn second_prompt(mine: &[String], theirs: &[String]) -> String {
 }
 
 impl Api {
-    fn env_or(&self, k: &str, d: &str) -> String {
+    pub(crate) fn env_or(&self, k: &str, d: &str) -> String {
         std::env::var(k).unwrap_or_else(|_| d.to_string())
     }
 
-    fn agent_used_today(&self) -> i64 {
+    pub(crate) fn agent_used_today(&self) -> i64 {
         self.setting(&format!("agents.used.{}", now_ms() / 86_400_000)).and_then(|s| s.parse().ok()).unwrap_or(0)
     }
 
-    fn agent_cap(&self) -> i64 {
+    pub(crate) fn agent_cap(&self) -> i64 {
         self.setting("agents.cap").and_then(|s| s.parse().ok()).or_else(|| std::env::var("LEXIS_AGENT_CAP").ok().and_then(|s| s.parse().ok())).unwrap_or(8)
     }
 
-    fn count_agent_call(&self) {
+    pub(crate) fn count_agent_call(&self) {
         let _ = self.set_setting(&format!("agents.used.{}", now_ms() / 86_400_000), &(self.agent_used_today() + 1).to_string());
     }
 
@@ -540,6 +540,9 @@ impl Api {
         };
         for id in chats {
             self.job_chat(&id)?;
+            agents_done += 1;
+        }
+        if self.job_talk()? {
             agents_done += 1;
         }
         for id in asked {
