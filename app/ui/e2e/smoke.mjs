@@ -427,6 +427,11 @@ if (BASE_B && process.env.PAIR_A) {
   await clickText(a, 'button', 'New chat');
   await a.waitForSelector('.send textarea');
   ok(await a.$eval('.send textarea', (e) => { const r = e.getBoundingClientRect(); return r.top > 0 && r.bottom <= innerHeight; }), 'the message box is on screen, at the bottom');
+  // The search suggestions open above the chat screen, not under it.
+  await a.type('.search input, input[type=search], .search input[type=text]', 'abat');
+  await a.waitForSelector('.dd li', { timeout: 8000 });
+  ok(await a.$eval('.dd', (e) => { const r = e.getBoundingClientRect(); const t = document.elementFromPoint(r.left + r.width / 2, r.bottom - 6); return !!t && t.closest('.dd') !== null; }), 'search suggestions are above the chat screen');
+  await a.$eval('.search input', (e) => { e.value = ''; e.dispatchEvent(new Event('input', { bubbles: true })); });
   ok(!(await a.$('.m')), 'the Claude chat is empty until the person writes');
   await a.type('.send textarea', 'The History tab feels slow');
   await clickText(a, '.send button', 'Send');

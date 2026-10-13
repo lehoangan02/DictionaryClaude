@@ -168,7 +168,7 @@
   .work pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; margin: 6px 0 10px; }
   .row { display: grid; gap: 2px; width: 100%; text-align: left; margin: 8px 0; cursor: pointer; }
   h1 { margin: 0 0 4px; font-size: 28px; }
-  .pane { position: fixed; left: 0; right: 0; z-index: 30; display: flex; flex-direction: column; background: var(--bg); }
+  .pane { position: fixed; left: 0; right: 0; z-index: 15; display: flex; flex-direction: column; background: var(--bg); }
   .chead { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--line); }
   .ct { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .gbtn { background: none; border: 0; font-size: 24px; width: 40px; height: 40px; color: var(--text); border-radius: 50%; }
