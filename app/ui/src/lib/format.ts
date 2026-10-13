@@ -52,6 +52,9 @@ export async function speak(word: string, audio?: string): Promise<'recording' |
   if (audio) {
     try {
       const { data_url } = await call<{ data_url: string }>('audio_get', { url: audio });
+      // Android: the system player first (its web view rejects some audio data URLs).
+      const droid = (window as unknown as { LadyBirdVoice?: { play?(b64: string): boolean } }).LadyBirdVoice;
+      if (droid?.play?.(data_url.slice(data_url.indexOf(',') + 1))) return 'recording';
       current = new Audio(data_url);
       await current.play();
       return 'recording';

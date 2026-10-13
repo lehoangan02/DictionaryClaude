@@ -8,7 +8,9 @@ import android.provider.Settings
 import androidx.core.content.FileProvider
 import java.io.File
 import android.view.View
+import android.media.MediaPlayer
 import android.speech.tts.TextToSpeech
+import android.util.Base64
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import java.util.Locale
@@ -32,12 +34,37 @@ class MainActivity : TauriActivity() {
   }
 
   private var tts: TextToSpeech? = null
+  private var player: MediaPlayer? = null
 
   /** The page asks for a spoken word here when no recording can be played. */
   inner class Voice {
     @JavascriptInterface
     fun speak(word: String) {
       tts?.speak(word, TextToSpeech.QUEUE_FLUSH, null, "word")
+    }
+
+    /**
+     * Plays a recording (base64 MP3/OGG) with the system player: the web view refuses some audio data URLs
+     * ("no supported source was found"). Returns false when it could not play, so the page can try its own player.
+     */
+    @JavascriptInterface
+    fun play(base64: String): Boolean {
+      return try {
+        player?.release()
+        val f = File(cacheDir, "word.audio")
+        f.writeBytes(Base64.decode(base64, Base64.DEFAULT))
+        player = MediaPlayer().apply {
+          setDataSource(f.path)
+          setOnCompletionListener { it.release(); if (player === it) player = null }
+          prepare()
+          start()
+        }
+        true
+      } catch (e: Throwable) {
+        player?.release()
+        player = null
+        false
+      }
     }
   }
 
