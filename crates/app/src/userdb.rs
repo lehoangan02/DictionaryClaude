@@ -176,6 +176,13 @@ pub const MIGRATIONS: &[&str] = &[
     "
     ALTER TABLE talks ADD COLUMN title TEXT NOT NULL DEFAULT '';
     ",
+    // 9: a chat can be a task: Claude edits the app on its own git branch (`branch`), `changes` is the diff summary
+    // the owner reads before merging or discarding. `mode` is 'ask' (read and suggest) or 'work' (edit on a branch).
+    "
+    ALTER TABLE talks ADD COLUMN mode TEXT NOT NULL DEFAULT 'ask';
+    ALTER TABLE talks ADD COLUMN branch TEXT NOT NULL DEFAULT '';
+    ALTER TABLE talks ADD COLUMN changes TEXT NOT NULL DEFAULT '';
+    ",
 ];
 
 pub fn open(path: &Path) -> Result<Connection> {

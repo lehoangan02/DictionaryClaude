@@ -394,6 +394,19 @@ impl Agent {
         extract_lines(&out).ok_or_else(|| anyhow!("{} replied, but not in the expected form", self.name))
     }
 
+    /// A task chat: Claude may edit files in `dir` (a private worktree on its own branch) and use git there, nothing else.
+    pub(crate) fn run_work(&self, dir: &Path, prompt: &str, schema: &str) -> Result<String> {
+        let mut c = Command::new(&self.bin);
+        c.current_dir(dir).arg("-p").arg(prompt).args(["--output-format", "json", "--json-schema", schema]);
+        c.args(["--permission-mode", "acceptEdits", "--allowedTools", "Read", "Edit", "Write", "Glob", "Grep", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git add:*)", "Bash(git commit:*)"]);
+        c.arg("--add-dir").arg(dir).args(["--disallowedTools", "WebFetch", "WebSearch"]);
+        let r = run(c, Duration::from_secs(1500)).map_err(|e| anyhow!("{}: {e:#}", self.name))?;
+        if let Some(why) = reported_error(&r.stdout).or_else(|| (!r.ok).then(|| r.stderr.lines().find(|l| !l.trim().is_empty()).unwrap_or("no output").trim().to_string())) {
+            bail!("{} says: {why}", self.name);
+        }
+        Ok(r.stdout)
+    }
+
     /// One non-interactive call of the CLI in `dir`; its raw output, or what it reported as the error.
     pub(crate) fn run_cli(&self, dir: &Path, prompt: &str, schema: &str, effort: Option<&str>) -> Result<String> {
         let mut c = Command::new(&self.bin);

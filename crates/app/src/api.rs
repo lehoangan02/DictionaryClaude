@@ -145,7 +145,7 @@ impl Api {
     pub fn call(&self, cmd: &str, args: Value) -> Result<Value> {
         let out = self.dispatch(cmd, args);
         // Anything that writes synced data nudges the background sync.
-        if out.is_ok() && matches!(cmd, "draft_agents" | "draft_chat" | "talk_new" | "talk_send" | "talk_idea" | "talk_delete" | "draft_reread" | "draft_create" | "draft_update" | "draft_accept" | "draft_reject" | "entry" | "history_star" | "history_delete" | "history_clear" | "note_save" | "note_delete" | "quiz_start" | "quiz_answer" | "session_delete") {
+        if out.is_ok() && matches!(cmd, "draft_agents" | "draft_chat" | "talk_new" | "talk_send" | "talk_idea" | "talk_delete" | "talk_finish" | "talk_retry" | "draft_reread" | "draft_create" | "draft_update" | "draft_accept" | "draft_reject" | "entry" | "history_star" | "history_delete" | "history_clear" | "note_save" | "note_delete" | "quiz_start" | "quiz_answer" | "session_delete") {
             self.dirty.store(true, std::sync::atomic::Ordering::SeqCst);
         }
         out
@@ -200,7 +200,9 @@ impl Api {
             "draft_reject" => self.draft_reject(&req("id")?),
             "draft_reread" => self.draft_reread(&req("id")?),
             "talk_list" => self.talk_list(),
-            "talk_new" => self.talk_new(),
+            "talk_new" => self.talk_new(&a("mode").unwrap_or_else(|| "ask".into())),
+            "talk_finish" => self.talk_finish(&req("id")?, &req("how")?),
+            "talk_retry" => self.talk_retry(&req("id")?),
             "talk_get" => self.talk_get(&req("id")?),
             "talk_send" => self.talk_send(&req("id")?, &req("message")?),
             "talk_idea" => self.talk_idea(&req("id")?, args.get("at").and_then(Value::as_i64).ok_or_else(|| anyhow!("missing `at`"))?, &req("decision")?),

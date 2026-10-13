@@ -4,7 +4,8 @@
 //! shows up as an idea the owner approves or dismisses; approved ideas are what a coding
 //! session picks up (`talk_ideas`).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use anyhow::{anyhow, bail, Result};
 use rusqlite::params;
@@ -62,7 +63,47 @@ fn prompt(msgs: &[Value]) -> String {
     )
 }
 
+fn git(dir: &Path, args: &[&str]) -> Result<String> {
+    let o = Command::new("git").arg("-C").arg(dir).args(args).output().map_err(|e| anyhow!("git is not available ({e})"))?;
+    if !o.status.success() {
+        bail!("git {}: {}", args.first().unwrap_or(&""), String::from_utf8_lossy(&o.stderr).trim());
+    }
+    Ok(String::from_utf8_lossy(&o.stdout).trim().to_string())
+}
+
+fn work_prompt(msgs: &[Value], branch: &str) -> String {
+    let talk: String = msgs
+        .iter()
+        .rev()
+        .take(16)
+        .rev()
+        .filter_map(|m| Some(format!("{}: {}", if m["role"] == "user" { "OWNER" } else { "YOU" }, m["text"].as_str()?)))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        "You are working on LadyBird, the owner's offline GRE dictionary app, at the owner's request from their phone. The current folder is a private git worktree on branch {branch}: \
+         change the app here and nowhere else. Read CLAUDE.md first and follow it (never touch private/, never put copyrighted text in the repo, keep the style of the surrounding code). \
+         Do the task the owner asked for in their last message, carefully and completely, and keep docs/ROADMAP.md true. \
+         Do not build or run tests (they are slow; the owner checks before merging) and run no program other than git. \
+         When finished, commit all your changes on this branch with git (one clear message). Never push, never switch or create branches, never merge. \
+         Then reply briefly and plainly, in the language the owner used, saying what you changed and anything they should check. \
+         The conversation so far:\n{talk}\n\
+         Reply with JSON only: {{\"reply\":string}}"
+    )
+}
+
 impl Api {
+    fn work_paths(&self, id: &str) -> (String, PathBuf) {
+        let short: String = id.chars().take(8).collect();
+        (format!("chat/{short}"), self.data_dir.join("work").join(short))
+    }
+
+    /// (mode, branch, changes) of a chat.
+    fn talk_meta(&self, id: &str) -> Result<(String, String, String)> {
+        let db = self.db.lock().unwrap();
+        db.query_row("SELECT mode, branch, changes FROM talks WHERE id=?1 AND deleted=0", [id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).map_err(|_| anyhow!("no such chat"))
+    }
+
     fn repo_dir(&self) -> Option<PathBuf> {
         let mut c: Vec<PathBuf> = vec![];
         if let Ok(p) = std::env::var("LEXIS_REPO") {
@@ -93,26 +134,31 @@ impl Api {
 
     pub(crate) fn talk_get(&self, id: &str) -> Result<Value> {
         let (title, state, msgs) = self.talk_load(id)?;
-        Ok(json!({"id": id, "title": title, "state": state, "msgs": msgs}))
+        let (mode, branch, changes) = self.talk_meta(id)?;
+        let stale = self.db.lock().unwrap().query_row("SELECT updated FROM talks WHERE id=?1", [id], |r| r.get::<_, i64>(0)).unwrap_or(0);
+        Ok(json!({"id": id, "title": title, "state": state, "msgs": msgs, "mode": mode, "branch": branch, "changes": changes, "updated": stale}))
     }
 
     pub(crate) fn talk_list(&self) -> Result<Value> {
         let db = self.db.lock().unwrap();
-        let mut st = db.prepare("SELECT id, title, state, updated, msgs FROM talks WHERE deleted=0 ORDER BY updated DESC")?;
+        let mut st = db.prepare("SELECT id, title, state, updated, msgs, mode FROM talks WHERE deleted=0 ORDER BY updated DESC")?;
         let rows = st
             .query_map([], |r| {
                 let msgs: String = r.get(4)?;
                 let last = serde_json::from_str::<Vec<Value>>(&msgs).ok().and_then(|m| m.last().and_then(|x| x["text"].as_str().map(|t| t.chars().take(90).collect::<String>()))).unwrap_or_default();
-                Ok(json!({"id": r.get::<_, String>(0)?, "title": r.get::<_, String>(1)?, "state": r.get::<_, String>(2)?, "updated": r.get::<_, i64>(3)?, "last": last}))
+                Ok(json!({"id": r.get::<_, String>(0)?, "title": r.get::<_, String>(1)?, "state": r.get::<_, String>(2)?, "updated": r.get::<_, i64>(3)?, "last": last, "mode": r.get::<_, String>(5)?}))
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
         Ok(json!(rows))
     }
 
-    pub(crate) fn talk_new(&self) -> Result<Value> {
+    pub(crate) fn talk_new(&self, mode: &str) -> Result<Value> {
+        if !matches!(mode, "ask" | "work") {
+            bail!("mode must be ask or work");
+        }
         let id = new_id();
         let t = now_ms();
-        self.db.lock().unwrap().execute("INSERT INTO talks(id,created,updated) VALUES(?1,?2,?2)", params![id, t])?;
+        self.db.lock().unwrap().execute("INSERT INTO talks(id,created,updated,mode) VALUES(?1,?2,?2,?3)", params![id, t, mode])?;
         self.talk_get(&id)
     }
 
@@ -151,8 +197,39 @@ impl Api {
         if matches!(state.as_str(), "asked" | "running") {
             bail!("Claude is still answering");
         }
-        self.db.lock().unwrap().execute("UPDATE talks SET deleted=1, updated=?2 WHERE id=?1", params![id, now_ms()])?;
+        let (_, branch, _) = self.talk_meta(id)?;
+        if branch.is_empty() {
+            self.db.lock().unwrap().execute("UPDATE talks SET deleted=1, updated=?2 WHERE id=?1", params![id, now_ms()])?;
+        } else {
+            // Work not yet merged is thrown away by the server, which then removes the chat.
+            let (_, _, msgs) = self.talk_load(id)?;
+            self.talk_save(id, "discard", &msgs)?;
+        }
         Ok(json!({"ok": true}))
+    }
+
+    /// Asks the server to merge (or throw away) the work of a task chat.
+    pub(crate) fn talk_finish(&self, id: &str, how: &str) -> Result<Value> {
+        if !matches!(how, "merge" | "discard") {
+            bail!("how must be merge or discard");
+        }
+        let (_, state, msgs) = self.talk_load(id)?;
+        let (_, branch, _) = self.talk_meta(id)?;
+        if branch.is_empty() || !state.is_empty() {
+            bail!("there is nothing to {how} right now");
+        }
+        self.talk_save(id, how, &msgs)?;
+        self.talk_get(id)
+    }
+
+    /// A message nobody answered (the server was away or too old): ask again.
+    pub(crate) fn talk_retry(&self, id: &str) -> Result<Value> {
+        let (_, state, msgs) = self.talk_load(id)?;
+        if !matches!(state.as_str(), "asked" | "running") {
+            bail!("nothing is waiting");
+        }
+        self.talk_save(id, "asked", &msgs)?;
+        self.talk_get(id)
     }
 
     /// Every approved idea of every chat, oldest first: what a coding session should do next.
@@ -170,15 +247,109 @@ impl Api {
     pub(crate) fn job_talks(&self) -> Result<usize> {
         let ids: Vec<String> = {
             let db = self.db.lock().unwrap();
-            let mut st = db.prepare("SELECT id FROM talks WHERE state='asked' AND deleted=0 ORDER BY updated LIMIT 3")?;
+            let mut st = db.prepare("SELECT id FROM talks WHERE state IN ('asked','merge','discard') AND deleted=0 ORDER BY updated LIMIT 3")?;
             let rows = st.query_map([], |r| r.get(0))?.collect::<std::result::Result<Vec<String>, _>>()?;
             rows
         };
         let mut ran = 0;
         for id in ids {
-            ran += self.job_talk(&id)? as usize;
+            let state = self.talk_load(&id)?.1;
+            match state.as_str() {
+                "asked" => ran += self.job_talk(&id)? as usize,
+                how => self.job_finish(&id, how)?,
+            }
         }
         Ok(ran)
+    }
+
+    /// Merges the work of a task chat into the app's main branch, or throws it away. Server side.
+    fn job_finish(&self, id: &str, how: &str) -> Result<()> {
+        let (title, _, mut msgs) = self.talk_load(id)?;
+        let (_, branch, _) = self.talk_meta(id)?;
+        let path = self.work_paths(id).1;
+        let say = |msgs: &mut Vec<Value>, role: &str, text: String| msgs.push(json!({"role": role, "text": text, "at": now_ms()}));
+        let Some(repo) = self.repo_dir() else {
+            say(&mut msgs, "error", "the app's source is not on this server".into());
+            return self.talk_save(id, "", &msgs);
+        };
+        let _ = git(&repo, &["worktree", "remove", "--force", &path.to_string_lossy()]);
+        let done: Result<String> = (|| {
+            if how == "merge" {
+                if !git(&repo, &["status", "--porcelain"])?.is_empty() {
+                    bail!("the app's folder on the server has changes that are not committed yet; try again after they are");
+                }
+                if let Err(e) = git(&repo, &["merge", "--no-ff", "-m", &format!("Merge chat work: {title}"), &branch]) {
+                    let _ = git(&repo, &["merge", "--abort"]);
+                    bail!("it does not merge cleanly ({e}); the work is still on branch {branch}");
+                }
+                let _ = git(&repo, &["branch", "-d", &branch]);
+                Ok("Merged into the app's main branch. It goes out with the next release.".into())
+            } else {
+                let _ = git(&repo, &["branch", "-D", &branch]);
+                Ok("Discarded.".into())
+            }
+        })();
+        match done {
+            Ok(t) => {
+                say(&mut msgs, "claude", t);
+                self.db.lock().unwrap().execute("UPDATE talks SET branch='', changes='' WHERE id=?1", [id])?;
+                self.talk_save(id, "", &msgs)?;
+                // A chat deleted with unmerged work: the branch is gone now, so the chat can go too.
+                if how == "discard" {
+                    self.db.lock().unwrap().execute("UPDATE talks SET deleted=1, updated=?2 WHERE id=?1", params![id, now_ms()])?;
+                }
+            }
+            Err(e) => {
+                say(&mut msgs, "error", format!("{e:#}"));
+                self.talk_save(id, "", &msgs)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// A task: Claude edits a private copy of the app on its own branch. True when it ran Claude.
+    fn job_work(&self, id: &str, msgs: &mut Vec<Value>, claude: &Agent) -> Result<bool> {
+        let fail = |msgs: &mut Vec<Value>, why: String| -> Result<bool> {
+            msgs.push(json!({"role": "error", "text": why, "at": now_ms()}));
+            self.talk_save(id, "", msgs)?;
+            Ok(false)
+        };
+        let Some(repo) = self.repo_dir() else { return fail(msgs, "the app's source is not on this server, so Claude cannot change it from here".into()) };
+        let (branch, path) = self.work_paths(id);
+        let made: Result<()> = (|| {
+            if !path.join(".git").exists() {
+                std::fs::create_dir_all(path.parent().unwrap())?;
+                let p = path.to_string_lossy().to_string();
+                if git(&repo, &["rev-parse", "--verify", &branch]).is_ok() {
+                    git(&repo, &["worktree", "add", &p, &branch])?;
+                } else {
+                    git(&repo, &["worktree", "add", "-b", &branch, &p, "HEAD"])?;
+                }
+            }
+            Ok(())
+        })();
+        if let Err(e) = made {
+            return fail(msgs, format!("could not prepare a private copy of the app: {e:#}"));
+        }
+        self.db.lock().unwrap().execute("UPDATE talks SET branch=?2 WHERE id=?1", params![id, branch])?;
+        self.count_agent_call();
+        let out = claude.run_work(&path, &work_prompt(msgs, &branch), SCHEMA).and_then(|o| extract_talk(&o).ok_or_else(|| anyhow!("claude replied, but not in the expected form")));
+        // Whatever was left uncommitted is committed too, so the summary below is complete.
+        if !git(&path, &["status", "--porcelain"]).unwrap_or_default().is_empty() {
+            let _ = git(&path, &["add", "-A"]);
+            let _ = git(&path, &["commit", "-q", "-m", "Work from the Claude chat"]);
+        }
+        let base = git(&repo, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_else(|_| "HEAD".into());
+        let stat = git(&repo, &["diff", "--stat", &format!("{base}...{branch}")]).unwrap_or_default();
+        self.db.lock().unwrap().execute("UPDATE talks SET changes=?2 WHERE id=?1", params![id, stat])?;
+        match out {
+            Ok((reply, _)) => {
+                msgs.push(json!({"role": "claude", "text": reply, "at": now_ms()}));
+                self.talk_save(id, "", msgs)?;
+                Ok(true)
+            }
+            Err(e) => fail(msgs, format!("{e:#}")),
+        }
     }
 
     /// Answers the latest message of a chat with Claude, read-only. True when it ran Claude.
@@ -203,6 +374,9 @@ impl Api {
             }
         };
         let claude = Agent { name: "claude", bin: self.env_or("LEXIS_CLAUDE_BIN", "claude") };
+        if self.talk_meta(id)?.0 == "work" {
+            return self.job_work(id, &mut msgs, &claude);
+        }
         self.count_agent_call();
         let mut p = prompt(&msgs);
         if scratch {

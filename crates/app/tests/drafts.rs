@@ -372,3 +372,75 @@ fn the_general_chat_answers_proposes_ideas_and_keeps_only_approved_ones() {
     assert_eq!(api.call("agent_status", json!({})).unwrap()["used_today"], 2);
     std::env::remove_var("LEXIS_REPO");
 }
+
+#[test]
+fn a_task_chat_edits_its_own_branch_and_main_changes_only_on_merge() {
+    let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    if !have("git") {
+        return;
+    }
+    let Some(api) = api("task") else { return };
+    let repo = tmp("taskrepo");
+    let sh = |args: &[&str]| {
+        let o = Command::new("git").arg("-C").arg(&repo).args(args).output().unwrap();
+        assert!(o.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&o.stderr));
+        String::from_utf8_lossy(&o.stdout).trim().to_string()
+    };
+    for (k, v) in [("GIT_AUTHOR_NAME", "t"), ("GIT_AUTHOR_EMAIL", "t@t"), ("GIT_COMMITTER_NAME", "t"), ("GIT_COMMITTER_EMAIL", "t@t")] {
+        std::env::set_var(k, v);
+    }
+    sh(&["init", "-q", "-b", "main"]);
+    std::fs::create_dir_all(repo.join("docs")).unwrap();
+    std::fs::write(repo.join("docs/ROADMAP.md"), "x").unwrap();
+    sh(&["add", "-A"]);
+    sh(&["commit", "-q", "-m", "start"]);
+    std::env::set_var("LEXIS_REPO", &repo);
+    let bins = tmp("bins7");
+    // The stand-in "edits" a file in the folder it is started in and commits, like the real agent is told to.
+    std::env::set_var("LEXIS_CLAUDE_BIN", script(&bins, "claude", r#"echo blue > theme.txt; git add -A; git commit -qm "blue"; printf '%s' '{"structured_output":{"reply":"Added a blue theme."}}'"#));
+    std::env::set_var("LEXIS_AGENT_CAP", "8");
+
+    let id = api.call("talk_new", json!({"mode": "work"})).unwrap()["id"].as_str().unwrap().to_string();
+    assert!(api.call("talk_new", json!({"mode": "root"})).is_err());
+    api.call("talk_send", json!({"id": id, "message": "make the app blue"})).unwrap();
+    api.call("run_jobs", json!({})).unwrap();
+    let t = api.call("talk_get", json!({"id": id})).unwrap();
+    assert_eq!(t["state"], "");
+    assert_eq!(t["msgs"][1]["text"], "Added a blue theme.");
+    assert!(t["branch"].as_str().unwrap().starts_with("chat/"), "{t}");
+    assert!(t["changes"].as_str().unwrap().contains("theme.txt"), "{t}");
+    assert!(!repo.join("theme.txt").exists(), "main is untouched until the owner merges");
+
+    // Merging is refused while the app's folder has uncommitted changes.
+    std::fs::write(repo.join("dirty.txt"), "x").unwrap();
+    api.call("talk_finish", json!({"id": id, "how": "merge"})).unwrap();
+    api.call("run_jobs", json!({})).unwrap();
+    let t = api.call("talk_get", json!({"id": id})).unwrap();
+    assert_eq!(t["msgs"].as_array().unwrap().last().unwrap()["role"], "error");
+    assert!(!repo.join("theme.txt").exists());
+    std::fs::remove_file(repo.join("dirty.txt")).unwrap();
+
+    api.call("talk_finish", json!({"id": id, "how": "merge"})).unwrap();
+    api.call("run_jobs", json!({})).unwrap();
+    assert!(repo.join("theme.txt").exists(), "merged into main");
+    let t = api.call("talk_get", json!({"id": id})).unwrap();
+    assert_eq!(t["branch"], "");
+    assert!(sh(&["branch", "--list", "chat/*"]).is_empty(), "the branch is gone after the merge");
+
+    // A second task that is discarded changes nothing.
+    let id2 = api.call("talk_new", json!({"mode": "work"})).unwrap()["id"].as_str().unwrap().to_string();
+    std::env::set_var("LEXIS_CLAUDE_BIN", script(&bins, "claude2", r#"echo red > red.txt; git add -A; git commit -qm "red"; printf '%s' '{"structured_output":{"reply":"Added red."}}'"#));
+    api.call("talk_send", json!({"id": id2, "message": "make it red"})).unwrap();
+    api.call("run_jobs", json!({})).unwrap();
+    api.call("talk_finish", json!({"id": id2, "how": "discard"})).unwrap();
+    api.call("run_jobs", json!({})).unwrap();
+    assert!(!repo.join("red.txt").exists());
+    assert!(sh(&["branch", "--list", "chat/*"]).is_empty());
+
+    // A message nobody answered can be asked again.
+    let id3 = api.call("talk_new", json!({})).unwrap()["id"].as_str().unwrap().to_string();
+    assert!(api.call("talk_retry", json!({"id": id3})).is_err(), "nothing is waiting");
+    api.call("talk_send", json!({"id": id3, "message": "hello"})).unwrap();
+    assert_eq!(api.call("talk_retry", json!({"id": id3})).unwrap()["state"], "asked");
+    std::env::remove_var("LEXIS_REPO");
+}

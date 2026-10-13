@@ -5,11 +5,16 @@
 
   type Idea = { title: string; detail: string; status: 'proposed' | 'approved' | 'dismissed' };
   type Msg = { role: 'user' | 'claude' | 'error'; text: string; at: number; idea?: Idea };
-  type Chat = { id: string; title: string; state: string; updated: number; last: string };
+  type Chat = { id: string; title: string; state: string; updated: number; last: string; mode: string };
   let chats = $state<Chat[]>([]);
   let cur = $state<string | null>(null);
   let msgs = $state<Msg[]>([]);
   let phase = $state('');
+  let mode = $state('ask');
+  let branch = $state('');
+  let changes = $state('');
+  let since = $state(0);
+  let now = $state(Date.now());
   let msg = $state('');
   let error = $state('');
   let sending = $state(false);
@@ -24,6 +29,8 @@
   }
   $effect(() => { app.focus = cur !== null; measure(); return () => { app.focus = false; }; });
   const waiting = $derived(phase === 'asked' || phase === 'running');
+  // Nobody answered for a minute (the server away or out of date): offer to ask again.
+  const stuck = $derived(waiting && now - since > 60000);
   const approved = $derived(msgs.filter((m) => m.idea?.status === 'approved'));
 
   async function loadList() { chats = await call('talk_list'); }
@@ -33,7 +40,7 @@
     const t = await call('talk_get', { id: cur });
     if (!chats.some((c) => c.id === cur)) { cur = null; return; }
     const grew = t.msgs.length !== msgs.length;
-    msgs = t.msgs; phase = t.state;
+    msgs = t.msgs; phase = t.state; mode = t.mode; branch = t.branch; changes = t.changes; since = t.updated;
     if (grew) { await tick(); end?.scrollIntoView({ block: 'end' }); }
   }
   $effect(() => { void app.version; void cur; load().catch((e) => (error = e.message)); });
@@ -42,6 +49,7 @@
     window.addEventListener('resize', measure);
     // The server answers; asking it for news brings the reply without waiting for the next background sync.
     const t = setInterval(async () => {
+      now = Date.now();
       if (!waiting && !chats.some((c) => c.state)) return;
       await call('sync_now').catch(() => {});
       load().catch(() => {});
@@ -63,22 +71,32 @@
   }
   // Back from a chat returns to the list.
   function openChat(id: string) { msgs = []; phase = ''; cur = id; openDetail(() => (cur = null)); }
-  async function newChat() { try { const t = await call('talk_new'); await loadList(); openChat(t.id); } catch (e) { error = (e as Error).message; } }
+  async function newChat(m = 'ask') { try { const t = await call('talk_new', { mode: m }); await loadList(); openChat(t.id); } catch (e) { error = (e as Error).message; } }
   async function removeChat() {
     if (!cur) return;
     try { await call('talk_delete', { id: cur }); call('sync_now').catch(() => {}); closeDetail(); await loadList(); } catch (e) { error = (e as Error).message; }
+  }
+  async function retry() {
+    try { const t = await call('talk_retry', { id: cur }); phase = t.state; since = t.updated; call('sync_now').catch(() => {}); } catch (e) { error = (e as Error).message; }
+  }
+  let sure = $state(false);
+  async function finish(how: 'merge' | 'discard') {
+    if (how === 'discard' && !sure) { sure = true; return; }
+    sure = false;
+    try { const t = await call('talk_finish', { id: cur, how }); phase = t.state; call('sync_now').catch(() => {}); } catch (e) { error = (e as Error).message; }
   }
   const ago = (t: number) => new Date(t).toLocaleDateString();
 </script>
 
 {#if cur === null}
 <h1>Claude</h1>
-<p class="muted">Ask about the app, report a problem or suggest a change. Claude reads the app's code to answer but changes nothing; what it suggests appears as an idea you approve or dismiss. Each message uses one agent call.</p>
-<p><button class="btn primary" onclick={newChat}>New chat</button></p>
+<p class="muted">Ask about the app, report a problem or suggest a change. In a chat Claude reads the app's code and changes nothing; what it suggests appears as an idea you approve or dismiss. In a task Claude changes the app on its own copy, and nothing reaches the app until you press Merge. Each message uses one agent call.</p>
+<p class="row2"><button class="btn primary" onclick={() => newChat('ask')}>New chat</button> <button class="btn" onclick={() => newChat('work')}>New task</button></p>
+<p class="muted small">A chat answers and suggests. A task lets Claude change the app on its own copy; you read what it changed and press Merge or Discard.</p>
 {#if error}<p class="err">{error}</p>{/if}
 {#each chats as c (c.id)}
   <button class="card row" onclick={() => openChat(c.id)}>
-    <b>{c.title || 'New chat'}</b>
+    <b>{c.title || (c.mode === 'work' ? 'New task' : 'New chat')}{#if c.mode === 'work'} <span class="tag">Task</span>{/if}</b>
     <span class="muted small">{c.state ? 'Claude is answering…' : c.last}</span>
     <span class="muted small">{ago(c.updated)}</span>
   </button>
@@ -90,7 +108,7 @@
 <div class="pane" style="top:{top}px;height:{Math.max(220, vh - top)}px">
   <div class="chead">
     <button class="gbtn" onclick={closeDetail} aria-label="Back to chats">←</button>
-    <b class="ct">{chats.find((c) => c.id === cur)?.title || 'New chat'}</b>
+    <b class="ct">{chats.find((c) => c.id === cur)?.title || (mode === 'work' ? 'New task' : 'New chat')}</b>
     <button class="btn small ghost" disabled={waiting} onclick={removeChat}>Delete</button>
   </div>
   <div class="msgs" aria-live="polite" bind:this={scroller}>
@@ -123,18 +141,31 @@
     {:else}
       <p class="empty">Nothing yet. Try “the History tab feels slow” or “how does the quiz pick words?”.</p>
     {/each}
-    {#if waiting}<div class="m ai wait">Claude is thinking…</div>{/if}
+    {#if waiting}<div class="m ai wait">{mode === 'work' ? 'Claude is working on it… this can take several minutes.' : 'Claude is thinking…'}
+      {#if stuck}<br /><span class="small">No answer yet. </span><button class="btn small" onclick={retry}>Try again</button>{/if}</div>{/if}
+    {#if branch && !waiting}
+      <div class="card work">
+        <b>Changes ready</b>
+        <pre>{changes || 'No files changed.'}</pre>
+        <button class="btn small primary" disabled={!changes} onclick={() => finish('merge')}>Merge into the app</button>
+        <button class="btn small ghost" onclick={() => finish('discard')}>{sure ? 'Really throw the changes away?' : 'Discard'}</button>
+      </div>
+    {/if}
     <span bind:this={end}></span>
   </div>
   {#if error}<p class="err small">{error}</p>{/if}
   <div class="send">
-    <textarea rows="1" bind:value={msg} onkeydown={sendKey} onfocus={() => setTimeout(() => end?.scrollIntoView({ block: 'end' }), 250)} placeholder="Message Claude"></textarea>
+    <textarea rows="1" bind:value={msg} onkeydown={sendKey} onfocus={() => setTimeout(() => end?.scrollIntoView({ block: 'end' }), 250)} placeholder={mode === 'work' ? 'Describe the change you want' : 'Message Claude'}></textarea>
     <button class="btn primary" disabled={!msg.trim() || waiting || sending} onclick={send}>Send</button>
   </div>
 </div>
 {/if}
 
 <style>
+  .row2 { display: flex; gap: 10px; flex-wrap: wrap; }
+  .tag { background: var(--blue-soft); color: var(--blue); border-radius: 999px; padding: 0 8px; font-size: 12px; font-weight: 600; }
+  .work { margin: 6px 0; }
+  .work pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; margin: 6px 0 10px; }
   .row { display: grid; gap: 2px; width: 100%; text-align: left; margin: 8px 0; cursor: pointer; }
   h1 { margin: 0 0 4px; font-size: 28px; }
   .pane { position: fixed; left: 0; right: 0; z-index: 30; display: flex; flex-direction: column; background: var(--bg); }
