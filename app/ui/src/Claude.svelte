@@ -14,6 +14,15 @@
   let error = $state('');
   let sending = $state(false);
   let end = $state<HTMLElement | null>(null);
+  let scroller = $state<HTMLElement | null>(null);
+  // The chat fills what is left of the screen below the top bar, and follows the keyboard.
+  let vh = $state(window.visualViewport?.height ?? window.innerHeight);
+  let top = $state(120);
+  function measure() {
+    vh = window.visualViewport?.height ?? window.innerHeight;
+    top = Math.round(document.querySelector('.top')?.getBoundingClientRect().bottom ?? 120);
+  }
+  $effect(() => { app.focus = cur !== null; measure(); return () => { app.focus = false; }; });
   const waiting = $derived(phase === 'asked' || phase === 'running');
   const approved = $derived(msgs.filter((m) => m.idea?.status === 'approved'));
 
@@ -29,13 +38,15 @@
   }
   $effect(() => { void app.version; void cur; load().catch((e) => (error = e.message)); });
   onMount(() => {
+    window.visualViewport?.addEventListener('resize', measure);
+    window.addEventListener('resize', measure);
     // The server answers; asking it for news brings the reply without waiting for the next background sync.
     const t = setInterval(async () => {
       if (!waiting && !chats.some((c) => c.state)) return;
       await call('sync_now').catch(() => {});
       load().catch(() => {});
     }, 3000);
-    return () => clearInterval(t);
+    return () => { clearInterval(t); window.visualViewport?.removeEventListener('resize', measure); window.removeEventListener('resize', measure); };
   });
 
   async function send() {
@@ -75,66 +86,72 @@
   <p class="empty">No chats yet.</p>
 {/each}
 {:else}
-<button class="btn small ghost" onclick={closeDetail}>← Chats</button>
-
-{#if approved.length}
-  <details class="card ok">
-    <summary>Approved ideas ({approved.length})</summary>
-    {#each approved as m (m.at)}
-      <div class="idea"><b>{m.idea?.title}</b><p>{m.idea?.detail}</p>
-        <button class="btn small ghost" onclick={() => decide(m, 'dismissed')}>Remove</button></div>
-    {/each}
-  </details>
-{/if}
-
-<div class="msgs" aria-live="polite">
-  {#each msgs as m (m.at + m.role)}
-    {#if m.role === 'user'}<div class="m me">{m.text}</div>
-    {:else if m.role === 'error'}<div class="m bad">{m.text}</div>
-    {:else}
-      <div class="m ai">{m.text}
-        {#if m.idea}
-          <div class="idea card">
-            <b>{m.idea.title}</b>
-            <p>{m.idea.detail}</p>
-            {#if m.idea.status === 'proposed'}
-              <button class="btn small primary" onclick={() => decide(m, 'approved')}>Approve</button>
-              <button class="btn small ghost" onclick={() => decide(m, 'dismissed')}>Dismiss</button>
-            {:else}<span class="muted small">{m.idea.status === 'approved' ? 'Approved' : 'Dismissed'}</span>{/if}
-          </div>
-        {/if}
-      </div>
+<!-- A real chat screen: its own header, the messages scroll, the message box stays at the bottom above the keyboard. -->
+<div class="pane" style="top:{top}px;height:{Math.max(220, vh - top)}px">
+  <div class="chead">
+    <button class="gbtn" onclick={closeDetail} aria-label="Back to chats">←</button>
+    <b class="ct">{chats.find((c) => c.id === cur)?.title || 'New chat'}</b>
+    <button class="btn small ghost" disabled={waiting} onclick={removeChat}>Delete</button>
+  </div>
+  <div class="msgs" aria-live="polite" bind:this={scroller}>
+    {#if approved.length}
+      <details class="card ok">
+        <summary>Approved ideas ({approved.length})</summary>
+        {#each approved as m (m.at)}
+          <div class="idea"><b>{m.idea?.title}</b><p>{m.idea?.detail}</p>
+            <button class="btn small ghost" onclick={() => decide(m, 'dismissed')}>Remove</button></div>
+        {/each}
+      </details>
     {/if}
-  {:else}
-    <p class="empty">Nothing yet. Try “the History tab feels slow” or “how does the quiz pick words?”.</p>
-  {/each}
-  {#if waiting}<div class="m ai wait">Claude is thinking…</div>{/if}
-  <span bind:this={end}></span>
+    {#each msgs as m (m.at + m.role)}
+      {#if m.role === 'user'}<div class="m me">{m.text}</div>
+      {:else if m.role === 'error'}<div class="m bad">{m.text}</div>
+      {:else}
+        <div class="m ai">{m.text}
+          {#if m.idea}
+            <div class="idea card">
+              <b>{m.idea.title}</b>
+              <p>{m.idea.detail}</p>
+              {#if m.idea.status === 'proposed'}
+                <button class="btn small primary" onclick={() => decide(m, 'approved')}>Approve</button>
+                <button class="btn small ghost" onclick={() => decide(m, 'dismissed')}>Dismiss</button>
+              {:else}<span class="muted small">{m.idea.status === 'approved' ? 'Approved' : 'Dismissed'}</span>{/if}
+            </div>
+          {/if}
+        </div>
+      {/if}
+    {:else}
+      <p class="empty">Nothing yet. Try “the History tab feels slow” or “how does the quiz pick words?”.</p>
+    {/each}
+    {#if waiting}<div class="m ai wait">Claude is thinking…</div>{/if}
+    <span bind:this={end}></span>
+  </div>
+  {#if error}<p class="err small">{error}</p>{/if}
+  <div class="send">
+    <textarea rows="1" bind:value={msg} onkeydown={sendKey} onfocus={() => setTimeout(() => end?.scrollIntoView({ block: 'end' }), 250)} placeholder="Message Claude"></textarea>
+    <button class="btn primary" disabled={!msg.trim() || waiting || sending} onclick={send}>Send</button>
+  </div>
 </div>
-
-{#if error}<p class="err">{error}</p>{/if}
-<div class="send">
-  <textarea rows="2" bind:value={msg} onkeydown={sendKey} placeholder="Message Claude"></textarea>
-  <button class="btn primary" disabled={!msg.trim() || waiting || sending} onclick={send}>Send</button>
-</div>
-<p><button class="btn small ghost" disabled={waiting} onclick={removeChat}>Delete this chat</button></p>
-
 {/if}
 
 <style>
   .row { display: grid; gap: 2px; width: 100%; text-align: left; margin: 8px 0; cursor: pointer; }
   h1 { margin: 0 0 4px; font-size: 28px; }
-  .msgs { display: grid; gap: 8px; margin: 14px 0; }
+  .pane { position: fixed; left: 0; right: 0; z-index: 30; display: flex; flex-direction: column; background: var(--bg); }
+  .chead { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--line); }
+  .ct { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .gbtn { background: none; border: 0; font-size: 24px; width: 40px; height: 40px; color: var(--text); border-radius: 50%; }
+  .msgs { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; -webkit-overflow-scrolling: touch; }
   .m { max-width: 92%; padding: 8px 12px; border-radius: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
-  .m.me { justify-self: end; background: var(--blue); color: #fff; border-bottom-right-radius: 4px; }
-  .m.ai { justify-self: start; background: var(--panel); border-bottom-left-radius: 4px; }
-  .m.bad { justify-self: start; background: var(--bad-bg); color: var(--bad); }
+  .m.me { align-self: flex-end; background: var(--blue); color: #fff; border-bottom-right-radius: 4px; }
+  .m.ai { align-self: flex-start; background: var(--panel); border-bottom-left-radius: 4px; }
+  .m.bad { align-self: flex-start; background: var(--bad-bg); color: var(--bad); }
   .m.wait { color: var(--muted); font-style: italic; }
   .idea { margin: 8px 0 2px; padding: 8px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
   .idea p { margin: 4px 0 8px; }
   .ok { margin: 10px 0; }
-  .send { display: flex; gap: 8px; align-items: end; }
-  .send textarea { flex: 1; font-size: 16px; }
+  .send { display: flex; gap: 8px; align-items: end; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--surface); }
+  .send textarea { flex: 1; font-size: 16px; max-height: 120px; resize: none; }
   .small { font-size: 13px; }
   button:disabled { opacity: 0.5; }
 </style>

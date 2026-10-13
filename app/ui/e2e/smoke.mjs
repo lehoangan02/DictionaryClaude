@@ -426,6 +426,7 @@ if (BASE_B && process.env.PAIR_A) {
   await a.goto(BASE + '?tab=claude', { waitUntil: 'networkidle0' });
   await clickText(a, 'button', 'New chat');
   await a.waitForSelector('.send textarea');
+  ok(await a.$eval('.send textarea', (e) => { const r = e.getBoundingClientRect(); return r.top > 0 && r.bottom <= innerHeight; }), 'the message box is on screen, at the bottom');
   ok(!(await a.$('.m')), 'the Claude chat is empty until the person writes');
   await a.type('.send textarea', 'The History tab feels slow');
   await clickText(a, '.send button', 'Send');
