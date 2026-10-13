@@ -270,3 +270,65 @@ fn agy_is_retried_without_effort_when_its_model_does_not_take_one() {
     assert!(d["agents"]["agy"]["error"].is_null(), "{d}");
     assert_eq!(d["agents"]["agy"]["lines"][1]["text"], "lucid >< opaque");
 }
+
+#[test]
+fn claude_chat_answers_each_message_proposes_text_and_never_edits_it() {
+    let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    if !have("convert") {
+        return;
+    }
+    let Some(api) = api("chat") else { return };
+    std::env::set_var("LEXIS_OCR", "none");
+    let bins = tmp("bins4");
+    // The stand-in answers the second message with a proposed text and echoes that it saw the first one.
+    let claude = script(
+        &bins,
+        "claude",
+        r#"case "$2" in *'STUDENT: swap them'*) printf '%s' '{"structured_output":{"reply":"Done, swapped.","text":"lucid >< opaque\nabate = lessen"}}' ;; *) echo '{"structured_output":{"reply":"Looks right to me."}}' ;; esac"#,
+    );
+    std::env::set_var("LEXIS_CLAUDE_BIN", &claude);
+    std::env::set_var("LEXIS_AGENT_CAP", "8");
+    let id = draft(&api);
+    assert_eq!(api.call("draft_get", json!({"id": id})).unwrap()["chat"], json!([]));
+    assert!(api.call("draft_chat", json!({"id": id, "message": "  "})).is_err(), "an empty message is refused");
+
+    api.call("draft_chat", json!({"id": id, "message": "is line one right?"})).unwrap();
+    assert!(api.call("draft_chat", json!({"id": id, "message": "again"})).is_err(), "one question at a time");
+    api.call("run_jobs", json!({})).unwrap();
+    let d = api.call("draft_get", json!({"id": id})).unwrap();
+    assert_eq!(d["agent_status"], "chat_done", "{d}");
+    assert_eq!(d["chat"][0]["role"], "user");
+    assert_eq!(d["chat"][1]["role"], "claude");
+    assert_eq!(d["chat"][1]["text"], "Looks right to me.");
+    assert!(d["chat"][1]["proposal"].is_null());
+
+    let before = d["text"].clone();
+    api.call("draft_chat", json!({"id": id, "message": "swap them"})).unwrap();
+    api.call("run_jobs", json!({})).unwrap();
+    let d = api.call("draft_get", json!({"id": id})).unwrap();
+    assert_eq!(d["chat"][3]["proposal"], "lucid >< opaque\nabate = lessen");
+    assert_eq!(d["text"], before, "a suggestion never changes the person's text by itself");
+    assert_eq!(api.call("agent_status", json!({})).unwrap()["used_today"], 2);
+    assert!(api.call("notes_list", json!({})).unwrap().as_array().unwrap().is_empty());
+}
+
+#[test]
+fn a_chat_that_cannot_run_says_why_in_the_chat() {
+    let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    if !have("convert") {
+        return;
+    }
+    let Some(api) = api("chat-err") else { return };
+    std::env::set_var("LEXIS_OCR", "none");
+    let bins = tmp("bins5");
+    std::env::set_var("LEXIS_CLAUDE_BIN", script(&bins, "claude", r#"echo '{"status":"ERROR","error":"quota reached"}'; exit 3"#));
+    std::env::set_var("LEXIS_AGENT_CAP", "8");
+    let id = draft(&api);
+    api.call("draft_chat", json!({"id": id, "message": "hello"})).unwrap();
+    api.call("run_jobs", json!({})).unwrap();
+    let d = api.call("draft_get", json!({"id": id})).unwrap();
+    assert_eq!(d["chat"][1]["role"], "error");
+    assert!(d["chat"][1]["text"].as_str().unwrap().contains("quota reached"), "{d}");
+    // And the person can try again.
+    assert!(api.call("draft_chat", json!({"id": id, "message": "again"})).is_ok());
+}

@@ -150,6 +150,10 @@ pub const MIGRATIONS: &[&str] = &[
       kind TEXT NOT NULL, key TEXT NOT NULL, json TEXT NOT NULL, fetched INTEGER NOT NULL,
       PRIMARY KEY(kind, key)) WITHOUT ROWID;
     ",
+    // 6: the conversation with Claude about a photographed note (a JSON list of messages; synced with the draft).
+    "
+    ALTER TABLE drafts ADD COLUMN chat TEXT NOT NULL DEFAULT '[]';
+    ",
 ];
 
 pub fn open(path: &Path) -> Result<Connection> {

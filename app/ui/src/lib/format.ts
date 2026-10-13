@@ -36,32 +36,33 @@ let current: HTMLAudioElement | null = null;
  * through the system audio output (its web view cannot play audio when
  * packaged); a browser uses an <audio> element and the browser's voice.
  */
-export async function speak(word: string, audio?: string) {
+export async function speak(word: string, audio?: string): Promise<'recording' | 'voice'> {
   current?.pause();
   if (isDesktopApp) {
     if (audio) {
-      try { await native('play_audio', { url: audio }); return; } catch { /* offline and not saved yet */ }
+      try { await native('play_audio', { url: audio }); return 'recording'; } catch { /* offline and not saved yet */ }
     }
     try { await native('speak_text', { word }); } catch { /* no voice installed */ }
-    return;
+    return 'voice';
   }
   if (audio) {
     try {
       const { data_url } = await call<{ data_url: string }>('audio_get', { url: audio });
       current = new Audio(data_url);
       await current.play();
-      return;
+      return 'recording';
     } catch { /* fall through to speech */ }
   }
   // Android: the system voice, through the app (the web view has none of its own).
   const voice = (window as unknown as { LadyBirdVoice?: { speak(w: string): void } }).LadyBirdVoice;
-  if (voice) { voice.speak(word); return; }
+  if (voice) { voice.speak(word); return 'voice'; }
   if ('speechSynthesis' in window) {
     const u = new SpeechSynthesisUtterance(word);
     u.lang = 'en-US';
     speechSynthesis.cancel();
     speechSynthesis.speak(u);
   }
+  return 'voice';
 }
 
 export const when = (ms: number) =>

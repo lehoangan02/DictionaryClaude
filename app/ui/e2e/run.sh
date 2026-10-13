@@ -12,7 +12,12 @@ export LEXIS_WIFI=Anan   # pretend to be on the home network
 export LEXIS_OCR=tesseract   # fast and hermetic; the vision model is checked by hand
 # Tests must never spend agent quota: any agent request goes to harmless stand-ins.
 mkdir -p "$DATA/bin"
-printf '#!/bin/sh\necho {\"status\":\"ERROR\",\"error\":\"test stand-in\"}\nexit 3\n' > "$DATA/bin/agent"; chmod +x "$DATA/bin/agent"
+cat > "$DATA/bin/agent" <<'EOF'
+#!/bin/sh
+echo '{"status":"ERROR","error":"test stand-in"}'
+exit 3
+EOF
+chmod +x "$DATA/bin/agent"
 export LEXIS_CLAUDE_BIN="$DATA/bin/agent" LEXIS_AGY_BIN="$DATA/bin/agent"
 ./target/release/gredict-syncd --data "$DATA/syncd" --san 127.0.0.1 --san localhost serve --lan "127.0.0.1:$LAN" --wan "127.0.0.1:$WAN" >"$DATA/syncd.log" 2>&1 &
 PIDS+=($!)

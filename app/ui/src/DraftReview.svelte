@@ -13,9 +13,6 @@
   let edges = $state<{ a: string; b: string; rel: keyof typeof REL }[]>([]);
   let error = $state('');
   let busy = $state(false);
-  let mode = $state('claude');
-  let effort = $state('medium');
-  let confirmAsk = $state(false);
   let timer: ReturnType<typeof setTimeout>;
 
   async function load() {
@@ -31,7 +28,12 @@
   }
   onMount(() => {
     load().catch((e) => (error = e.message));
-    const t = setInterval(() => { if (d && (['queued', 'processing'].includes(d.status) || ['requested', 'running'].includes(d.agent_status))) load().catch(() => {}); }, 4000);
+    const t = setInterval(async () => {
+      if (!d) return;
+      // The server answers; asking it for news keeps the reply coming without waiting for the next background sync.
+      if (['chat', 'chat_running'].includes(d.agent_status)) await call('sync_now').catch(() => {});
+      if (['queued', 'processing'].includes(d.status) || ['requested', 'running', 'chat', 'chat_running'].includes(d.agent_status)) load().catch(() => {});
+    }, 3000);
     return () => clearInterval(t);
   });
 
@@ -65,24 +67,21 @@
     busy = false;
   }
 
-  async function ask() {
-    busy = true; error = ''; confirmAsk = false;
-    try { await call('draft_update', { id, text }); d = await call('draft_agents', { id, mode, effort }); bump(); }
+  // The chat with Claude about this reading. Each message costs one agent call, so nothing is sent unasked.
+  let msg = $state('');
+  let sending = $state(false);
+  const chatting = $derived(['chat', 'chat_running'].includes(d?.agent_status));
+  const chat = $derived<any[]>(d?.chat ?? []);
+  async function send() {
+    const m = msg.trim();
+    if (!m || chatting || sending) return;
+    sending = true; error = '';
+    try { d = await call('draft_chat', { id, message: m }); msg = ''; call('sync_now').catch(() => {}); bump(); }
     catch (e) { error = (e as Error).message; }
-    busy = false;
+    sending = false;
   }
-
-  // The merged reading, built from what both agents agree on and the choices made for conflicts.
-  let picks = $state<Record<number, string>>({});
-  function useMerged() {
-    const m = d.agents.merged;
-    text = m.lines.map((l: any, i: number) => (l.status === 'conflict' ? picks[i] ?? l.options[0].text : l.text)).join('\n');
-    edited = true; parse();
-  }
-  const agentsRunning = $derived(['requested', 'running'].includes(d?.agent_status));
-  const merged = $derived(d?.agents?.merged);
-  const conflicts = $derived(merged?.lines?.filter((l: any) => l.status === 'conflict').length ?? 0);
-  const who = (n: string) => (n === 'claude' ? 'Claude' : n === 'agy' ? 'agy' : 'Both agree');
+  function useProposal(t: string) { text = t; edited = true; parse(); }
+  function sendKey(e: KeyboardEvent) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }
 </script>
 
 <button class="btn small ghost" onclick={onclose}>← Back</button>
@@ -117,64 +116,39 @@
 
   <section class="card agents rise" style="--i:1">
     <h3>Hard to read?</h3>
-    {#if agentsRunning}
-      <p>The agents are reading the photos{d.agents?.request?.mode === 'both' ? ' and will compare notes if they differ' : ''}… this can take a minute or two.</p>
-    {:else}
-      <p class="muted small">Not happy with the reading? A stronger model can read the photos again (slower; it replaces the text above).</p>
-      <div class="row">
-        {#if confirmReread}
-          <button class="btn primary" disabled={busy} onclick={reread}>Yes, replace the text</button>
-          <button class="btn ghost" onclick={() => (confirmReread = false)}>Cancel</button>
-        {:else}
-          <button class="btn" disabled={busy || d.status === 'queued'} onclick={() => (confirmReread = true)}>Read again carefully</button>
-        {/if}
-      </div>
-      <p class="muted small">Ask Claude and/or agy to read the photos. This uses your agent quota, so it only happens when you press the button.</p>
-      <div class="row">
-        <label class="f">Who <select bind:value={mode}>
-          <option value="both">Both, then compare</option><option value="claude">Claude only</option><option value="agy">agy only</option></select></label>
-        <label class="f">Effort <select bind:value={effort}><option>low</option><option>medium</option><option>high</option></select></label>
-        {#if confirmAsk}
-          <button class="btn primary" disabled={busy} onclick={ask}>Yes, use agent quota</button>
-          <button class="btn ghost" onclick={() => (confirmAsk = false)}>Cancel</button>
-        {:else}
-          <button class="btn" disabled={busy || d.status === 'queued'} onclick={() => (confirmAsk = true)}>Ask agents…</button>
-        {/if}
-      </div>
-    {/if}
-
-    {#if d.agent_status === 'failed'}<p class="err">{d.error}</p>{/if}
-    {#if d.agents?.claude || d.agents?.agy}
-      <div class="versions">
-        {#each ['claude', 'agy'] as n}
-          {#if d.agents[n]}
-            <div class="ver rise"><b>{who(n)}</b>
-              {#if d.agents[n].error}<p class="err small">{d.agents[n].error}</p>
-              {:else}
-                {#each d.agents[n].lines as l}<div class="ln" class:unsure={l.unsure} title={l.reason}>{l.text}{#if l.unsure} <i>?</i>{/if}</div>{/each}
-              {/if}
-            </div>
-          {/if}
-        {/each}
-      </div>
-      {#if d.agents.rounds?.length}<p class="muted small">They disagreed, so each looked again after seeing the other's reading ({d.agents.usage.calls} calls in all).</p>{/if}
-      {#if merged?.lines?.length}
-        <h3>Compare line by line</h3>
-        {#each merged.lines as l, i}
-          {#if l.status === 'conflict'}
-            <div class="conf">
-              {#each l.options as o}
-                <label><input type="radio" name="c{i}" checked={(picks[i] ?? l.options[0].text) === o.text} onchange={() => (picks[i] = o.text)} /> <span class="who">{who(o.from)}</span> {o.text}</label>
-              {/each}
-            </div>
-          {:else}<div class="ok">✓ {l.text}</div>{/if}
-        {/each}
-        <button class="btn small" onclick={useMerged}>Use this reading ({conflicts} to decide)</button>
-      {:else if merged?.alternatives?.length}
-        <p class="muted small">The readings have different numbers of lines, so they can't be compared line by line. Pick one to start from:</p>
-        {#each merged.alternatives as a}<button class="btn small" onclick={() => { text = a.text; edited = true; parse(); }}>Use {who(a.from)}'s version</button>{/each}
+    <p class="muted small">Not happy with the reading? A stronger model can read the photos again (slower; it replaces the text above).</p>
+    <div class="row">
+      {#if confirmReread}
+        <button class="btn primary" disabled={busy} onclick={reread}>Yes, replace the text</button>
+        <button class="btn ghost" onclick={() => (confirmReread = false)}>Cancel</button>
+      {:else}
+        <button class="btn" disabled={busy || d.status === 'queued'} onclick={() => (confirmReread = true)}>Read again carefully</button>
       {/if}
-    {/if}
+    </div>
+  </section>
+
+  <section class="card chat rise" style="--i:2" aria-label="Chat with Claude">
+    <h3>Chat with Claude</h3>
+    <p class="muted small">Ask Claude to look at the photo again, or tell it what a word should be. It never changes your text by itself: when it suggests a new version you choose to use it. Each message uses one agent call.</p>
+    <div class="msgs" aria-live="polite">
+      {#each chat as m}
+        {#if m.role === 'user'}<div class="m me">{m.text}</div>
+        {:else if m.role === 'error'}<div class="m bad">{m.text}</div>
+        {:else}
+          <div class="m ai">{m.text}
+            {#if m.proposal}
+              <pre class="prop">{m.proposal}</pre>
+              <button class="btn small primary" onclick={() => useProposal(m.proposal)}>Use this text</button>
+            {/if}
+          </div>
+        {/if}
+      {/each}
+      {#if chatting}<div class="m ai wait">Claude is looking at the photo…</div>{/if}
+    </div>
+    <div class="send">
+      <textarea rows="2" bind:value={msg} onkeydown={sendKey} placeholder="Line 3 should be “imbibition”, can you check?" disabled={d.status === 'queued'}></textarea>
+      <button class="btn primary" disabled={!msg.trim() || chatting || sending || d.status === 'queued'} onclick={send}>Send</button>
+    </div>
   </section>
 
   {#if error}<p class="err">{error}</p>{/if}
@@ -198,19 +172,18 @@
   .pv { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
   .pill { display: inline-flex; align-items: center; background: var(--bg); border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
   .pill span { padding: 2px 10px; } .pill b { background: var(--navy); color: #fff; padding: 2px 9px; font-family: 'Lexis Symbols', ui-monospace, 'DejaVu Sans Mono', monospace; }
-  .agents { margin-top: 16px; }
+  .agents, .chat { margin-top: 16px; }
+  .msgs { display: grid; gap: 8px; margin: 10px 0; }
+  .m { max-width: 92%; padding: 8px 12px; border-radius: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .m.me { justify-self: end; background: var(--blue); color: #fff; border-bottom-right-radius: 4px; }
+  .m.ai { justify-self: start; background: var(--panel); border-bottom-left-radius: 4px; }
+  .m.bad { justify-self: start; background: var(--bad-bg); color: var(--bad); }
+  .m.wait { color: var(--muted); font-style: italic; }
+  .prop { margin: 8px 0; padding: 8px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; white-space: pre-wrap; font-family: 'Lexis Symbols', ui-monospace, Menlo, monospace; font-size: 14px; }
+  .send { display: flex; gap: 8px; align-items: end; }
+  .send textarea { flex: 1; font-size: 16px; }
   .row { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; }
   .small { font-size: 13px; }
-  .versions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
-  @media (max-width: 720px) { .versions { grid-template-columns: 1fr; } }
-  .ver { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; }
-  .ln { font-family: 'Lexis Symbols', ui-monospace, Menlo, monospace; font-size: 14px; }
-  .ln.unsure { background: color-mix(in srgb, var(--accent) 16%, transparent); }
-  .ln i { color: var(--accent); font-style: normal; font-weight: 700; }
-  .conf { background: var(--bg); border: 1px solid var(--accent); border-radius: 8px; padding: 6px 12px; margin: 6px 0; display: grid; gap: 4px; }
-  .conf label { font-family: 'Lexis Symbols', ui-monospace, Menlo, monospace; font-size: 14px; }
-  .who { font-family: system-ui; font-size: 12px; color: var(--muted); margin: 0 4px; }
-  .ok { font-family: 'Lexis Symbols', ui-monospace, Menlo, monospace; font-size: 14px; color: var(--muted); }
   .act { margin-top: 16px; }
   button:disabled { opacity: 0.5; }
 </style>

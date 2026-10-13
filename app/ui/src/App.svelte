@@ -1,12 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { app, boot, goBack, goForward, goTab, goHome, trackLocation, listenForBack, type Tab } from './lib/store.svelte';
+  import { app, boot, goBack, goForward, goTab, goHome, openSettings, closeSettings, trackLocation, listenForBack, type Tab } from './lib/store.svelte';
   import SearchBar from './SearchBar.svelte';
   import EntryView from './EntryView.svelte';
   import History from './History.svelte';
   import Quiz from './Quiz.svelte';
   import Notes from './Notes.svelte';
   import Settings from './Settings.svelte';
+  import Claude from './Claude.svelte';
   import ServerPill from './ServerPill.svelte';
   import Icon from './Icon.svelte';
   import Logo from './Logo.svelte';
@@ -16,6 +17,7 @@
   import { call } from './lib/api';
   import { bump } from './lib/store.svelte';
   import { enter, softFade } from './lib/motion';
+  import { fly } from 'svelte/transition';
 
   // The bar's shadow deepens once content scrolls beneath it.
   let scrolled = $state(false);
@@ -50,7 +52,7 @@
     { id: 'history', label: 'History', icon: 'history' },
     { id: 'quiz', label: 'Quizzes', icon: 'quiz' },
     { id: 'notes', label: 'Notes', icon: 'notes' },
-    { id: 'settings', label: 'Settings', icon: 'settings' },
+    { id: 'claude', label: 'Claude', icon: 'chat' },
   ];
 
   // Keys that are text editing, or have their own meaning inside a control, are left alone.
@@ -91,6 +93,7 @@
     </button>
     <div class="search"><SearchBar /></div>
     <ServerPill />
+    <button class="gear" onclick={openSettings} aria-label="Settings"><Icon name="settings" size={26} /></button>
   </div>
   <nav class="wrap desk" aria-label="Sections">
     {#each tabs as t (t.id)}
@@ -99,6 +102,14 @@
   </nav>
   <FindBar bind:this={find} />
 </header>
+
+{#if app.settings}
+  <div class="scrim" onclick={closeSettings} role="presentation"></div>
+  <aside class="panel" aria-label="Settings" in:fly={{ x: 420, duration: 240 }} out:fly={{ x: 420, duration: 180 }}>
+    <div class="phead"><b>Settings</b><button class="gear" onclick={closeSettings} aria-label="Close settings"><Icon name="close" size={24} /></button></div>
+    <div class="pbody"><Settings /></div>
+  </aside>
+{/if}
 
 <main class="wrap page">
   {#if error}
@@ -126,7 +137,7 @@
         {:else if app.tab === 'notes'}
           <Notes />
         {:else}
-          <Settings />
+          <Claude />
         {/if}
       </div>
     {/key}
@@ -144,6 +155,16 @@
 {/if}
 
 <style>
+  .gear { background: none; border: 0; color: var(--muted); width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; flex: none; }
+  .gear:hover { background: var(--panel-2); color: var(--text); }
+  .scrim { position: fixed; inset: 0; z-index: 40; background: rgba(10, 20, 40, 0.38); }
+  .panel {
+    position: fixed; z-index: 41; top: 0; right: 0; bottom: 0; width: min(520px, 100%);
+    background: var(--bg); box-shadow: -10px 0 40px rgba(16, 40, 80, 0.25); display: flex; flex-direction: column;
+    padding-top: env(safe-area-inset-top);
+  }
+  .phead { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px 8px 20px; border-bottom: 1px solid var(--line); background: var(--surface); font-size: 18px; }
+  .pbody { overflow-y: auto; padding: 4px 16px calc(24px + env(safe-area-inset-bottom)); flex: 1; -webkit-overflow-scrolling: touch; }
   /* A floating bar: white, lifted off the page by its shadow, it stays put while content scrolls. */
   .top {
     position: sticky; top: 0; z-index: 20; padding-top: env(safe-area-inset-top);

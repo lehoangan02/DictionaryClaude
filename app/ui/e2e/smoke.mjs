@@ -381,7 +381,7 @@ if (BASE_B && process.env.PAIR_A) {
   await a.bringToFront();
   const photoPath = `${OUT}/handwriting.jpg`;
   execFileSync('convert', ['-size', '1000x300', 'xc:white', '-fill', 'black', '-pointsize', '54', '-annotate', '+40+130', 'mellifluous = dulcet', photoPath]);
-  await a.goto(BASE + '?tab=notes', { waitUntil: 'networkidle0' });
+  await a.goto(BASE + '?tab=claude', { waitUntil: 'networkidle0' });
   await a.waitForSelector('input[type=file][multiple]');
   await (await a.$('input[type=file][multiple]')).uploadFile(photoPath);
   await a.waitForSelector('.thumbs img');
@@ -392,7 +392,7 @@ if (BASE_B && process.env.PAIR_A) {
   let ready = false;
   for (let n = 0; n < 30 && !ready; n++) {
     await a.evaluate(() => fetch('/api/sync_now', { method: 'POST', body: '{}' }));
-    await a.goto(BASE + '?tab=notes', { waitUntil: 'networkidle0' });
+    await a.goto(BASE + '?tab=claude', { waitUntil: 'networkidle0' });
     ready = (await a.$eval('.draft .st', (e) => e.textContent).catch(() => '')).includes('Ready to review');
     if (!ready) await new Promise((r) => setTimeout(r, 1000));
   }
@@ -404,17 +404,23 @@ if (BASE_B && process.env.PAIR_A) {
   await a.waitForSelector('.photos img');
   ok(true, 'the photo is shown beside the text');
   await a.type('.cols textarea', '\nmellifluous = honeyed');
-  await clickText(a, 'button', 'Ask agents');
-  // Only check that the confirmation step exists; never press it (that spends quota).
-  const buttons = await a.$$eval('button', (b) => b.map((x) => x.textContent.trim()));
-  ok(buttons.some((t) => t.includes('use agent quota')), 'asking the agents needs a second confirmation (it costs quota)');
-  await clickText(a, 'button', 'Cancel');
-  ok((await a.$eval('body', (e) => e.innerText)).toLowerCase().includes('hard to read?'), 'the agent panel is idle until asked');
+  // Chatting with Claude: a message goes out only when sent (the stand-in answers with an error, never spends quota).
+  ok((await a.$eval('body', (e) => e.textContent)).includes('Chat with Claude'), 'the review screen has a chat with Claude');
+  ok(!(await a.$('.m')), 'the chat is empty until the person writes');
+  await a.type('.send textarea', 'Is line one right?');
+  await clickText(a, '.send button', 'Send');
+  await a.waitForSelector('.m.me');
+  ok((await a.$eval('.m.me', (e) => e.textContent)).includes('Is line one right?'), 'the message appears in the chat');
+  await a.waitForSelector('.m.bad', { timeout: 30000 });
+  ok((await a.$eval('.m.bad', (e) => e.textContent)).includes('test stand-in'), 'a problem with Claude is shown in the chat, not hidden');
   await a.screenshot({ path: `${OUT}/draft-review.png`, fullPage: true });
   await clickText(a, 'button', 'Save as note');
-  let became = true;
-  await a.waitForFunction(() => [...document.querySelectorAll('.nt pre')].some((p) => p.textContent.includes('mellifluous = honeyed')), { timeout: 8000 }).catch(() => (became = false));
+  await a.waitForSelector('.draft, .empty', { hidden: true, timeout: 8000 }).catch(() => {});
+  await a.goto(BASE + '?tab=notes', { waitUntil: 'networkidle0' });
+  await a.waitForSelector('.nt');
+  const became = await a.evaluate(() => [...document.querySelectorAll('.nt pre')].some((p) => p.textContent.includes('mellifluous = honeyed')));
   ok(became, 'the reviewed text became a note');
+  await a.goto(BASE + '?tab=claude', { waitUntil: 'networkidle0' });
   ok(!(await a.$('.draft')), 'the draft left the review list');
 
   // Device B pairs and receives it, including its effect on the thesaurus.

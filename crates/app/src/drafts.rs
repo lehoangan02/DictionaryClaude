@@ -107,11 +107,11 @@ impl Api {
             "id": r.get::<_, String>(0)?, "created": r.get::<_, i64>(1)?, "updated": r.get::<_, i64>(2)?,
             "status": r.get::<_, String>(3)?, "photos": j(4), "session_date": r.get::<_, String>(5)?, "tags": r.get::<_, String>(6)?,
             "ocr_text": r.get::<_, String>(7)?, "ocr_engine": r.get::<_, String>(8)?, "agent_status": r.get::<_, String>(9)?,
-            "agents": j(10), "text": r.get::<_, String>(11)?, "note_id": r.get::<_, Option<String>>(12)?, "error": r.get::<_, String>(13)?,
+            "agents": j(10), "text": r.get::<_, String>(11)?, "note_id": r.get::<_, Option<String>>(12)?, "error": r.get::<_, String>(13)?, "chat": j(14),
         }))
     }
 
-    const DRAFT_COLS: &'static str = "id,created,updated,status,photos,session_date,tags,ocr_text,ocr_engine,agent_status,agents,text,note_id,error";
+    const DRAFT_COLS: &'static str = "id,created,updated,status,photos,session_date,tags,ocr_text,ocr_engine,agent_status,agents,text,note_id,error,chat";
 
     pub(crate) fn drafts_list(&self, include_done: bool) -> Result<Value> {
         let db = self.db.lock().unwrap();

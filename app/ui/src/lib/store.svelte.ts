@@ -1,6 +1,6 @@
 import { call } from './api';
 
-export type Tab = 'search' | 'history' | 'quiz' | 'notes' | 'settings';
+export type Tab = 'search' | 'history' | 'quiz' | 'notes' | 'claude';
 
 export const app = $state({
   tab: 'search' as Tab,
@@ -14,6 +14,8 @@ export const app = $state({
   quizUnit: null as number | null,
   // A quiz is running: hide the navigation so nothing covers the answer buttons.
   focus: false,
+  // The settings side panel is open (it opens from the gear in the top bar, not from a tab).
+  settings: false,
   // Bumped when the dictionary order changes so tabs redraw.
   orderVersion: 0,
 });
@@ -108,6 +110,13 @@ export function openDetail(close: () => void) {
   stack.push({ ...top(), close });
   arm();
 }
+export function openSettings() {
+  if (app.settings) return;
+  app.settings = true;
+  openDetail(() => (app.settings = false));
+}
+export function closeSettings() { closeDetail(); }
+
 /** Closes the open detail the way Back does. */
 export function closeDetail() { if (top().close) back(); }
 
@@ -184,7 +193,8 @@ export async function boot() {
   const src = q.get('source');
   if (src && app.sources.some((s) => s.id === src)) app.source = src;
   const tab = q.get('tab') as Tab | null;
-  if (tab) app.tab = tab;
+  if (tab === 'settings' as string) openSettings();
+  else if (tab) app.tab = tab;
   const w = q.get('w');
   if (w) open(w);
 }

@@ -115,7 +115,6 @@
   async function saveSsids() { await call('sync_set_home_ssids', { ssids }); msg = 'Saved.'; }
 </script>
 
-<h1>Settings</h1>
 
 <section class="card rise" style="--i:0">
   <h3>Dictionaries</h3>
@@ -242,7 +241,6 @@
 </section>
 
 <style>
-  h1 { margin: 0 0 12px; font-size: 28px; }
   h3 { margin: 0 0 8px; font-size: 14px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
   section { margin: 14px 0; }
   .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }

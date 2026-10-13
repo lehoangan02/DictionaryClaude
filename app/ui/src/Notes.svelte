@@ -2,7 +2,6 @@
   import { call } from './lib/api';
   import { app, open, bump } from './lib/store.svelte';
   import { REL } from './lib/format';
-  import Drafts from './Drafts.svelte';
   import { grow } from './lib/motion';
 
   type N = { id: string; session_date: string; tags: string; body: string; updated: number };
@@ -14,7 +13,6 @@
   let edges = $state<{ a: string; b: string; rel: keyof typeof REL }[]>([]);
   let error = $state('');
   let ta = $state<HTMLTextAreaElement | null>(null);
-  let reviewing = $state(false);
   let timer: ReturnType<typeof setTimeout>;
 
   async function load() { notes = await call('notes_list'); }
@@ -52,13 +50,9 @@
   const lineCount = $derived(body.split('\n').filter((l) => l.trim()).length);
 </script>
 
-{#if !reviewing}
 <h1>Notes</h1>
 <p class="muted">Write what your tutor says. Relations feed the thesaurus and a quiz of your own notes.</p>
 
-{/if}
-<Drafts bind:reviewing />
-{#if !reviewing}
 
 <section class="ed card rise">
   <div class="meta">
@@ -103,7 +97,6 @@
 {:else}
   <p class="empty">No notes yet.</p>
 {/each}
-{/if}
 
 <style>
   h1 { margin: 0 0 4px; font-size: 28px; }

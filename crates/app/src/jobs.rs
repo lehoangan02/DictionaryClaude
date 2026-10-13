@@ -390,8 +390,14 @@ impl Agent {
     }
 
     fn call_with(&self, dir: &Path, prompt: &str, effort: Option<&str>) -> Result<Vec<(String, bool, String)>> {
+        let out = self.run_cli(dir, prompt, SCHEMA, effort)?;
+        extract_lines(&out).ok_or_else(|| anyhow!("{} replied, but not in the expected form", self.name))
+    }
+
+    /// One non-interactive call of the CLI in `dir`; its raw output, or what it reported as the error.
+    fn run_cli(&self, dir: &Path, prompt: &str, schema: &str, effort: Option<&str>) -> Result<String> {
         let mut c = Command::new(&self.bin);
-        c.current_dir(dir).arg("-p").arg(prompt).args(["--output-format", "json", "--json-schema", SCHEMA]);
+        c.current_dir(dir).arg("-p").arg(prompt).args(["--output-format", "json", "--json-schema", schema]);
         match self.name {
             // Read only: the Read tool for the photos, nothing that writes or browses.
             "claude" => {
@@ -411,8 +417,58 @@ impl Agent {
         if let Some(why) = reported_error(&r.stdout).or_else(|| (!r.ok).then(|| r.stderr.lines().find(|l| !l.trim().is_empty()).unwrap_or("no output").trim().to_string())) {
             bail!("{} says: {why}", self.name);
         }
-        extract_lines(&r.stdout).ok_or_else(|| anyhow!("{} replied, but not in the expected form", self.name))
+        Ok(r.stdout)
     }
+}
+
+const CHAT_SCHEMA: &str = r#"{"type":"object","properties":{"reply":{"type":"string"},"text":{"type":"string"}},"required":["reply"]}"#;
+
+/// Claude's chat answer: `reply`, and `text` when it proposes a new version of the whole note.
+pub fn extract_chat(stdout: &str) -> Option<(String, Option<String>)> {
+    fn find(v: &Value, depth: usize) -> Option<(String, Option<String>)> {
+        if depth > 6 {
+            return None;
+        }
+        match v {
+            Value::Object(m) => {
+                if let Some(r) = m.get("reply").and_then(Value::as_str) {
+                    let t = m.get("text").and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty()).map(str::to_string);
+                    return Some((r.trim().to_string(), t));
+                }
+                m.values().find_map(|x| find(x, depth + 1))
+            }
+            Value::Array(a) => a.iter().find_map(|x| find(x, depth + 1)),
+            Value::String(s) => {
+                let t = s.trim().trim_start_matches("```json").trim_start_matches("```").trim_end_matches("```").trim();
+                t.starts_with('{').then(|| serde_json::from_str::<Value>(t).ok()).flatten().and_then(|v| find(&v, depth + 1))
+            }
+            _ => None,
+        }
+    }
+    serde_json::from_str::<Value>(stdout.trim()).ok().and_then(|v| find(&v, 0))
+}
+
+fn chat_prompt(pages: usize, text: &str, chat: &[Value]) -> String {
+    let talk: String = chat
+        .iter()
+        .rev()
+        .take(14)
+        .rev()
+        .filter_map(|m| Some(format!("{}: {}", if m["role"] == "user" { "STUDENT" } else { "YOU" }, m["text"].as_str()?)))
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!(
+        "You are helping a GRE student check the transcription of their handwritten vocabulary notes. The photo{} {} in this folder: {}; open them with the Read tool whenever you need to look. \
+         Notes use only these symbols: '=' same meaning, '≈' roughly similar, '><' opposite, '⍯' different but easily confused. \
+         The transcription as it stands now (the student may have edited it): <<<\n{text}\n>>>\n\
+         The conversation so far:\n{talk}\n\
+         Answer the student's last message briefly and plainly. Look at the photo again when they question a word. \
+         If the transcription should change, also give `text`: the complete new transcription, one note per line, changing only what was discussed. Otherwise leave `text` out. \
+         Reply with JSON only: {{\"reply\":string,\"text\":string (optional)}}",
+        if pages == 1 { "" } else { "s" },
+        if pages == 1 { "is" } else { "are" },
+        (1..=pages).map(|i| format!("page{i}.jpg")).collect::<Vec<_>>().join(", "),
+    )
 }
 
 fn first_prompt(ocr: &str, pages: usize) -> String {
@@ -476,6 +532,16 @@ impl Api {
             let rows = st.query_map([], |r| r.get(0))?.collect::<std::result::Result<Vec<String>, _>>()?;
             rows
         };
+        let chats: Vec<String> = {
+            let db = self.db.lock().unwrap();
+            let mut st = db.prepare("SELECT id FROM drafts WHERE agent_status='chat' AND deleted=0 AND status NOT IN ('accepted','rejected') ORDER BY updated LIMIT 2")?;
+            let rows = st.query_map([], |r| r.get(0))?.collect::<std::result::Result<Vec<String>, _>>()?;
+            rows
+        };
+        for id in chats {
+            self.job_chat(&id)?;
+            agents_done += 1;
+        }
         for id in asked {
             self.job_agents(&id)?;
             agents_done += 1;
@@ -513,6 +579,65 @@ impl Api {
             params![id, text, engine, keep, error, now_ms()],
         )?;
         Ok(())
+    }
+
+    /// Answers the student's latest chat message about a draft, with Claude.
+    fn job_chat(&self, id: &str) -> Result<()> {
+        let d = self.draft_get(id)?;
+        let mut chat = d["chat"].as_array().cloned().unwrap_or_default();
+        let finish = |chat: &Vec<Value>, status: &str, err: &str| -> Result<()> {
+            self.db.lock().unwrap().execute("UPDATE drafts SET agent_status=?2, chat=?3, error=CASE WHEN ?4<>'' THEN ?4 ELSE error END, updated=?5 WHERE id=?1", params![id, status, json!(chat).to_string(), err, now_ms()])?;
+            Ok(())
+        };
+        self.db.lock().unwrap().execute("UPDATE drafts SET agent_status='chat_running', updated=?2 WHERE id=?1", params![id, now_ms()])?;
+        let fail = |chat: &mut Vec<Value>, why: String| -> Result<()> {
+            chat.push(json!({"role": "error", "text": why, "at": now_ms()}));
+            finish(chat, "chat_done", "")
+        };
+        if self.agent_used_today() + 1 > self.agent_cap() {
+            return fail(&mut chat, format!("the daily agent allowance ({}) is used up; raise it in Settings or try tomorrow", self.agent_cap()));
+        }
+        let photos = self.draft_photos(&d);
+        if photos.is_empty() {
+            return fail(&mut chat, "the photos are not on the server".into());
+        }
+        let scratch = self.data_dir.join("jobs").join(id);
+        let _ = std::fs::remove_dir_all(&scratch);
+        std::fs::create_dir_all(&scratch)?;
+        for (i, p) in photos.iter().enumerate() {
+            std::fs::copy(p, scratch.join(format!("page{}.jpg", i + 1)))?;
+        }
+        let claude = Agent { name: "claude", bin: self.env_or("LEXIS_CLAUDE_BIN", "claude") };
+        self.count_agent_call();
+        let prompt = chat_prompt(photos.len(), d["text"].as_str().unwrap_or(""), &chat);
+        let out = claude.run_cli(&scratch, &prompt, CHAT_SCHEMA, None).and_then(|o| extract_chat(&o).ok_or_else(|| anyhow!("claude replied, but not in the expected form")));
+        let _ = std::fs::remove_dir_all(&scratch);
+        match out {
+            Ok((reply, text)) => {
+                chat.push(json!({"role": "claude", "text": reply, "proposal": text, "at": now_ms()}));
+                finish(&chat, "chat_done", "")
+            }
+            Err(e) => fail(&mut chat, format!("{e:#}")),
+        }
+    }
+
+    /// The student writes to Claude about a draft. Nothing runs until they do (it uses the agent allowance).
+    pub(crate) fn draft_chat(&self, id: &str, message: &str) -> Result<Value> {
+        let message = message.trim();
+        if message.is_empty() || message.len() > 2000 {
+            bail!("write a message of up to 2000 characters");
+        }
+        let d = self.draft_get(id)?;
+        if matches!(d["status"].as_str(), Some("accepted" | "rejected")) {
+            bail!("that draft is closed");
+        }
+        if matches!(d["agent_status"].as_str(), Some("chat" | "chat_running" | "requested" | "running")) {
+            bail!("Claude is still answering");
+        }
+        let mut chat = d["chat"].as_array().cloned().unwrap_or_default();
+        chat.push(json!({"role": "user", "text": message, "at": now_ms()}));
+        self.db.lock().unwrap().execute("UPDATE drafts SET agent_status='chat', chat=?2, updated=?3 WHERE id=?1 AND deleted=0", params![id, json!(chat).to_string(), now_ms()])?;
+        self.draft_get(id)
     }
 
     fn job_agents(&self, id: &str) -> Result<()> {

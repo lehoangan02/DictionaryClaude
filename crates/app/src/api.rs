@@ -199,6 +199,7 @@ impl Api {
             "draft_accept" => self.draft_accept(&req("id")?, a("text").as_deref()),
             "draft_reject" => self.draft_reject(&req("id")?),
             "draft_reread" => self.draft_reread(&req("id")?),
+            "draft_chat" => self.draft_chat(&req("id")?, &req("message")?),
             "draft_agents" => self.draft_agents(&req("id")?, &a("mode").unwrap_or_else(|| "both".into()), &a("effort").unwrap_or_else(|| "medium".into())),
             "agent_status" => Ok(self.agent_status()),
             "run_jobs" => self.run_jobs_once(),
