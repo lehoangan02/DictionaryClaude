@@ -67,6 +67,13 @@ fn file_sha(path: &Path) -> Result<String> {
     Ok(sum)
 }
 
+fn cached_sha(path: &Path) -> Option<String> {
+    let meta = std::fs::metadata(path).ok()?;
+    let mtime = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs());
+    let key = (path.to_string_lossy().to_string(), meta.len(), mtime);
+    HASHES.lock().unwrap().as_ref().and_then(|m| m.get(&key)).cloned()
+}
+
 /// A pack's entry count remembered from the last time it was counted
 /// (keyed by file size, so a replaced pack is counted again). 0 if unknown.
 pub(crate) fn cached_count(db: &rusqlite::Connection, path: &Path) -> u64 {
@@ -186,6 +193,11 @@ impl Api {
         self.data_dir.join("packs")
     }
 
+    /// Server side: hash every offered pack once at start, so the first device to ask does not wait.
+    pub fn warm_pack_hashes(&self) {
+        let _ = self.packs_served();
+    }
+
     /// Server side: the pack files this machine offers.
     pub fn packs_served(&self) -> Result<Value> {
         let mut out = Vec::new();
@@ -208,7 +220,8 @@ impl Api {
         let mut f = std::fs::File::open(&path).map_err(|_| anyhow!("no such pack"))?;
         let len = f.metadata()?.len();
         f.seek(SeekFrom::Start(offset.min(len)))?;
-        Ok((f, len, file_sha(&path)?))
+        // The device checks the file against the catalog's checksum; never make it wait for a hash here.
+        Ok((f, len, cached_sha(&path).unwrap_or_default()))
     }
 
     /// What this device knows about each pack: installed (downloaded or built
@@ -240,7 +253,7 @@ impl Api {
 
     /// Asks the server what it offers (and remembers it).
     pub(crate) fn packs_catalog(&self) -> Result<Value> {
-        let (host, p, a) = self.server_conn(Duration::from_secs(20))?;
+        let (host, p, a) = self.server_conn(Duration::from_secs(120))?;
         let mut v = crate::net::post(&a, &host, &p.token, "/v1/packs", &json!({}))?;
         v["at"] = json!(crate::userdb::now_ms());
         self.set_setting("packs.remote", &v.to_string())?;
@@ -250,7 +263,7 @@ impl Api {
     pub(crate) fn pack_progress_now(&self) -> Value {
         let m = self.pack_progress.lock().unwrap();
         let route = self.setting("packs.route").unwrap_or_default();
-        json!(m.iter().map(|(k, (done, total))| (k.clone(), json!({"done": done, "total": total, "route": route}))).collect::<serde_json::Map<_, _>>())
+        json!(m.iter().map(|(k, (done, total))| (k.clone(), json!({"done": done, "total": total, "route": route, "note": self.setting(&format!("packs.note.{k}")).unwrap_or_default()}))).collect::<serde_json::Map<_, _>>())
     }
 
     pub(crate) fn pack_install(&self, id: &str) -> Result<Value> {
@@ -282,6 +295,7 @@ impl Api {
             Ok(())
         })();
         self.pack_progress.lock().unwrap().remove(id);
+        let _ = self.set_setting(&format!("packs.note.{id}"), "");
         // Kept so the list can say why a download stopped even after the screen was left and reopened.
         let _ = self.set_setting(&format!("packs.err.{id}"), &result.as_ref().err().map(|e| format!("{e:#}")).unwrap_or_default());
         let keep = result.as_ref().err().is_some_and(|e| format!("{e:#}").contains("will resume"));
@@ -344,6 +358,7 @@ impl Api {
             if len != last_len {
                 attempt = 0;
                 last_len = len;
+                let _ = self.set_setting(&format!("packs.note.{id}"), "");
             }
             if attempt >= 12 {
                 return match step {
@@ -352,7 +367,11 @@ impl Api {
                 };
             }
             attempt += 1;
-            std::thread::sleep(Duration::from_secs((2u64 << attempt.min(5)).min(60)));
+            let wait = (2u64 << attempt.min(5)).min(60);
+            // Said on screen while it waits, so a stuck download explains itself.
+            let why = step.as_ref().err().map(|e| format!("{e:#}")).unwrap_or_else(|| "the server stopped sending".into());
+            let _ = self.set_setting(&format!("packs.note.{id}"), &format!("Trying again in {wait} s (try {attempt} of 12): {why}"));
+            std::thread::sleep(Duration::from_secs(wait));
         }
         if std::fs::metadata(&part).map(|m| m.len()).unwrap_or(0) != size {
             bail!("the download is incomplete (it will resume next time)");

@@ -76,6 +76,10 @@ fn main() -> Result<()> {
             let api = Arc::new(Api::open_headless_serving(&cli.data, &cli.packs.clone().unwrap_or_else(|| cli.data.join("packs")))?);
             // Reads photographed notes (OCR) and serves agent requests.
             gredict_app::spawn_job_runner(api.clone(), std::time::Duration::from_secs(5));
+            {
+                let api = api.clone();
+                std::thread::spawn(move || api.warm_pack_hashes());
+            }
             let mut addrs = Vec::new();
             for a in [lan.clone(), wan] {
                 // Ports below 1024 need CAP_NET_BIND_SERVICE; keep serving the others.

@@ -137,8 +137,11 @@ impl Api {
         let mut last_error = None;
         let mut rate_limited = false;
         let mut retry_after = 0u64;
-        // A few at a time (not one every two seconds): the host only asks us to slow down when it says so (429).
-        for group in pending.iter().take(limit).collect::<Vec<_>>().chunks(4) {
+        // Two at a time with a short pause: four at once made Wikimedia ask us to slow down (429).
+        for (n, group) in pending.iter().take(limit).collect::<Vec<_>>().chunks(2).enumerate() {
+            if n > 0 {
+                std::thread::sleep(Duration::from_millis(700));
+            }
             let results: Vec<Result<PathBuf>> = std::thread::scope(|sc| {
                 let hs: Vec<_> = group.iter().map(|u| sc.spawn(move || self.audio_fetch(u))).collect();
                 hs.into_iter().map(|h| h.join().unwrap_or_else(|_| Err(anyhow!("download crashed")))).collect()

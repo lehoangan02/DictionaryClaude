@@ -4,7 +4,7 @@
   import { when } from './lib/format';
 
   let list = $state<any>({ packs: [], paired: false });
-  let prog = $state<Record<string, { done: number; total: number; route?: string }>>({});
+  let prog = $state<Record<string, { done: number; total: number; route?: string; note?: string }>>({});
   let err = $state('');
   let checking = $state(false);
   let timer: ReturnType<typeof setInterval> | undefined;
@@ -85,7 +85,8 @@
             <div class="bar" role="progressbar" aria-valuenow={prog[p.id].done} aria-valuemax={prog[p.id].total}>
               <i style="transform: scaleX({prog[p.id].total ? prog[p.id].done / prog[p.id].total : 0})"></i></div>
             <span class="muted small">{mb(prog[p.id].done)} of {prog[p.id].total ? mb(prog[p.id].total) : '…'}{#if speed[p.id] > 0} · {rate(speed[p.id])}{/if}{#if prog[p.id].route} · via {prog[p.id].route}{/if}{#if eta(prog[p.id], speed[p.id])} · {eta(prog[p.id], speed[p.id])}{/if}</span>
-            {#if speed[p.id] < 20000 && prog[p.id].done > 0}<span class="muted small">Very slow right now. It keeps trying and continues when the connection improves.</span>{/if}
+            {#if prog[p.id].note}<span class="err small">{prog[p.id].note}</span>
+            {:else if speed[p.id] < 20000 && prog[p.id].done > 0}<span class="muted small">Very slow right now. It keeps trying and continues when the connection improves.</span>{/if}
           {/if}
         </div>
         {#if prog[p.id]}
