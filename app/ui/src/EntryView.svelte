@@ -1,8 +1,9 @@
 <script lang="ts">
   let noRec = $state(false);
+  let noRecWhy = $state('');
   import { call } from './lib/api';
   import { app, open, goTab, setSource, orderedSources } from './lib/store.svelte';
-  import { highlight, posLabel, pronunciations, speak } from './lib/format';
+  import { highlight, posLabel, pronunciations, speak, lastSpeakError } from './lib/format';
   import Thesaurus from './Thesaurus.svelte';
   import HistoryNav from './HistoryNav.svelte';
   import Icon from './Icon.svelte';
@@ -104,7 +105,7 @@
         </div>
         <div class="prons">
           {#each prons as p (p.accent + p.ipa)}
-            <button class="pron {accentColor(p.accent)}" onclick={async () => { noRec = (await speak(entry.word, p.audio)) === 'voice' && !!p.audio?.startsWith('oald:'); }} aria-label="Pronounce{p.accent ? ' (' + p.accent + ')' : ''}">
+            <button class="pron {accentColor(p.accent)}" onclick={async () => { noRec = (await speak(entry.word, p.audio)) === 'voice' && !!p.audio?.startsWith('oald:'); noRecWhy = lastSpeakError; }} aria-label="Pronounce{p.accent ? ' (' + p.accent + ')' : ''}">
               <Icon name="speaker" size={26} />
               {#if p.accent}<b>{p.accent}</b>{/if}
               {#if p.ipa}<span class="ipa">{p.ipa.startsWith('/') || p.ipa.startsWith('\\') ? p.ipa : '/' + p.ipa + '/'}</span>{/if}
@@ -117,7 +118,7 @@
             </button>
           {/if}
         </div>
-        {#if noRec}<p class="muted small">This is the system voice: the Oxford recordings are not on this device. Download "OALD recordings" in Settings → Downloads.</p>{/if}
+        {#if noRec}<p class="muted small">This is the system voice: the Oxford recording could not be played{noRecWhy ? ` (${noRecWhy})` : ''}. If the recordings are not on this device, download "OALD recordings" in Settings → Downloads.</p>{/if}
       </header>
 
       {#if data.barrons}

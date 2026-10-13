@@ -30,6 +30,9 @@ export function pronunciations(blocks: { sounds?: Sound[] }[]) {
 import { call, isDesktopApp, native } from './api';
 
 let current: HTMLAudioElement | null = null;
+/** Why the last recording could not be played (empty when it played), so the page can say so instead of guessing. */
+export let lastSpeakError = '';
+const why = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /**
  * Plays the recording; falls back to the system voice. The desktop app plays
@@ -38,9 +41,10 @@ let current: HTMLAudioElement | null = null;
  */
 export async function speak(word: string, audio?: string): Promise<'recording' | 'voice'> {
   current?.pause();
+  lastSpeakError = '';
   if (isDesktopApp) {
     if (audio) {
-      try { await native('play_audio', { url: audio }); return 'recording'; } catch { /* offline and not saved yet */ }
+      try { await native('play_audio', { url: audio }); return 'recording'; } catch (e) { lastSpeakError = why(e); /* offline and not saved yet */ }
     }
     try { await native('speak_text', { word }); } catch { /* no voice installed */ }
     return 'voice';
@@ -51,7 +55,7 @@ export async function speak(word: string, audio?: string): Promise<'recording' |
       current = new Audio(data_url);
       await current.play();
       return 'recording';
-    } catch { /* fall through to speech */ }
+    } catch (e) { lastSpeakError = why(e); /* fall through to speech */ }
   }
   // Android: the system voice, through the app (the web view has none of its own).
   const voice = (window as unknown as { LadyBirdVoice?: { speak(w: string): void } }).LadyBirdVoice;
