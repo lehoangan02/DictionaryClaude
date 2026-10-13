@@ -63,6 +63,17 @@ fn prompt(msgs: &[Value]) -> String {
     )
 }
 
+/// Models and effort levels the chat may ask for.
+pub const MODELS: [&str; 4] = ["fable", "opus", "sonnet", "haiku"];
+pub const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
+
+/// The model and effort the owner chose on their latest message.
+fn last_pick(msgs: &[Value]) -> (Option<String>, Option<String>) {
+    let m = msgs.iter().rev().find(|m| m["role"] == "user");
+    let get = |k: &str, ok: &[&str]| m.and_then(|m| m[k].as_str()).filter(|v| ok.contains(v)).map(str::to_string);
+    (get("model", &MODELS), get("effort", &EFFORTS))
+}
+
 fn git(dir: &Path, args: &[&str]) -> Result<String> {
     let o = Command::new("git").arg("-C").arg(dir).args(args).output().map_err(|e| anyhow!("git is not available ({e})"))?;
     if !o.status.success() {
@@ -162,18 +173,32 @@ impl Api {
         self.talk_get(&id)
     }
 
-    pub(crate) fn talk_send(&self, id: &str, message: &str) -> Result<Value> {
+    pub(crate) fn talk_send(&self, id: &str, message: &str, photos: &[String], model: Option<&str>, effort: Option<&str>) -> Result<Value> {
+        if model.is_some_and(|m| !MODELS.contains(&m)) || effort.is_some_and(|e| !EFFORTS.contains(&e)) {
+            bail!("unknown model or effort");
+        }
         let message = message.trim();
-        if message.is_empty() || message.len() > 2000 {
-            bail!("write a message of up to 2000 characters");
+        if message.len() > 2000 || (message.is_empty() && photos.is_empty()) || photos.len() > 4 {
+            bail!("write a message of up to 2000 characters, with up to 4 photos");
         }
         let (title, state, mut msgs) = self.talk_load(id)?;
         if matches!(state.as_str(), "asked" | "running") {
             bail!("Claude is still answering");
         }
-        msgs.push(json!({"role": "user", "text": message, "at": now_ms()}));
+        let names = photos.iter().map(|p| self.photo_save(p)).collect::<Result<Vec<_>>>()?;
+        let mut m = json!({"role": "user", "text": message, "at": now_ms()});
+        if !names.is_empty() {
+            m["photos"] = json!(names);
+        }
+        if let Some(v) = model {
+            m["model"] = json!(v);
+        }
+        if let Some(v) = effort {
+            m["effort"] = json!(v);
+        }
+        msgs.push(m);
         if title.is_empty() {
-            let t: String = message.chars().take(40).collect();
+            let t: String = if message.is_empty() { "Photo".into() } else { message.chars().take(40).collect() };
             self.db.lock().unwrap().execute("UPDATE talks SET title=?2 WHERE id=?1", params![id, t])?;
         }
         self.talk_save(id, "asked", &msgs)?;
@@ -243,6 +268,32 @@ impl Api {
         Ok(json!(out))
     }
 
+    /// Copies the photos of the latest message into a scratch folder Claude may read.
+    /// Returns (folder, the sentence for the prompt; empty without photos).
+    fn attach_photos(&self, id: &str, msgs: &[Value]) -> (Option<PathBuf>, String) {
+        let names: Vec<String> = msgs.iter().rev().find(|m| m["role"] == "user").map(crate::drafts::talk_photos).unwrap_or_default();
+        if names.is_empty() {
+            return (None, String::new());
+        }
+        let dir = self.data_dir.join("jobs").join(format!("talk-{}", id.chars().take(8).collect::<String>()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut paths = vec![];
+        if std::fs::create_dir_all(&dir).is_ok() {
+            for (i, n) in names.iter().filter(|n| crate::drafts::valid_photo_name(n)).enumerate() {
+                let to = dir.join(format!("photo{}.{}", i + 1, n.rsplit('.').next().unwrap_or("jpg")));
+                if self.photos_dir().is_ok_and(|d| std::fs::copy(d.join(n), &to).is_ok()) {
+                    paths.push(to);
+                }
+            }
+        }
+        let note = if paths.is_empty() {
+            "\nThe owner attached photos but they have not reached this server; say so.".to_string()
+        } else {
+            format!("\nThe owner attached these photos to their last message; look at them with the Read tool: {}.", paths.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", "))
+        };
+        (Some(dir), note)
+    }
+
     /// Serves waiting chat messages (server side). Returns how many ran Claude.
     pub(crate) fn job_talks(&self) -> Result<usize> {
         let ids: Vec<String> = {
@@ -308,7 +359,7 @@ impl Api {
     }
 
     /// A task: Claude edits a private copy of the app on its own branch. True when it ran Claude.
-    fn job_work(&self, id: &str, msgs: &mut Vec<Value>, claude: &Agent) -> Result<bool> {
+    fn job_work(&self, id: &str, msgs: &mut Vec<Value>, claude: &Agent, attached: &str) -> Result<bool> {
         let fail = |msgs: &mut Vec<Value>, why: String| -> Result<bool> {
             msgs.push(json!({"role": "error", "text": why, "at": now_ms()}));
             self.talk_save(id, "", msgs)?;
@@ -333,7 +384,7 @@ impl Api {
         }
         self.db.lock().unwrap().execute("UPDATE talks SET branch=?2 WHERE id=?1", params![id, branch])?;
         self.count_agent_call();
-        let out = claude.run_work(&path, &work_prompt(msgs, &branch), SCHEMA).and_then(|o| extract_talk(&o).ok_or_else(|| anyhow!("claude replied, but not in the expected form")));
+        let out = claude.run_work(&path, &(work_prompt(msgs, &branch) + attached), SCHEMA).and_then(|o| extract_talk(&o).ok_or_else(|| anyhow!("claude replied, but not in the expected form")));
         // Whatever was left uncommitted is committed too, so the summary below is complete.
         if !git(&path, &["status", "--porcelain"]).unwrap_or_default().is_empty() {
             let _ = git(&path, &["add", "-A"]);
@@ -373,16 +424,27 @@ impl Api {
                 (d, true)
             }
         };
-        let claude = Agent { name: "claude", bin: self.env_or("LEXIS_CLAUDE_BIN", "claude") };
+        let (model, effort) = last_pick(&msgs);
+        let (attach_dir, note) = self.attach_photos(id, &msgs);
+        let claude = Agent { name: "claude", bin: self.env_or("LEXIS_CLAUDE_BIN", "claude"), model, effort, extra: attach_dir.clone() };
+        let done = |r: Result<bool>| {
+            if let Some(d) = &attach_dir {
+                let _ = std::fs::remove_dir_all(d);
+            }
+            r
+        };
         if self.talk_meta(id)?.0 == "work" {
-            return self.job_work(id, &mut msgs, &claude);
+            return done(self.job_work(id, &mut msgs, &claude, &note));
         }
         self.count_agent_call();
-        let mut p = prompt(&msgs);
+        let mut p = prompt(&msgs) + &note;
         if scratch {
             p.push_str("\nThe source is NOT available on this server: say so if asked about code, and answer from general knowledge.");
         }
         let out = claude.run_cli(&dir, &p, SCHEMA, None).and_then(|o| extract_talk(&o).ok_or_else(|| anyhow!("claude replied, but not in the expected form")));
+        if let Some(d) = &attach_dir {
+            let _ = std::fs::remove_dir_all(d);
+        }
         match out {
             Ok((reply, idea)) => {
                 let mut m = json!({"role": "claude", "text": reply, "at": now_ms()});

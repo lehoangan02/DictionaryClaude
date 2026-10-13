@@ -1,10 +1,11 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import { call } from './lib/api';
+  import { shrink } from './lib/image';
   import { app, bump, openDetail, closeDetail } from './lib/store.svelte';
 
   type Idea = { title: string; detail: string; status: 'proposed' | 'approved' | 'dismissed' };
-  type Msg = { role: 'user' | 'claude' | 'error'; text: string; at: number; idea?: Idea };
+  type Msg = { role: 'user' | 'claude' | 'error'; text: string; at: number; idea?: Idea; photos?: string[] };
   type Chat = { id: string; title: string; state: string; updated: number; last: string; mode: string };
   let chats = $state<Chat[]>([]);
   let cur = $state<string | null>(null);
@@ -18,6 +19,29 @@
   let msg = $state('');
   let error = $state('');
   let sending = $state(false);
+  // Photos attached to the next message (shrunk data URLs) and the thumbnails of sent ones, loaded by name.
+  let attached = $state<string[]>([]);
+  let thumbs = $state<Record<string, string>>({});
+  async function attach(e: Event) {
+    const input = e.target as HTMLInputElement;
+    try { for (const f of Array.from(input.files ?? [])) if (attached.length < 4) attached.push(await shrink(f)); }
+    catch { error = 'That photo could not be read. Try a JPEG or PNG.'; }
+    input.value = '';
+  }
+  $effect(() => {
+    for (const m of msgs) for (const n of m.photos ?? []) {
+      if (n in thumbs) continue;
+      thumbs[n] = '';
+      call('photo_data', { name: n }).then((r) => (thumbs[n] = r.data_url)).catch(() => delete thumbs[n]);
+    }
+  });
+  // The model and effort for the next message ('' = the CLI's own default), remembered on this device.
+  const MODELS = [['', 'Default model'], ['fable', 'Fable'], ['opus', 'Opus'], ['sonnet', 'Sonnet'], ['haiku', 'Haiku']];
+  const EFFORTS = [['', 'Default effort'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['xhigh', 'Extra high'], ['max', 'Max']];
+  const saved = (k: string) => { try { return localStorage.getItem(k) ?? ''; } catch { return ''; } };
+  let model = $state(saved('claude.model'));
+  let effort = $state(saved('claude.effort'));
+  $effect(() => { try { localStorage.setItem('claude.model', model); localStorage.setItem('claude.effort', effort); } catch { /* private mode */ } });
   let end = $state<HTMLElement | null>(null);
   let scroller = $state<HTMLElement | null>(null);
   // The chat fills what is left of the screen below the top bar, and follows the keyboard.
@@ -59,9 +83,9 @@
 
   async function send() {
     const m = msg.trim();
-    if (!m || waiting || sending) return;
+    if ((!m && !attached.length) || waiting || sending) return;
     sending = true; error = '';
-    try { const t = await call('talk_send', { id: cur, message: m }); msgs = t.msgs; phase = t.state; msg = ''; call('sync_now').catch(() => {}); bump(); await tick(); end?.scrollIntoView({ block: 'end' }); }
+    try { const t = await call('talk_send', { id: cur, message: m, photos: attached, ...(model && { model }), ...(effort && { effort }) }); msgs = t.msgs; phase = t.state; msg = ''; attached = []; call('sync_now').catch(() => {}); bump(); await tick(); end?.scrollIntoView({ block: 'end' }); }
     catch (e) { error = (e as Error).message; }
     sending = false;
   }
@@ -85,6 +109,13 @@
     sure = false;
     try { const t = await call('talk_finish', { id: cur, how }); phase = t.state; call('sync_now').catch(() => {}); } catch (e) { error = (e as Error).message; }
   }
+  let askDelete = $state('');
+  // Two taps in the list: the first asks, the second deletes.
+  async function removeFromList(id: string) {
+    if (askDelete !== id) { askDelete = id; return; }
+    askDelete = '';
+    try { await call('talk_delete', { id }); call('sync_now').catch(() => {}); await loadList(); } catch (e) { error = (e as Error).message; }
+  }
   const ago = (t: number) => new Date(t).toLocaleDateString();
 </script>
 
@@ -95,11 +126,14 @@
 <p class="muted small">A chat answers and suggests. A task lets Claude change the app on its own copy; you read what it changed and press Merge or Discard.</p>
 {#if error}<p class="err">{error}</p>{/if}
 {#each chats as c (c.id)}
-  <button class="card row" onclick={() => openChat(c.id)}>
-    <b>{c.title || (c.mode === 'work' ? 'New task' : 'New chat')}{#if c.mode === 'work'} <span class="tag">Task</span>{/if}</b>
-    <span class="muted small">{c.state ? 'Claude is answering…' : c.last}</span>
-    <span class="muted small">{ago(c.updated)}</span>
-  </button>
+  <div class="card item">
+    <button class="row" onclick={() => openChat(c.id)}>
+      <b>{c.title || (c.mode === 'work' ? 'New task' : 'New chat')}{#if c.mode === 'work'} <span class="tag">Task</span>{/if}</b>
+      <span class="muted small">{c.state ? 'Claude is answering…' : c.last}</span>
+      <span class="muted small">{ago(c.updated)}</span>
+    </button>
+    <button class="btn small ghost" disabled={!!c.state} onclick={() => removeFromList(c.id)}>{askDelete === c.id ? 'Sure?' : 'Delete'}</button>
+  </div>
 {:else}
   <p class="empty">No chats yet.</p>
 {/each}
@@ -122,7 +156,7 @@
       </details>
     {/if}
     {#each msgs as m (m.at + m.role)}
-      {#if m.role === 'user'}<div class="m me">{m.text}</div>
+      {#if m.role === 'user'}<div class="m me">{#each m.photos ?? [] as n}{#if thumbs[n]}<img class="th" src={thumbs[n]} alt="Attached" />{:else}<span class="th ph">…</span>{/if}{/each}{m.text}</div>
       {:else if m.role === 'error'}<div class="m bad">{m.text}</div>
       {:else}
         <div class="m ai">{m.text}
@@ -154,9 +188,19 @@
     <span bind:this={end}></span>
   </div>
   {#if error}<p class="err small">{error}</p>{/if}
+  {#if attached.length}
+    <div class="pick">
+      {#each attached as a, i}<span class="at"><img class="th" src={a} alt="To send" /><button class="x" aria-label="Remove photo" onclick={() => attached.splice(i, 1)}>×</button></span>{/each}
+    </div>
+  {/if}
+  <div class="pick">
+    <select bind:value={model} aria-label="Model">{#each MODELS as [v, l]}<option value={v}>{l}</option>{/each}</select>
+    <select bind:value={effort} aria-label="Effort">{#each EFFORTS as [v, l]}<option value={v}>{l}</option>{/each}</select>
+  </div>
   <div class="send">
+    <label class="btn ghost" aria-label="Attach photos">📎<input type="file" accept="image/*" multiple onchange={attach} hidden /></label>
     <textarea rows="1" bind:value={msg} onkeydown={sendKey} onfocus={() => setTimeout(() => end?.scrollIntoView({ block: 'end' }), 250)} placeholder={mode === 'work' ? 'Describe the change you want' : 'Message Claude'}></textarea>
-    <button class="btn primary" disabled={!msg.trim() || waiting || sending} onclick={send}>Send</button>
+    <button class="btn primary" disabled={(!msg.trim() && !attached.length) || waiting || sending} onclick={send}>Send</button>
   </div>
 </div>
 {/if}
@@ -166,7 +210,8 @@
   .tag { background: var(--blue-soft); color: var(--blue); border-radius: 999px; padding: 0 8px; font-size: 12px; font-weight: 600; }
   .work { margin: 6px 0; }
   .work pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; margin: 6px 0 10px; }
-  .row { display: grid; gap: 2px; width: 100%; text-align: left; margin: 8px 0; cursor: pointer; }
+  .item { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+  .row { display: grid; gap: 2px; flex: 1; min-width: 0; text-align: left; background: none; border: 0; padding: 0; color: inherit; font: inherit; cursor: pointer; }
   h1 { margin: 0 0 4px; font-size: 28px; }
   .pane { position: fixed; left: 0; right: 0; z-index: 15; display: flex; flex-direction: column; background: var(--bg); }
   .chead { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--line); }
@@ -181,7 +226,14 @@
   .idea { margin: 8px 0 2px; padding: 8px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
   .idea p { margin: 4px 0 8px; }
   .ok { margin: 10px 0; }
-  .send { display: flex; gap: 8px; align-items: end; padding: 8px 12px calc(8px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line); background: var(--surface); }
+  .pick { display: flex; gap: 8px; padding: 6px 12px 0; background: var(--surface); border-top: 1px solid var(--line); }
+  .pick select { flex: 1; min-width: 0; font-size: 14px; }
+  .th { display: block; max-width: 160px; max-height: 120px; border-radius: 8px; margin-bottom: 4px; }
+  .th.ph { width: 60px; height: 40px; background: var(--panel); }
+  .at { position: relative; }
+  .at .th { max-width: 64px; max-height: 64px; }
+  .x { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%; border: 0; background: var(--text); color: var(--bg); line-height: 1; }
+  .send { display: flex; gap: 8px; align-items: end; padding: 6px 12px calc(8px + env(safe-area-inset-bottom)); background: var(--surface); }
   .send textarea { flex: 1; font-size: 16px; max-height: 120px; resize: none; }
   .small { font-size: 13px; }
   button:disabled { opacity: 0.5; }

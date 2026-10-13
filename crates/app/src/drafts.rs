@@ -62,9 +62,13 @@ impl Api {
         let db = self.db.lock().unwrap();
         let Ok(mut st) = db.prepare("SELECT photos FROM drafts WHERE deleted=0 AND status NOT IN ('accepted','rejected')") else { return vec![] };
         let lists: Vec<String> = st.query_map([], |r| r.get(0)).map(|r| r.flatten().collect()).unwrap_or_default();
+        // Photos attached to chat messages travel the same way.
+        let chats: Vec<String> = db.prepare("SELECT msgs FROM talks WHERE deleted=0").and_then(|mut st| st.query_map([], |r| r.get(0)).map(|r| r.flatten().collect())).unwrap_or_default();
+        let from_chats = chats.iter().flat_map(|j| serde_json::from_str::<Vec<Value>>(j).unwrap_or_default()).flat_map(|m| talk_photos(&m));
         lists
             .iter()
             .flat_map(|j| serde_json::from_str::<Vec<String>>(j).unwrap_or_default())
+            .chain(from_chats)
             .filter(|n| valid_photo_name(n) && dir.join(n).exists() && !dir.join(format!("{n}.sent")).exists())
             .collect()
     }
@@ -75,24 +79,25 @@ impl Api {
         }
     }
 
+    /// Stores one base64 image (or data URL) as a photo file and returns its name.
+    pub(crate) fn photo_save(&self, p: &str) -> Result<String> {
+        let b64 = p.split_once(',').map_or(p, |(_, rest)| rest); // accept data URLs
+        let bytes = STANDARD.decode(b64.trim()).map_err(|_| anyhow!("a photo could not be read"))?;
+        if bytes.len() > MAX_PHOTO {
+            bail!("a photo is larger than 10 MB");
+        }
+        let ext = sniff(&bytes).ok_or_else(|| anyhow!("only JPEG and PNG photos are supported"))?;
+        let name = format!("{}.{ext}", new_id());
+        std::fs::write(self.photos_dir()?.join(&name), &bytes)?;
+        Ok(name)
+    }
+
     /// `photos` are base64 images (the UI shrinks them first). One draft per batch.
     pub(crate) fn draft_create(&self, photos: &[String], session_date: &str, tags: &str) -> Result<Value> {
         if photos.is_empty() || photos.len() > MAX_PHOTOS {
             bail!("add between 1 and {MAX_PHOTOS} photos");
         }
-        let dir = self.photos_dir()?;
-        let mut names = Vec::new();
-        for p in photos {
-            let b64 = p.split_once(',').map_or(p.as_str(), |(_, rest)| rest); // accept data URLs
-            let bytes = STANDARD.decode(b64.trim()).map_err(|_| anyhow!("a photo could not be read"))?;
-            if bytes.len() > MAX_PHOTO {
-                bail!("a photo is larger than 10 MB");
-            }
-            let ext = sniff(&bytes).ok_or_else(|| anyhow!("only JPEG and PNG photos are supported"))?;
-            let name = format!("{}.{ext}", new_id());
-            std::fs::write(dir.join(&name), &bytes)?;
-            names.push(name);
-        }
+        let names = photos.iter().map(|p| self.photo_save(p)).collect::<Result<Vec<_>>>()?;
         let (id, now) = (new_id(), now_ms());
         self.db.lock().unwrap().execute(
             "INSERT INTO drafts(id,created,updated,status,photos,session_date,tags) VALUES (?,?,?, 'queued', ?,?,?)",
@@ -183,6 +188,11 @@ impl Api {
         let mime = if name.ends_with(".png") { "image/png" } else { "image/jpeg" };
         Ok(json!({"data_url": format!("data:{mime};base64,{}", STANDARD.encode(bytes))}))
     }
+}
+
+/// Photo names attached to a chat message.
+pub(crate) fn talk_photos(m: &Value) -> Vec<String> {
+    m["photos"].as_array().into_iter().flatten().filter_map(Value::as_str).map(String::from).collect()
 }
 
 #[allow(dead_code)]

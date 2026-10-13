@@ -204,7 +204,10 @@ impl Api {
             "talk_finish" => self.talk_finish(&req("id")?, &req("how")?),
             "talk_retry" => self.talk_retry(&req("id")?),
             "talk_get" => self.talk_get(&req("id")?),
-            "talk_send" => self.talk_send(&req("id")?, &req("message")?),
+            "talk_send" => {
+                let photos: Vec<String> = args.get("photos").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(String::from).collect()).unwrap_or_default();
+                self.talk_send(&req("id")?, &req("message")?, &photos, a("model").as_deref(), a("effort").as_deref())
+            },
             "talk_idea" => self.talk_idea(&req("id")?, args.get("at").and_then(Value::as_i64).ok_or_else(|| anyhow!("missing `at`"))?, &req("decision")?),
             "talk_delete" => self.talk_delete(&req("id")?),
             "talk_ideas" => self.talk_ideas(),

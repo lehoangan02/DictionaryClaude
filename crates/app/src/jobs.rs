@@ -378,9 +378,26 @@ pub fn merge(versions: &[(&str, Vec<String>)]) -> Value {
 pub(crate) struct Agent {
     pub(crate) name: &'static str,
     pub(crate) bin: String,
+    /// Claude only: the model and effort the owner picked for a chat message (the CLI's own default when `None`).
+    pub(crate) model: Option<String>,
+    pub(crate) effort: Option<String>,
+    /// Claude only: a folder with the photos attached to the message, readable in addition to the working folder.
+    pub(crate) extra: Option<PathBuf>,
 }
 
 impl Agent {
+    fn pick(&self, c: &mut Command) {
+        if let Some(m) = &self.model {
+            c.args(["--model", m]);
+        }
+        if let Some(e) = &self.effort {
+            c.args(["--effort", e]);
+        }
+        if let Some(d) = &self.extra {
+            c.arg("--add-dir").arg(d);
+        }
+    }
+
     fn call(&self, dir: &Path, prompt: &str, effort: &str) -> Result<Vec<(String, bool, String)>> {
         match self.call_with(dir, prompt, Some(effort)) {
             // Some of agy's models take no effort setting: say nothing and use the model's own.
@@ -400,6 +417,7 @@ impl Agent {
         c.current_dir(dir).arg("-p").arg(prompt).args(["--output-format", "json", "--json-schema", schema]);
         c.args(["--permission-mode", "acceptEdits", "--allowedTools", "Read", "Edit", "Write", "Glob", "Grep", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git add:*)", "Bash(git commit:*)"]);
         c.arg("--add-dir").arg(dir).args(["--disallowedTools", "WebFetch", "WebSearch"]);
+        self.pick(&mut c);
         let r = run(c, Duration::from_secs(1500)).map_err(|e| anyhow!("{}: {e:#}", self.name))?;
         if let Some(why) = reported_error(&r.stdout).or_else(|| (!r.ok).then(|| r.stderr.lines().find(|l| !l.trim().is_empty()).unwrap_or("no output").trim().to_string())) {
             bail!("{} says: {why}", self.name);
@@ -415,6 +433,7 @@ impl Agent {
             // Read only: the Read tool for the photos, nothing that writes or browses.
             "claude" => {
                 c.args(["--allowedTools", "Read"]).arg("--add-dir").arg(dir).args(["--disallowedTools", "Bash", "Edit", "Write", "WebFetch", "WebSearch"]);
+                self.pick(&mut c);
             }
             // Plan mode keeps agy from editing anything.
             _ => {
@@ -621,7 +640,7 @@ impl Api {
         for (i, p) in photos.iter().enumerate() {
             std::fs::copy(p, scratch.join(format!("page{}.jpg", i + 1)))?;
         }
-        let claude = Agent { name: "claude", bin: self.env_or("LEXIS_CLAUDE_BIN", "claude") };
+        let claude = Agent { name: "claude", bin: self.env_or("LEXIS_CLAUDE_BIN", "claude"), model: None, effort: None, extra: None };
         self.count_agent_call();
         let prompt = chat_prompt(photos.len(), d["text"].as_str().unwrap_or(""), &chat);
         let out = claude.run_cli(&scratch, &prompt, CHAT_SCHEMA, None).and_then(|o| extract_chat(&o).ok_or_else(|| anyhow!("claude replied, but not in the expected form")));
@@ -669,7 +688,7 @@ impl Api {
         let wanted: Vec<Agent> = [("claude", self.env_or("LEXIS_CLAUDE_BIN", "claude")), ("agy", self.env_or("LEXIS_AGY_BIN", "agy"))]
             .into_iter()
             .filter(|(n, _)| mode == "both" || mode == *n)
-            .map(|(name, bin)| Agent { name: if name == "claude" { "claude" } else { "agy" }, bin })
+            .map(|(name, bin)| Agent { name: if name == "claude" { "claude" } else { "agy" }, bin, model: None, effort: None, extra: None })
             .collect();
         // Each round of each agent is one call against the daily allowance.
         let needed = (wanted.len() * if wanted.len() > 1 { 2 } else { 1 }) as i64;
