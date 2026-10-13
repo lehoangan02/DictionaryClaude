@@ -67,9 +67,10 @@ impl Api {
         if path.exists() {
             return Ok(path);
         }
-        // Wikimedia asks clients to identify themselves.
+        // Wikimedia asks clients to identify themselves with a way to reach them; without one it allows
+        // only a couple of files before answering 429 (seen 2026-10-13).
         let agent: ureq::Agent = ureq::Agent::config_builder()
-            .user_agent("LadyBird/0.1 (offline GRE dictionary; personal study app)")
+            .user_agent(concat!("LadyBird/", env!("CARGO_PKG_VERSION"), " (https://github.com/lehoangan02/DictionaryClaude) personal GRE study app"))
             .timeout_global(Some(Duration::from_secs(15)))
             .http_status_as_error(false)
             .build()
@@ -140,7 +141,7 @@ impl Api {
         // Two at a time with a short pause: four at once made Wikimedia ask us to slow down (429).
         for (n, group) in pending.iter().take(limit).collect::<Vec<_>>().chunks(2).enumerate() {
             if n > 0 {
-                std::thread::sleep(Duration::from_millis(700));
+                std::thread::sleep(Duration::from_millis(300));
             }
             let results: Vec<Result<PathBuf>> = std::thread::scope(|sc| {
                 let hs: Vec<_> = group.iter().map(|u| sc.spawn(move || self.audio_fetch(u))).collect();
