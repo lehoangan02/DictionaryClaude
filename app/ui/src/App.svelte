@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { app, boot, goBack, goForward, goTab, goHome, openSettings, closeSettings, trackLocation, listenForBack, keepDownloadsGoing, type Tab } from './lib/store.svelte';
+  import { app, boot, goBack, goForward, goTab, goHome, openMenu, closeMenu, menuToSettings, closeSettings, trackLocation, listenForBack, keepDownloadsGoing, type Tab } from './lib/store.svelte';
   import SearchBar from './SearchBar.svelte';
   import EntryView from './EntryView.svelte';
   import History from './History.svelte';
@@ -89,12 +89,12 @@
 
 <header class="top" class:scrolled>
   <div class="wrap bar">
+    <button class="gear" onclick={openMenu} aria-label="Menu"><Icon name="menu" size={26} /></button>
     <button class="brand" onclick={goHome} aria-label="Home">
       <Logo size={36} /><span class="name">LadyBird</span>
     </button>
     <div class="search"><SearchBar /></div>
     <ServerPill />
-    <button class="gear" onclick={openSettings} aria-label="Settings"><Icon name="settings" size={26} /></button>
   </div>
   <nav class="wrap desk" aria-label="Sections">
     {#each tabs as t (t.id)}
@@ -103,6 +103,14 @@
   </nav>
   <FindBar bind:this={find} />
 </header>
+
+{#if app.menu}
+  <div class="scrim" onclick={closeMenu} role="presentation"></div>
+  <aside class="drawer" aria-label="Menu" in:fly={{ x: -340, duration: 240 }} out:fly={{ x: -340, duration: 180 }}>
+    <div class="dhead">LadyBird</div>
+    <button class="item" onclick={menuToSettings}><Icon name="settings" size={24} /><span>Settings</span></button>
+  </aside>
+{/if}
 
 {#if app.settings}
   <div class="scrim" onclick={closeSettings} role="presentation"></div>
@@ -159,6 +167,14 @@
   .gear { background: none; border: 0; color: var(--muted); width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; flex: none; }
   .gear:hover { background: var(--panel-2); color: var(--text); }
   .scrim { position: fixed; inset: 0; z-index: 40; background: rgba(10, 20, 40, 0.38); }
+  .drawer {
+    position: fixed; z-index: 41; top: 0; left: 0; bottom: 0; width: min(340px, 86%);
+    background: var(--surface); box-shadow: 10px 0 40px rgba(16, 40, 80, 0.25); display: flex; flex-direction: column;
+    padding: calc(24px + env(safe-area-inset-top)) 12px 12px; border-radius: 0 24px 24px 0;
+  }
+  .dhead { font-size: 30px; font-weight: 700; padding: 8px 12px 22px; }
+  .item { display: flex; align-items: center; gap: 16px; background: none; border: 0; border-radius: 999px; padding: 14px 16px; font-size: 18px; color: var(--text); text-align: left; }
+  .item:hover, .item:active { background: var(--panel-2); }
   .panel {
     position: fixed; z-index: 41; top: 0; right: 0; bottom: 0; width: min(520px, 100%);
     background: var(--bg); box-shadow: -10px 0 40px rgba(16, 40, 80, 0.25); display: flex; flex-direction: column;

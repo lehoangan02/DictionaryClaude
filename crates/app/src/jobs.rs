@@ -542,9 +542,7 @@ impl Api {
             self.job_chat(&id)?;
             agents_done += 1;
         }
-        if self.job_talk()? {
-            agents_done += 1;
-        }
+        agents_done += self.job_talks()?;
         for id in asked {
             self.job_agents(&id)?;
             agents_done += 1;

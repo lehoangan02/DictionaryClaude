@@ -176,6 +176,14 @@ await m.screenshot({ path: `${OUT}/quiz-sessions-mobile.png`, fullPage: true });
 
 // ---- dictionary order in Settings ----
 const o = await newPage(1000, 900);
+await o.goto(BASE, { waitUntil: 'networkidle0' });
+await o.click('button[aria-label="Menu"]');
+await o.waitForSelector('.drawer .item');
+ok((await o.$eval('.drawer', (e) => e.textContent)).includes('Settings'), 'the left drawer has a Settings button');
+await o.click('.drawer .item');
+await o.waitForSelector('.panel');
+await o.waitForSelector('.drawer', { hidden: true, timeout: 3000 }).catch(() => {});
+ok(!(await o.$('.drawer')), 'Settings replaces the drawer');
 await o.goto(BASE + '?tab=settings', { waitUntil: 'networkidle0' });
 await o.waitForSelector('.order li');
 const names0 = await o.$$eval('.order .nm b', (b) => b.map((x) => x.textContent));
@@ -416,6 +424,8 @@ if (BASE_B && process.env.PAIR_A) {
 
   // The Claude tab is a general chat: a message goes out only when sent (the stand-in answers with an error, never spends quota).
   await a.goto(BASE + '?tab=claude', { waitUntil: 'networkidle0' });
+  await clickText(a, 'button', 'New chat');
+  await a.waitForSelector('.send textarea');
   ok(!(await a.$('.m')), 'the Claude chat is empty until the person writes');
   await a.type('.send textarea', 'The History tab feels slow');
   await clickText(a, '.send button', 'Send');

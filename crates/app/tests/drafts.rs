@@ -344,27 +344,31 @@ fn the_general_chat_answers_proposes_ideas_and_keeps_only_approved_ones() {
     std::env::set_var("LEXIS_REPO", &repo);
     std::env::set_var("LEXIS_CLAUDE_BIN", script(&bins, "claude", r#"case "$2" in *'OWNER: make it blue'*) printf '%s' '{"structured_output":{"reply":"Noted.","idea":{"title":"Blue theme","detail":"Add a blue accent."}}}' ;; *) echo '{"structured_output":{"reply":"It stores words by lemma."}}' ;; esac"#));
     std::env::set_var("LEXIS_AGENT_CAP", "8");
-    assert_eq!(api.call("talk_get", json!({})).unwrap()["msgs"], json!([]));
-    assert!(api.call("talk_send", json!({"message": " "})).is_err());
-    api.call("talk_send", json!({"message": "how are words stored?"})).unwrap();
-    assert!(api.call("talk_send", json!({"message": "again"})).is_err(), "one question at a time");
+    assert!(api.call("talk_list", json!({})).unwrap().as_array().unwrap().is_empty());
+    let c1 = api.call("talk_new", json!({})).unwrap()["id"].as_str().unwrap().to_string();
+    let c2 = api.call("talk_new", json!({})).unwrap()["id"].as_str().unwrap().to_string();
+    assert!(api.call("talk_send", json!({"id": c1, "message": " "})).is_err());
+    api.call("talk_send", json!({"id": c1, "message": "how are words stored?"})).unwrap();
+    assert!(api.call("talk_send", json!({"id": c1, "message": "again"})).is_err(), "one question at a time in a chat");
     api.call("run_jobs", json!({})).unwrap();
-    let t = api.call("talk_get", json!({})).unwrap();
+    let t = api.call("talk_get", json!({"id": c1})).unwrap();
     assert_eq!(t["state"], "");
+    assert_eq!(t["title"], "how are words stored?");
     assert_eq!(t["msgs"][1]["text"], "It stores words by lemma.");
     assert!(t["msgs"][1]["idea"].is_null());
 
-    api.call("talk_send", json!({"message": "make it blue"})).unwrap();
+    api.call("talk_send", json!({"id": c2, "message": "make it blue"})).unwrap();
     api.call("run_jobs", json!({})).unwrap();
-    let t = api.call("talk_get", json!({})).unwrap();
-    assert_eq!(t["msgs"][3]["idea"]["status"], "proposed");
+    let t = api.call("talk_get", json!({"id": c2})).unwrap();
+    assert_eq!(t["msgs"][1]["idea"]["status"], "proposed");
+    assert_eq!(api.call("talk_get", json!({"id": c1})).unwrap()["msgs"].as_array().unwrap().len(), 2, "chats are separate");
     assert!(api.call("talk_ideas", json!({})).unwrap().as_array().unwrap().is_empty());
-    let at = t["msgs"][3]["at"].as_i64().unwrap();
-    api.call("talk_idea", json!({"at": at, "decision": "approved"})).unwrap();
+    let at = t["msgs"][1]["at"].as_i64().unwrap();
+    api.call("talk_idea", json!({"id": c2, "at": at, "decision": "approved"})).unwrap();
     assert_eq!(api.call("talk_ideas", json!({})).unwrap()[0]["title"], "Blue theme");
-    // Clearing the chat keeps what was approved.
-    let t = api.call("talk_clear", json!({})).unwrap();
-    assert_eq!(t["msgs"].as_array().unwrap().len(), 1);
+    assert_eq!(api.call("talk_list", json!({})).unwrap().as_array().unwrap().len(), 2);
+    api.call("talk_delete", json!({"id": c1})).unwrap();
+    assert_eq!(api.call("talk_list", json!({})).unwrap().as_array().unwrap().len(), 1);
     assert_eq!(api.call("agent_status", json!({})).unwrap()["used_today"], 2);
     std::env::remove_var("LEXIS_REPO");
 }

@@ -16,6 +16,8 @@ export const app = $state({
   focus: false,
   // The settings side panel is open (it opens from the gear in the top bar, not from a tab).
   settings: false,
+  // The left drawer (menu) is open.
+  menu: false,
   // Bumped when the dictionary order changes so tabs redraw.
   orderVersion: 0,
 });
@@ -116,6 +118,18 @@ export function openSettings() {
   openDetail(() => (app.settings = false));
 }
 export function closeSettings() { closeDetail(); }
+export function openMenu() {
+  if (app.menu || app.settings) return;
+  app.menu = true;
+  openDetail(() => (app.menu = false));
+}
+export function closeMenu() { closeDetail(); }
+/** The drawer's Settings button: the drawer gives way to Settings in the same place of the Back trail. */
+export function menuToSettings() {
+  if (!app.menu) return openSettings();
+  app.menu = false; app.settings = true;
+  stack[stack.length - 1].close = () => (app.settings = false);
+}
 
 /** Closes the open detail the way Back does. */
 export function closeDetail() { if (top().close) back(); }

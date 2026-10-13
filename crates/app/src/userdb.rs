@@ -172,6 +172,10 @@ pub const MIGRATIONS: &[&str] = &[
         ON CONFLICT(tbl,id) DO UPDATE SET seq=excluded.seq;
     END;
     ",
+    // 8: several chats: each is its own row with a title (the start of its first message).
+    "
+    ALTER TABLE talks ADD COLUMN title TEXT NOT NULL DEFAULT '';
+    ",
 ];
 
 pub fn open(path: &Path) -> Result<Connection> {

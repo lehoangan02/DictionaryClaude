@@ -1,10 +1,13 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import { call } from './lib/api';
-  import { app, bump } from './lib/store.svelte';
+  import { app, bump, openDetail, closeDetail } from './lib/store.svelte';
 
   type Idea = { title: string; detail: string; status: 'proposed' | 'approved' | 'dismissed' };
   type Msg = { role: 'user' | 'claude' | 'error'; text: string; at: number; idea?: Idea };
+  type Chat = { id: string; title: string; state: string; updated: number; last: string };
+  let chats = $state<Chat[]>([]);
+  let cur = $state<string | null>(null);
   let msgs = $state<Msg[]>([]);
   let phase = $state('');
   let msg = $state('');
@@ -14,17 +17,21 @@
   const waiting = $derived(phase === 'asked' || phase === 'running');
   const approved = $derived(msgs.filter((m) => m.idea?.status === 'approved'));
 
+  async function loadList() { chats = await call('talk_list'); }
   async function load() {
-    const t = await call('talk_get');
+    await loadList();
+    if (!cur) return;
+    const t = await call('talk_get', { id: cur });
+    if (!chats.some((c) => c.id === cur)) { cur = null; return; }
     const grew = t.msgs.length !== msgs.length;
     msgs = t.msgs; phase = t.state;
     if (grew) { await tick(); end?.scrollIntoView({ block: 'end' }); }
   }
-  $effect(() => { void app.version; load().catch((e) => (error = e.message)); });
+  $effect(() => { void app.version; void cur; load().catch((e) => (error = e.message)); });
   onMount(() => {
     // The server answers; asking it for news brings the reply without waiting for the next background sync.
     const t = setInterval(async () => {
-      if (!waiting) return;
+      if (!waiting && !chats.some((c) => c.state)) return;
       await call('sync_now').catch(() => {});
       load().catch(() => {});
     }, 3000);
@@ -35,21 +42,40 @@
     const m = msg.trim();
     if (!m || waiting || sending) return;
     sending = true; error = '';
-    try { const t = await call('talk_send', { message: m }); msgs = t.msgs; phase = t.state; msg = ''; call('sync_now').catch(() => {}); bump(); await tick(); end?.scrollIntoView({ block: 'end' }); }
+    try { const t = await call('talk_send', { id: cur, message: m }); msgs = t.msgs; phase = t.state; msg = ''; call('sync_now').catch(() => {}); bump(); await tick(); end?.scrollIntoView({ block: 'end' }); }
     catch (e) { error = (e as Error).message; }
     sending = false;
   }
   function sendKey(e: KeyboardEvent) { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }
   async function decide(m: Msg, decision: string) {
-    try { const t = await call('talk_idea', { at: m.at, decision }); msgs = t.msgs; call('sync_now').catch(() => {}); } catch (e) { error = (e as Error).message; }
+    try { const t = await call('talk_idea', { id: cur, at: m.at, decision }); msgs = t.msgs; call('sync_now').catch(() => {}); } catch (e) { error = (e as Error).message; }
   }
-  async function clear() {
-    try { const t = await call('talk_clear'); msgs = t.msgs; phase = t.state; call('sync_now').catch(() => {}); } catch (e) { error = (e as Error).message; }
+  // Back from a chat returns to the list.
+  function openChat(id: string) { msgs = []; phase = ''; cur = id; openDetail(() => (cur = null)); }
+  async function newChat() { try { const t = await call('talk_new'); await loadList(); openChat(t.id); } catch (e) { error = (e as Error).message; } }
+  async function removeChat() {
+    if (!cur) return;
+    try { await call('talk_delete', { id: cur }); call('sync_now').catch(() => {}); closeDetail(); await loadList(); } catch (e) { error = (e as Error).message; }
   }
+  const ago = (t: number) => new Date(t).toLocaleDateString();
 </script>
 
+{#if cur === null}
 <h1>Claude</h1>
 <p class="muted">Ask about the app, report a problem or suggest a change. Claude reads the app's code to answer but changes nothing; what it suggests appears as an idea you approve or dismiss. Each message uses one agent call.</p>
+<p><button class="btn primary" onclick={newChat}>New chat</button></p>
+{#if error}<p class="err">{error}</p>{/if}
+{#each chats as c (c.id)}
+  <button class="card row" onclick={() => openChat(c.id)}>
+    <b>{c.title || 'New chat'}</b>
+    <span class="muted small">{c.state ? 'Claude is answering…' : c.last}</span>
+    <span class="muted small">{ago(c.updated)}</span>
+  </button>
+{:else}
+  <p class="empty">No chats yet.</p>
+{/each}
+{:else}
+<button class="btn small ghost" onclick={closeDetail}>← Chats</button>
 
 {#if approved.length}
   <details class="card ok">
@@ -91,9 +117,12 @@
   <textarea rows="2" bind:value={msg} onkeydown={sendKey} placeholder="Message Claude"></textarea>
   <button class="btn primary" disabled={!msg.trim() || waiting || sending} onclick={send}>Send</button>
 </div>
-{#if msgs.length}<p><button class="btn small ghost" disabled={waiting} onclick={clear}>Clear chat</button> <span class="muted small">Approved ideas stay.</span></p>{/if}
+<p><button class="btn small ghost" disabled={waiting} onclick={removeChat}>Delete this chat</button></p>
+
+{/if}
 
 <style>
+  .row { display: grid; gap: 2px; width: 100%; text-align: left; margin: 8px 0; cursor: pointer; }
   h1 { margin: 0 0 4px; font-size: 28px; }
   .msgs { display: grid; gap: 8px; margin: 14px 0; }
   .m { max-width: 92%; padding: 8px 12px; border-radius: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
