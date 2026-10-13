@@ -39,9 +39,13 @@ const why = (e: unknown) => (e instanceof Error ? e.message : String(e));
  * through the system audio output (its web view cannot play audio when
  * packaged); a browser uses an <audio> element and the browser's voice.
  */
-export async function speak(word: string, audio?: string): Promise<'recording' | 'voice'> {
+export async function speak(word: string, audio?: string, accent = ''): Promise<'recording' | 'voice'> {
   current?.pause();
   lastSpeakError = '';
+  // Another dictionary's word is read by the Oxford voice when the recordings are on this device.
+  if (!audio?.startsWith('oald:')) {
+    try { audio = (await call<{ url: string | null }>('audio_oald', { word, accent })).url ?? audio; } catch { /* keep the dictionary's own sound */ }
+  }
   if (isDesktopApp) {
     if (audio) {
       try { await native('play_audio', { url: audio }); return 'recording'; } catch (e) { lastSpeakError = why(e); /* offline and not saved yet */ }

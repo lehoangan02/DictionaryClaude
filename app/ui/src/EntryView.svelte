@@ -105,7 +105,7 @@
         </div>
         <div class="prons">
           {#each prons as p (p.accent + p.ipa)}
-            <button class="pron {accentColor(p.accent)}" onclick={async () => { noRec = (await speak(entry.word, p.audio)) === 'voice' && !!p.audio?.startsWith('oald:'); noRecWhy = lastSpeakError; }} aria-label="Pronounce{p.accent ? ' (' + p.accent + ')' : ''}">
+            <button class="pron {accentColor(p.accent)}" onclick={async () => { noRec = (await speak(entry.word, p.audio, p.accent)) === 'voice' && !!p.audio?.startsWith('oald:'); noRecWhy = lastSpeakError; }} aria-label="Pronounce{p.accent ? ' (' + p.accent + ')' : ''}">
               <Icon name="speaker" size={26} />
               {#if p.accent}<b>{p.accent}</b>{/if}
               {#if p.ipa}<span class="ipa">{p.ipa.startsWith('/') || p.ipa.startsWith('\\') ? p.ipa : '/' + p.ipa + '/'}</span>{/if}

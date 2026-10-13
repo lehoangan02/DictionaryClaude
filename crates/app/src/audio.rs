@@ -52,6 +52,26 @@ impl Api {
             .map_err(|_| anyhow!("OALD has no recording called {name}"))
     }
 
+    /// The Oxford recording for `word` in the given accent (`UK`, `US` or empty for UK first), as `oald:<name>`,
+    /// when the recordings pack is on this device and has one. Everything else falls back to the caller's own sound.
+    pub(crate) fn oald_recording(&self, word: &str, accent: &str) -> Option<String> {
+        let path = crate::packs::locate(&self.data_dir, &self.packs_dir, OALD_PACK);
+        if !path.exists() {
+            return None;
+        }
+        let conn = rusqlite::Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).ok()?;
+        let word = word.trim().to_lowercase();
+        let order: &[&str] = match accent {
+            "US" => &["us", "gb"],
+            _ => &["gb", "us"],
+        };
+        order.iter().find_map(|a| {
+            let name = format!("{word}#_{a}_");
+            let like = name.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_") + "%";
+            conn.query_row("SELECT name FROM audio WHERE name LIKE ? ESCAPE '\\' ORDER BY name LIMIT 1", [like], |r| r.get::<_, String>(0)).ok().map(|n| format!("{OALD_SCHEME}{n}"))
+        })
+    }
+
     fn audio_dir(&self) -> Result<PathBuf> {
         let d = self.data_dir.join("audio");
         std::fs::create_dir_all(&d)?;
@@ -125,6 +145,8 @@ impl Api {
         for k in keys {
             let url = wikt.pack.lock().unwrap().get(k)?.and_then(|e| e.blocks.iter().flat_map(|b| b.sounds.iter()).find_map(|s| s.audio.clone()));
             match url {
+                // The Oxford recording plays instead, so there is nothing to fetch for this word.
+                _ if self.oald_recording(k, "UK").is_some() => have += 1,
                 None => none += 1,
                 Some(u) if dir.join(cache_name(&u)).exists() => {
                     let _ = u;
@@ -186,6 +208,12 @@ mod tests {
         assert!(n.ends_with(".mp3") && cache_name("https://upload.wikimedia.org/a.ogg").ends_with(".ogg"));
     }
 
+    fn c2_insert(dir: &std::path::Path) {
+        let c = rusqlite::Connection::open(dir.join("packs/oald-audio.pack")).unwrap();
+        c.execute("INSERT INTO audio VALUES('laconic#_us_1', ?)", [vec![4u8]]).unwrap();
+        c.execute("INSERT INTO audio VALUES('laconically#_gb_1', ?)", [vec![5u8]]).unwrap();
+    }
+
     #[test]
     fn oald_recordings_come_from_the_pack_and_never_the_network() {
         let dir = std::env::temp_dir().join(format!("oald-play-{}", std::process::id()));
@@ -202,6 +230,10 @@ mod tests {
         assert_eq!(api.audio_bytes("oald:laconic#_gb_2").unwrap(), vec![1, 2, 3]);
         let v = api.audio_get("oald:laconic#_gb_2").unwrap();
         assert_eq!(v["data_url"], "data:audio/mpeg;base64,AQID");
+        c2_insert(&dir);
+        assert_eq!(api.oald_recording("Laconic", "").as_deref(), Some("oald:laconic#_gb_2"));
+        assert_eq!(api.oald_recording("laconic", "US").as_deref(), Some("oald:laconic#_us_1"));
+        assert_eq!(api.oald_recording("laconi", ""), None, "a longer headword is not a match");
         assert!(api.audio_bytes("oald:nothing#_gb_1").unwrap_err().to_string().contains("no recording"));
         std::fs::remove_dir_all(&dir).unwrap();
     }

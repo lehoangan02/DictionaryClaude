@@ -217,6 +217,7 @@ impl Api {
             "run_jobs" => self.run_jobs_once(),
             "photo_data" => self.photo_data(&req("name")?),
             "audio_get" => self.audio_get(&req("url")?),
+            "audio_oald" => Ok(json!({"url": self.oald_recording(&req("word")?, &a("accent").unwrap_or_default())})),
             "audio_prefetch" => self.audio_prefetch(n("limit", 20) as usize),
             "thesaurus" => Ok(self.thesaurus(&lemma::key(&req("word")?))?),
             "history_list" => self.history_list(a("q").as_deref(), n("limit", 100), n("offset", 0), args.get("starred").and_then(Value::as_bool).unwrap_or(false)),
