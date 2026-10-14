@@ -191,7 +191,8 @@
   }
   .top.scrolled { box-shadow: 0 1px 0 var(--line), 0 10px 28px rgba(16, 40, 80, 0.16); }
   .bar { display: flex; align-items: center; gap: 14px; padding-top: 10px; padding-bottom: 8px; }
-  .brand { background: none; border: 0; color: var(--blue); display: flex; align-items: center; gap: 8px; padding: 0; }
+  .brand { background: none; border: 0; color: var(--blue); display: flex; align-items: center; gap: 8px; padding: 4px 8px 4px 4px; margin-left: -4px; border-radius: 999px; flex: none; }
+  .brand:hover, .brand:active { background: var(--panel-2); }
   .name { font-weight: 700; font-size: 22px; letter-spacing: 0.2px; }
   .search { flex: 1; min-width: 0; }
   .desk { display: flex; gap: 2px; padding-bottom: 0; }

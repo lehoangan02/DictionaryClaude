@@ -241,7 +241,9 @@
   .at .th { max-width: 64px; max-height: 64px; }
   .x { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%; border: 0; background: var(--text); color: var(--bg); line-height: 1; }
   .send { display: flex; gap: 8px; align-items: end; padding: 6px 12px calc(8px + env(safe-area-inset-bottom)); background: var(--surface); }
-  .send textarea { flex: 1; font-size: 16px; max-height: 120px; resize: none; }
+  .send textarea { flex: 1; min-width: 0; font-size: 16px; line-height: 1.4; min-height: 44px; max-height: 120px; resize: none; field-sizing: content; }
+  .send .btn { height: 44px; flex: none; display: grid; place-items: center; }
+  .send label.btn { width: 44px; padding: 0; font-size: 20px; cursor: pointer; }
   .small { font-size: 13px; }
   button:disabled { opacity: 0.5; }
 </style>
