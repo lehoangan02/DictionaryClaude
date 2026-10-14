@@ -33,23 +33,39 @@ export function markMissing(word: string, isMissing: boolean) {
 
 export function open(word: string) {
   app.tab = 'search';
-  if (nav.stack[nav.i] === word) { app.word = word; return; }
+  if (nav.stack[nav.i] !== undefined && norm(nav.stack[nav.i]) === norm(word)) { app.word = word; return; }
   // Opening something new drops whatever was "forward" of here, and a word that turned out not to exist.
   const upto = nav.stack.slice(0, nav.i + 1); // through the word on screen (all of it from the home screen)
-  nav.stack = [...upto.filter((w) => !missing.has(w) && w !== word), word];
+  nav.stack = [...upto.filter((w) => !missing.has(w) && norm(w) !== norm(word)), word];
   nav.i = nav.stack.length - 1;
   app.word = word;
 }
 
-/** The next lookup comes from the Back/Forward arrows: it only re-reads a word, so it must not add a History row. */
+/** The next lookup comes from the Back/Forward arrows or the History list: it only re-reads a word, so it must not add a History row. */
 let stepped = false;
-export function takeStepped() { const s = stepped; stepped = false; return s; }
+let lastLook = '';
+/** Whether showing this word in this dictionary is a lookup History records: only a new word or dictionary, never a
+ *  step along the trail, a refresh (app.version bumps from sync, notes, Settings) or coming back to the Dictionary tab. */
+export function isLookup(word: string, source: string) {
+  const look = `${norm(word)}|${source}`;
+  const rec = !stepped && look !== lastLook;
+  stepped = false; lastLook = look;
+  return rec;
+}
 
 /** After a lookup that History recorded: the trail is History itself, standing on the word just looked up, whatever the dictionary. */
 export async function syncTrail(word: string) {
   await loadTrail();
-  const j = nav.stack.lastIndexOf(word);
+  const j = lastVisit(word);
   if (j >= 0) nav.i = j;
+}
+
+/** Roughly the server's lemma key: History groups by key, so the trail compares words the same way (Abate = abate). */
+const norm = (w: string) => w.normalize('NFKC').toLowerCase().replace(/[\u2018\u2019\u02BC]/g, "'").replace(/\s+/g, ' ').trim();
+function lastVisit(word: string) {
+  const k = norm(word);
+  for (let j = nav.stack.length - 1; j >= 0; j--) if (norm(nav.stack[j]) === k) return j;
+  return -1;
 }
 
 export const canBack = () => nav.i > 0;
@@ -67,9 +83,10 @@ export function goForward() { if (canForward()) { nav.i++; stepped = true; repla
 /** A word picked from the History list: stand on its latest visit in the trail, so Back and Forward are the words around that visit. */
 export async function openFromHistory(word: string) {
   await loadTrail(); // the trail as the History list shows it, not as this session's Back/Forward left it
-  const j = nav.stack.lastIndexOf(word);
+  const j = lastVisit(word);
   if (j < 0) { open(word); return; } // older than the trail: treat it as a new lookup
   nav.i = j;
+  if (norm(app.word) !== norm(word)) stepped = true; // the same visit, not a new one: History keeps its order
   show();
 }
 
@@ -94,8 +111,9 @@ function apply() {
   const t = top();
   app.tab = t.tab;
   if (t.tab === 'search') {
+    if (t.word && norm(t.word) !== norm(app.word)) stepped = true; // the system Back revisits a word; it is not a lookup
     app.word = t.word;
-    const j = t.word ? nav.stack.lastIndexOf(t.word) : -1;
+    const j = t.word ? lastVisit(t.word) : -1;
     if (j >= 0) nav.i = j; else if (!t.word) nav.i = nav.stack.length;
   }
 }
@@ -185,12 +203,14 @@ export function listenForBack() {
   arm();
 }
 
-/** Recent lookups (oldest first) so Back works across restarts. */
+/** The History list (oldest first, as many rows as the History tab shows) so Back and Forward walk exactly that list. */
 export async function loadTrail() {
   try {
-    const rows: { word: string }[] = await call('history_list', { limit: 40 });
+    const rows: { word: string; key: string }[] = await call('history_list', { limit: 300 });
     const words: string[] = [];
-    for (const r of rows.reverse()) if (words.at(-1) !== r.word) words.push(r.word);
+    let last = '';
+    // One stop per run of the same word, however many dictionaries it was opened in (as the History tab shows it).
+    for (const r of rows.reverse()) if (r.key !== last) { words.push(r.word); last = r.key; }
     nav.stack = words;
     nav.i = words.length; // on home: Back goes to the most recent word
   } catch { /* history is optional */ }
@@ -201,7 +221,7 @@ async function refreshTrail() {
   const word = app.tab === 'search' ? app.word : '';
   await loadTrail();
   if (!word) return;
-  const j = nav.stack.lastIndexOf(word);
+  const j = lastVisit(word);
   if (j >= 0) nav.i = j;
 }
 

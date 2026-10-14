@@ -287,6 +287,11 @@ ok(/\/ 20/.test(await m.$eval('body', (e) => e.innerText)), 'the pretest finishe
   await k.keyboard.press('ArrowRight');
   await hwIs('loquacious');
   ok(true, 'Right arrow goes forward again');
+  // Opening from History and stepping with the arrows are visits, not lookups: History keeps its order, so the arrows still match it.
+  const order = await k.evaluate(async () => (await (await fetch('/api/history_list', { method: 'POST', body: '{"limit":3}' })).json()).map((r) => r.word).join(' '));
+  ok(order === 'abate loquacious taciturn', `History is unchanged by the History list and the arrows (${order})`);
+  ok((await text(k, '.hn button:first-child span')) === 'taciturn' && (await text(k, '.hn button.r span')) === 'abate',
+    'the arrows are the History neighbours of the word on screen');
 
   // Up / Down scroll the page.
   await k.keyboard.press('ArrowDown');

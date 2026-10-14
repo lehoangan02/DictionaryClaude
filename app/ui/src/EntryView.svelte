@@ -2,7 +2,7 @@
   let noRec = $state(false);
   let noRecWhy = $state('');
   import { call } from './lib/api';
-  import { app, open, goTab, setSource, orderedSources, markMissing, takeStepped, syncTrail } from './lib/store.svelte';
+  import { app, open, goTab, setSource, orderedSources, markMissing, isLookup, syncTrail } from './lib/store.svelte';
   import { highlight, posLabel, pronunciations, speak, lastSpeakError } from './lib/format';
   import Thesaurus from './Thesaurus.svelte';
   import HistoryNav from './HistoryNav.svelte';
@@ -23,7 +23,7 @@
     if (!word) { data = null; return; }
     const mine = ++seq;
     loading = true; error = '';
-    const record = !takeStepped();
+    const record = isLookup(word, source);
     call('entry', { word, source, record })
       .then(async (d) => {
         if (mine !== seq) return;
