@@ -94,9 +94,9 @@ fn work_prompt(msgs: &[Value], branch: &str) -> String {
     format!(
         "You are working on LadyBird, the owner's offline GRE dictionary app, at the owner's request from their phone. The current folder is a private git worktree on branch {branch}: \
          change the app here and nowhere else. Read CLAUDE.md first and follow it (never touch private/, never put copyrighted text in the repo, keep the style of the surrounding code). \
-         Do the task the owner asked for in their last message, carefully and completely, and keep docs/ROADMAP.md true. \
+         If the owner only asks a question or chats, just answer and change nothing. Otherwise do what they asked in their last message, carefully and completely, and keep docs/ROADMAP.md true. \
          Do not build or run tests (they are slow; the owner checks before merging) and run no program other than git. \
-         When finished, commit all your changes on this branch with git (one clear message). Never push, never switch or create branches, never merge. \
+         When you changed files, commit all your changes on this branch with git (one clear message). Never push, never switch or create branches, never merge. \
          Then reply briefly and plainly, in the language the owner used, saying what you changed and anything they should check. \
          The conversation so far:\n{talk}\n\
          Reply with JSON only: {{\"reply\":string}}"
@@ -235,13 +235,18 @@ impl Api {
 
     /// Asks the server to merge (or throw away) the work of a task chat.
     pub(crate) fn talk_finish(&self, id: &str, how: &str) -> Result<Value> {
-        if !matches!(how, "merge" | "discard") {
-            bail!("how must be merge or discard");
+        if !matches!(how, "merge" | "discard" | "release_patch" | "release_minor") {
+            bail!("how must be merge, discard, release_patch or release_minor");
         }
-        let (_, state, msgs) = self.talk_load(id)?;
+        let (_, state, mut msgs) = self.talk_load(id)?;
         let (_, branch, _) = self.talk_meta(id)?;
-        if branch.is_empty() || !state.is_empty() {
+        let release = how.starts_with("release");
+        if !state.is_empty() || (branch.is_empty() != release) {
             bail!("there is nothing to {how} right now");
+        }
+        if release {
+            let offer = msgs.iter_mut().rev().find(|m| m["offer"] == "release").ok_or_else(|| anyhow!("there is nothing to release"))?;
+            offer["offer"] = json!("used");
         }
         self.talk_save(id, how, &msgs)?;
         self.talk_get(id)
@@ -298,7 +303,7 @@ impl Api {
     pub(crate) fn job_talks(&self) -> Result<usize> {
         let ids: Vec<String> = {
             let db = self.db.lock().unwrap();
-            let mut st = db.prepare("SELECT id FROM talks WHERE state IN ('asked','merge','discard') AND deleted=0 ORDER BY updated LIMIT 3")?;
+            let mut st = db.prepare("SELECT id FROM talks WHERE state IN ('asked','merge','discard','release_patch','release_minor') AND deleted=0 ORDER BY updated LIMIT 3")?;
             let rows = st.query_map([], |r| r.get(0))?.collect::<std::result::Result<Vec<String>, _>>()?;
             rows
         };
@@ -307,6 +312,7 @@ impl Api {
             let state = self.talk_load(&id)?.1;
             match state.as_str() {
                 "asked" => ran += self.job_talk(&id)? as usize,
+                how if how.starts_with("release") => self.job_release(&id, how)?,
                 how => self.job_finish(&id, how)?,
             }
         }
@@ -334,7 +340,7 @@ impl Api {
                     bail!("it does not merge cleanly ({e}); the work is still on branch {branch}");
                 }
                 let _ = git(&repo, &["branch", "-d", &branch]);
-                Ok("Merged into the app's main branch. It goes out with the next release.".into())
+                Ok("Merged into the app's main branch on the server. Press Release to build and publish it.".into())
             } else {
                 let _ = git(&repo, &["branch", "-D", &branch]);
                 Ok("Discarded.".into())
@@ -343,6 +349,9 @@ impl Api {
         match done {
             Ok(t) => {
                 say(&mut msgs, "claude", t);
+                if how == "merge" {
+                    msgs.last_mut().unwrap()["offer"] = json!("release");
+                }
                 self.db.lock().unwrap().execute("UPDATE talks SET branch='', changes='' WHERE id=?1", [id])?;
                 self.talk_save(id, "", &msgs)?;
                 // A chat deleted with unmerged work: the branch is gone now, so the chat can go too.
@@ -356,6 +365,40 @@ impl Api {
             }
         }
         Ok(())
+    }
+
+    /// Builds and publishes a release of what is merged (`scripts/release.sh --publish`). Server side;
+    /// it takes many minutes, and the chat shows `releasing` until it ends. Only the owner's button starts it.
+    fn job_release(&self, id: &str, how: &str) -> Result<()> {
+        let (_, _, mut msgs) = self.talk_load(id)?;
+        self.talk_save(id, "releasing", &msgs)?;
+        let result: Result<String> = (|| {
+            let repo = self.repo_dir().ok_or_else(|| anyhow!("the app's source is not on this server"))?;
+            let tag = git(&repo, &["describe", "--tags", "--abbrev=0", "--match", "v*"])?;
+            let n: Vec<u32> = tag.trim_start_matches('v').split('.').filter_map(|p| p.parse().ok()).collect();
+            if n.len() != 3 || n[0] != 0 {
+                bail!("the last tag {tag} is not 0.MINOR.PATCH");
+            }
+            let version = if how == "release_minor" { format!("0.{}.0", n[1] + 1) } else { format!("0.{}.{}", n[1], n[2] + 1) };
+            let mut c = Command::new("bash");
+            c.current_dir(&repo).arg("scripts/release.sh").arg(&version).arg("--publish");
+            let r = crate::jobs::run(c, std::time::Duration::from_secs(5400))?;
+            if !r.ok {
+                let tail = |s: &str| s.lines().rev().take(6).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
+                bail!("the release {version} failed:\n{}\n{}", tail(&r.stdout), tail(&r.stderr));
+            }
+            Ok(format!("Released {version}. The apps offer it as an update; the Mac build is attached a few minutes later."))
+        })();
+        match result {
+            Ok(t) => msgs.push(json!({"role": "claude", "text": t, "at": now_ms()})),
+            Err(e) => {
+                if let Some(m) = msgs.iter_mut().rev().find(|m| m["offer"] == "used") {
+                    m["offer"] = json!("release");
+                }
+                msgs.push(json!({"role": "error", "text": format!("{e:#}"), "at": now_ms()}));
+            }
+        }
+        self.talk_save(id, "", &msgs)
     }
 
     /// A task: Claude edits a private copy of the app on its own branch. True when it ran Claude.
@@ -392,7 +435,14 @@ impl Api {
         }
         let base = git(&repo, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_else(|_| "HEAD".into());
         let stat = git(&repo, &["diff", "--stat", &format!("{base}...{branch}")]).unwrap_or_default();
-        self.db.lock().unwrap().execute("UPDATE talks SET changes=?2 WHERE id=?1", params![id, stat])?;
+        if stat.is_empty() && out.is_ok() {
+            // A plain question: nothing changed, so leave no branch or private copy behind.
+            let _ = git(&repo, &["worktree", "remove", "--force", &path.to_string_lossy()]);
+            let _ = git(&repo, &["branch", "-D", &branch]);
+            self.db.lock().unwrap().execute("UPDATE talks SET branch='', changes='' WHERE id=?1", [id])?;
+        } else {
+            self.db.lock().unwrap().execute("UPDATE talks SET changes=?2 WHERE id=?1", params![id, stat])?;
+        }
         match out {
             Ok((reply, _)) => {
                 msgs.push(json!({"role": "claude", "text": reply, "at": now_ms()}));

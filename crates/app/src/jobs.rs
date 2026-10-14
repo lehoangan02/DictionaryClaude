@@ -27,13 +27,13 @@ const OCR_TIMEOUT: Duration = Duration::from_secs(90);
 const SCHEMA: &str = r#"{"type":"object","properties":{"lines":{"type":"array","items":{"type":"object","properties":{"text":{"type":"string"},"unsure":{"type":"boolean"},"reason":{"type":"string"}},"required":["text","unsure"]}}},"required":["lines"]}"#;
 
 /// Output captured from a child process, killed if it overruns.
-struct Ran {
-    stdout: String,
-    stderr: String,
-    ok: bool,
+pub(crate) struct Ran {
+    pub(crate) stdout: String,
+    pub(crate) stderr: String,
+    pub(crate) ok: bool,
 }
 
-fn run(mut cmd: Command, limit: Duration) -> Result<Ran> {
+pub(crate) fn run(mut cmd: Command, limit: Duration) -> Result<Ran> {
     let mut child = cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| anyhow!("could not start the program ({e})"))?;
     // Drain both pipes on threads so a chatty child cannot block on a full pipe.
     let mut out = child.stdout.take().unwrap();

@@ -5,7 +5,7 @@
   import { app, bump, openDetail, closeDetail } from './lib/store.svelte';
 
   type Idea = { title: string; detail: string; status: 'proposed' | 'approved' | 'dismissed' };
-  type Msg = { role: 'user' | 'claude' | 'error'; text: string; at: number; idea?: Idea; photos?: string[] };
+  type Msg = { role: 'user' | 'claude' | 'error'; text: string; at: number; idea?: Idea; photos?: string[]; offer?: string };
   type Chat = { id: string; title: string; state: string; updated: number; last: string; mode: string };
   let chats = $state<Chat[]>([]);
   let cur = $state<string | null>(null);
@@ -52,9 +52,9 @@
     top = Math.round(document.querySelector('.top')?.getBoundingClientRect().bottom ?? 120);
   }
   $effect(() => { app.focus = cur !== null; measure(); return () => { app.focus = false; }; });
-  const waiting = $derived(phase === 'asked' || phase === 'running');
+  const waiting = $derived(['asked', 'running', 'releasing'].includes(phase));
   // Nobody answered for a minute (the server away or out of date): offer to ask again.
-  const stuck = $derived(waiting && now - since > 60000);
+  const stuck = $derived((phase === 'asked' || phase === 'running') && now - since > 60000);
   const approved = $derived(msgs.filter((m) => m.idea?.status === 'approved'));
 
   async function loadList() { chats = await call('talk_list'); }
@@ -95,7 +95,7 @@
   }
   // Back from a chat returns to the list.
   function openChat(id: string) { msgs = []; phase = ''; cur = id; openDetail(() => (cur = null)); }
-  async function newChat(m = 'ask') { try { const t = await call('talk_new', { mode: m }); await loadList(); openChat(t.id); } catch (e) { error = (e as Error).message; } }
+  async function newChat(m = 'work') { try { const t = await call('talk_new', { mode: m }); await loadList(); openChat(t.id); } catch (e) { error = (e as Error).message; } }
   async function removeChat() {
     if (!cur) return;
     try { await call('talk_delete', { id: cur }); call('sync_now').catch(() => {}); closeDetail(); await loadList(); } catch (e) { error = (e as Error).message; }
@@ -104,7 +104,7 @@
     try { const t = await call('talk_retry', { id: cur }); phase = t.state; since = t.updated; call('sync_now').catch(() => {}); } catch (e) { error = (e as Error).message; }
   }
   let sure = $state(false);
-  async function finish(how: 'merge' | 'discard') {
+  async function finish(how: 'merge' | 'discard' | 'release_patch' | 'release_minor') {
     if (how === 'discard' && !sure) { sure = true; return; }
     sure = false;
     try { const t = await call('talk_finish', { id: cur, how }); phase = t.state; call('sync_now').catch(() => {}); } catch (e) { error = (e as Error).message; }
@@ -121,14 +121,13 @@
 
 {#if cur === null}
 <h1>Claude</h1>
-<p class="muted">Ask about the app, report a problem or suggest a change. In a chat Claude reads the app's code and changes nothing; what it suggests appears as an idea you approve or dismiss. In a task Claude changes the app on its own copy, and nothing reaches the app until you press Merge. Each message uses one agent call.</p>
-<p class="row2"><button class="btn primary" onclick={() => newChat('ask')}>New chat</button> <button class="btn" onclick={() => newChat('work')}>New task</button></p>
-<p class="muted small">A chat answers and suggests. A task lets Claude change the app on its own copy; you read what it changed and press Merge or Discard.</p>
+<p class="muted">Ask about the app or ask for a change. When you ask for a change Claude makes it on its own copy of the app; you read what changed and press Merge, then Release to build and publish the update. Nothing reaches the app without your buttons. Each message uses one agent call. Older read-only chats stay read-only: start a new chat to change the app.</p>
+<p class="row2"><button class="btn primary" onclick={() => newChat('work')}>New chat</button></p>
 {#if error}<p class="err">{error}</p>{/if}
 {#each chats as c (c.id)}
   <div class="card item">
     <button class="row" onclick={() => openChat(c.id)}>
-      <b>{c.title || (c.mode === 'work' ? 'New task' : 'New chat')}{#if c.mode === 'work'} <span class="tag">Task</span>{/if}</b>
+      <b>{c.title || 'New chat'}{#if c.mode !== 'work'} <span class="tag">Read-only</span>{/if}</b>
       <span class="muted small">{c.state ? 'Claude is answering…' : c.last}</span>
       <span class="muted small">{ago(c.updated)}</span>
     </button>
@@ -142,7 +141,7 @@
 <div class="pane" style="top:{top}px;height:{Math.max(220, vh - top)}px">
   <div class="chead">
     <button class="gbtn" onclick={closeDetail} aria-label="Back to chats">←</button>
-    <b class="ct">{chats.find((c) => c.id === cur)?.title || (mode === 'work' ? 'New task' : 'New chat')}</b>
+    <b class="ct">{chats.find((c) => c.id === cur)?.title || 'New chat'}</b>
     <button class="btn small ghost" disabled={waiting} onclick={removeChat}>Delete</button>
   </div>
   <div class="msgs" aria-live="polite" bind:this={scroller}>
@@ -175,7 +174,7 @@
     {:else}
       <p class="empty">Nothing yet. Try “the History tab feels slow” or “how does the quiz pick words?”.</p>
     {/each}
-    {#if waiting}<div class="m ai wait">{mode === 'work' ? 'Claude is working on it… this can take several minutes.' : 'Claude is thinking…'}
+    {#if waiting}<div class="m ai wait">{phase === 'releasing' ? 'Building and publishing the release… this takes many minutes.' : mode === 'work' ? 'Claude is working on it… this can take several minutes.' : 'Claude is thinking…'}
       {#if stuck}<br /><span class="small">No answer yet. </span><button class="btn small" onclick={retry}>Try again</button>{/if}</div>{/if}
     {#if branch && !waiting}
       <div class="card work">
@@ -183,6 +182,14 @@
         <pre>{changes || 'No files changed.'}</pre>
         <button class="btn small primary" disabled={!changes} onclick={() => finish('merge')}>Merge into the app</button>
         <button class="btn small ghost" onclick={() => finish('discard')}>{sure ? 'Really throw the changes away?' : 'Discard'}</button>
+      </div>
+    {/if}
+    {#if !waiting && msgs.at(-1)?.offer === 'release'}
+      <div class="card work">
+        <b>Publish this update?</b>
+        <p class="muted small">Runs the tests, builds the apps and publishes a GitHub release. Fix = small change; New feature = visible change.</p>
+        <button class="btn small primary" onclick={() => finish('release_patch')}>Release as a fix</button>
+        <button class="btn small" onclick={() => finish('release_minor')}>Release as a new feature</button>
       </div>
     {/if}
     <span bind:this={end}></span>
@@ -199,7 +206,7 @@
   </div>
   <div class="send">
     <label class="btn ghost" aria-label="Attach photos">📎<input type="file" accept="image/*" multiple onchange={attach} hidden /></label>
-    <textarea rows="1" bind:value={msg} onkeydown={sendKey} onfocus={() => setTimeout(() => end?.scrollIntoView({ block: 'end' }), 250)} placeholder={mode === 'work' ? 'Describe the change you want' : 'Message Claude'}></textarea>
+    <textarea rows="1" bind:value={msg} onkeydown={sendKey} onfocus={() => setTimeout(() => end?.scrollIntoView({ block: 'end' }), 250)} placeholder={mode === 'work' ? 'Ask a question or describe a change' : 'Message Claude'}></textarea>
     <button class="btn primary" disabled={(!msg.trim() && !attached.length) || waiting || sending} onclick={send}>Send</button>
   </div>
 </div>
