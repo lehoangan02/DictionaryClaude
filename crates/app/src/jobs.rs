@@ -63,6 +63,86 @@ pub(crate) fn run(mut cmd: Command, limit: Duration) -> Result<Ran> {
     Ok(Ran { stdout: t_out.join().unwrap_or_default(), stderr: t_err.join().unwrap_or_default(), ok: status.success() })
 }
 
+/// Like `run`, but hands every line the child prints to `on_line` as it arrives (for the agents' stream-json progress).
+pub(crate) fn run_stream(mut cmd: Command, limit: Duration, mut on_line: impl FnMut(&str)) -> Result<Ran> {
+    let mut child = cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(|e| anyhow!("could not start the program ({e})"))?;
+    let out = child.stdout.take().unwrap();
+    let mut err = child.stderr.take().unwrap();
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    std::thread::spawn(move || {
+        use std::io::BufRead;
+        for l in std::io::BufReader::new(out).lines().map_while(std::result::Result::ok) {
+            if tx.send(l).is_err() {
+                break;
+            }
+        }
+    });
+    let t_err = std::thread::spawn(move || {
+        let mut s = String::new();
+        let _ = err.read_to_string(&mut s);
+        s
+    });
+    let start = Instant::now();
+    let mut stdout = String::new();
+    loop {
+        match rx.recv_timeout(Duration::from_millis(200)) {
+            Ok(l) => {
+                on_line(&l);
+                stdout.push_str(&l);
+                stdout.push('\n');
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+        if start.elapsed() > limit {
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!("timed out after {}s", limit.as_secs());
+        }
+    }
+    let status = child.wait()?;
+    Ok(Ran { stdout, stderr: t_err.join().unwrap_or_default(), ok: status.success() })
+}
+
+/// What a stream-json line of `claude -p` shows the owner: the tools it uses and the thoughts it says aloud,
+/// each as `kind|text` (kinds: read, edit, search, run, say).
+pub(crate) fn describe_event(line: &str) -> Vec<String> {
+    let Ok(v) = serde_json::from_str::<Value>(line) else { return vec![] };
+    if v["type"] != "assistant" {
+        return vec![];
+    }
+    let short = |s: &str, n: usize| -> String {
+        let one = s.split_whitespace().collect::<Vec<_>>().join(" ");
+        if one.chars().count() > n { format!("{}…", one.chars().take(n).collect::<String>()) } else { one }
+    };
+    let file = |i: &Value| i["file_path"].as_str().or_else(|| i["path"].as_str()).map(|p| p.rsplit('/').next().unwrap_or(p).to_string()).unwrap_or_default();
+    v["message"]["content"].as_array().map(|parts| {
+        parts.iter().filter_map(|c| match c["type"].as_str()? {
+            "text" => Some(format!("say|{}", short(c["text"].as_str()?, 240))).filter(|_| !c["text"].as_str().unwrap_or("").trim().is_empty()),
+            "tool_use" => {
+                let i = &c["input"];
+                Some(match c["name"].as_str()? {
+                    "Read" => format!("read|Read {}", file(i)),
+                    "Edit" | "MultiEdit" => format!("edit|Edit {}", file(i)),
+                    "Write" => format!("edit|Write {}", file(i)),
+                    "Grep" => format!("search|Search for “{}”", short(i["pattern"].as_str().unwrap_or(""), 60)),
+                    "Glob" => format!("search|Find files {}", short(i["pattern"].as_str().unwrap_or(""), 60)),
+                    "Bash" => format!("run|{}", short(i["command"].as_str().unwrap_or(""), 90)),
+                    // The schema's answer is the reply itself, not a step.
+                    "StructuredOutput" => return None,
+                    other => format!("run|{other}"),
+                })
+            }
+            _ => None,
+        }).collect()
+    }).unwrap_or_default()
+}
+
+/// The final `result` line of a stream-json run (what the plain json format prints alone); the whole text if there is none.
+fn final_result(stdout: &str) -> String {
+    stdout.lines().rev().find(|l| serde_json::from_str::<Value>(l).is_ok_and(|v| v["type"] == "result")).map(str::to_string).unwrap_or_else(|| stdout.to_string())
+}
+
 /// Cleans up how OCR (and tired handwriting) renders the relation symbols.
 pub fn normalize_symbols(text: &str) -> String {
     let mut out = Vec::new();
@@ -407,28 +487,44 @@ impl Agent {
     }
 
     fn call_with(&self, dir: &Path, prompt: &str, effort: Option<&str>) -> Result<Vec<(String, bool, String)>> {
-        let out = self.run_cli(dir, prompt, SCHEMA, effort)?;
+        let out = self.run_cli(dir, prompt, SCHEMA, effort, None)?;
         extract_lines(&out).ok_or_else(|| anyhow!("{} replied, but not in the expected form", self.name))
     }
 
     /// A task chat: Claude may edit files in `dir` (a private worktree on its own branch) and use git there, nothing else.
-    pub(crate) fn run_work(&self, dir: &Path, prompt: &str, schema: &str) -> Result<String> {
+    pub(crate) fn run_work(&self, dir: &Path, prompt: &str, schema: &str, live: Option<&mut dyn FnMut(String)>) -> Result<String> {
         let mut c = Command::new(&self.bin);
-        c.current_dir(dir).arg("-p").arg(prompt).args(["--output-format", "json", "--json-schema", schema]);
+        c.current_dir(dir).arg("-p").arg(prompt).args(["--output-format", if live.is_some() { "stream-json" } else { "json" }, "--json-schema", schema]);
+        if live.is_some() {
+            c.arg("--verbose");
+        }
         c.args(["--permission-mode", "acceptEdits", "--allowedTools", "Read", "Edit", "Write", "Glob", "Grep", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git add:*)", "Bash(git commit:*)"]);
         c.arg("--add-dir").arg(dir).args(["--disallowedTools", "WebFetch", "WebSearch"]);
         self.pick(&mut c);
-        let r = run(c, Duration::from_secs(1500)).map_err(|e| anyhow!("{}: {e:#}", self.name))?;
+        let mut r = Self::exec(c, Duration::from_secs(1500), live).map_err(|e| anyhow!("{}: {e:#}", self.name))?;
+        r.stdout = final_result(&r.stdout);
         if let Some(why) = reported_error(&r.stdout).or_else(|| (!r.ok).then(|| r.stderr.lines().find(|l| !l.trim().is_empty()).unwrap_or("no output").trim().to_string())) {
             bail!("{} says: {why}", self.name);
         }
         Ok(r.stdout)
     }
 
+    /// Runs the command; with `live`, each tool use or remark of the agent is passed on as it happens.
+    fn exec(c: Command, limit: Duration, live: Option<&mut dyn FnMut(String)>) -> Result<Ran> {
+        match live {
+            Some(f) => run_stream(c, limit, |l| describe_event(l).into_iter().for_each(&mut *f)),
+            None => run(c, limit),
+        }
+    }
+
     /// One non-interactive call of the CLI in `dir`; its raw output, or what it reported as the error.
-    pub(crate) fn run_cli(&self, dir: &Path, prompt: &str, schema: &str, effort: Option<&str>) -> Result<String> {
+    pub(crate) fn run_cli(&self, dir: &Path, prompt: &str, schema: &str, effort: Option<&str>, live: Option<&mut dyn FnMut(String)>) -> Result<String> {
+        let live = live.filter(|_| self.name == "claude");
         let mut c = Command::new(&self.bin);
-        c.current_dir(dir).arg("-p").arg(prompt).args(["--output-format", "json", "--json-schema", schema]);
+        c.current_dir(dir).arg("-p").arg(prompt).args(["--output-format", if live.is_some() { "stream-json" } else { "json" }, "--json-schema", schema]);
+        if live.is_some() {
+            c.arg("--verbose");
+        }
         match self.name {
             // Read only: the Read tool for the photos, nothing that writes or browses.
             "claude" => {
@@ -443,7 +539,8 @@ impl Agent {
                 }
             }
         }
-        let r = run(c, AGENT_TIMEOUT).map_err(|e| anyhow!("{}: {e:#}", self.name))?;
+        let mut r = Self::exec(c, AGENT_TIMEOUT, live).map_err(|e| anyhow!("{}: {e:#}", self.name))?;
+        r.stdout = final_result(&r.stdout);
         // Errors (quota reached, not signed in) come back as JSON on stdout or as text on stderr:
         // say what they say rather than guessing.
         if let Some(why) = reported_error(&r.stdout).or_else(|| (!r.ok).then(|| r.stderr.lines().find(|l| !l.trim().is_empty()).unwrap_or("no output").trim().to_string())) {
@@ -643,7 +740,7 @@ impl Api {
         let claude = Agent { name: "claude", bin: self.env_or("LEXIS_CLAUDE_BIN", "claude"), model: None, effort: None, extra: None };
         self.count_agent_call();
         let prompt = chat_prompt(photos.len(), d["text"].as_str().unwrap_or(""), &chat);
-        let out = claude.run_cli(&scratch, &prompt, CHAT_SCHEMA, None).and_then(|o| extract_chat(&o).ok_or_else(|| anyhow!("claude replied, but not in the expected form")));
+        let out = claude.run_cli(&scratch, &prompt, CHAT_SCHEMA, None, None).and_then(|o| extract_chat(&o).ok_or_else(|| anyhow!("claude replied, but not in the expected form")));
         let _ = std::fs::remove_dir_all(&scratch);
         match out {
             Ok((reply, text)) => {
@@ -924,5 +1021,17 @@ mod join_tests {
     fn a_capitalised_or_long_line_stays_separate() {
         assert_eq!(join_continuations("a = b\nFeign this and that\nc = d"), "a = b\nFeign this and that\nc = d");
         assert_eq!(join_continuations("a = b\none two three four five six seven\nc = d").lines().count(), 3);
+    }
+}
+
+#[cfg(test)]
+mod describe_tests {
+    use super::*;
+    #[test]
+    fn shows_tools_and_remarks() {
+        let l = r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Looking at the chat box"},{"type":"tool_use","name":"Read","input":{"file_path":"/a/b/Claude.svelte"}},{"type":"tool_use","name":"Bash","input":{"command":"git status --short"}},{"type":"tool_use","name":"StructuredOutput","input":{}}]}}"#;
+        assert_eq!(describe_event(l), vec!["say|Looking at the chat box", "read|Read Claude.svelte", "run|git status --short"]);
+        assert!(describe_event(r#"{"type":"result"}"#).is_empty());
+        assert_eq!(final_result("{\"type\":\"system\"}\n{\"type\":\"result\",\"result\":\"x\"}\n"), "{\"type\":\"result\",\"result\":\"x\"}");
     }
 }

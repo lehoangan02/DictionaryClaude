@@ -5,7 +5,8 @@
   import { app, bump, openDetail, closeDetail } from './lib/store.svelte';
 
   type Idea = { title: string; detail: string; status: 'proposed' | 'approved' | 'dismissed' };
-  type Msg = { role: 'user' | 'claude' | 'error'; text: string; at: number; idea?: Idea; photos?: string[]; offer?: string };
+  type Step = { kind: string; text: string };
+  type Msg = { role: 'user' | 'claude' | 'error' | 'activity'; steps?: Step[]; text: string; at: number; idea?: Idea; photos?: string[]; offer?: string };
   type Chat = { id: string; title: string; state: string; updated: number; last: string; mode: string };
   let chats = $state<Chat[]>([]);
   let cur = $state<string | null>(null);
@@ -56,6 +57,9 @@
   const waiting = $derived(['asked', 'running', 'releasing', 'merge', 'discard', 'release_patch', 'release_minor'].includes(phase));
   // Nobody answered for a minute (the server away or out of date): offer to ask again.
   const stuck = $derived((phase === 'asked' || phase === 'running') && now - since > 60000);
+  const ICON: Record<string, string> = { read: '📄', edit: '✏️', search: '🔍', run: '⌨️', say: '💬' };
+  // What Claude is doing right now, as the server reports it.
+  const live = $derived(msgs.findLast((m) => m.role === 'activity')?.steps ?? []);
   const approved = $derived(msgs.filter((m) => m.idea?.status === 'approved'));
 
   async function loadList() { chats = await call('talk_list'); }
@@ -156,10 +160,12 @@
       </details>
     {/if}
     {#each msgs as m (m.at + m.role)}
-      {#if m.role === 'user'}<div class="m me">{#each m.photos ?? [] as n}{#if thumbs[n]}<img class="th" src={thumbs[n]} alt="Attached" />{:else}<span class="th ph">…</span>{/if}{/each}{m.text}</div>
+      {#if m.role === 'activity'}
+      {:else if m.role === 'user'}<div class="m me">{#each m.photos ?? [] as n}{#if thumbs[n]}<img class="th" src={thumbs[n]} alt="Attached" />{:else}<span class="th ph">…</span>{/if}{/each}{m.text}</div>
       {:else if m.role === 'error'}<div class="m bad">{m.text}</div>
       {:else}
-        <div class="m ai">{m.text}
+        <div class="m ai">{#if m.steps?.length}<details class="steps"><summary>Worked through {m.steps.length} step{m.steps.length === 1 ? '' : 's'}</summary>
+            {#each m.steps as st}<div class="step {st.kind}"><span class="ic">{ICON[st.kind] ?? '•'}</span>{st.text}</div>{/each}</details>{/if}{m.text}
           {#if m.idea}
             <div class="idea card">
               <b>{m.idea.title}</b>
@@ -176,6 +182,7 @@
       <p class="empty">Nothing yet. Try “the History tab feels slow” or “how does the quiz pick words?”.</p>
     {/each}
     {#if waiting}<div class="m ai wait">{phase === 'merge' ? 'Merging…' : phase === 'discard' ? 'Discarding…' : phase.startsWith('release') ? 'Building and publishing the release… this takes many minutes.' : mode === 'work' ? 'Claude is working on it… this can take several minutes.' : 'Claude is thinking…'}
+      {#if live.length}<div class="steps live">{#each live.slice(-8) as st}<div class="step {st.kind}"><span class="ic">{ICON[st.kind] ?? '•'}</span>{st.text}</div>{/each}</div>{/if}
       {#if stuck}<br /><span class="small">No answer yet. </span><button class="btn small" onclick={retry}>Try again</button>{/if}</div>{/if}
     {#if branch && !waiting}
       <div class="card work">
@@ -231,6 +238,12 @@
   .m.ai { align-self: flex-start; background: var(--panel); border-bottom-left-radius: 4px; }
   .m.bad { align-self: flex-start; background: var(--bad-bg); color: var(--bad); }
   .m.wait { color: var(--muted); font-style: italic; }
+  .steps { font-style: normal; font-size: 0.82rem; color: var(--muted); margin: 0 0 6px; }
+  .steps.live { margin: 8px 0 0; }
+  .steps summary { cursor: pointer; }
+  .step { display: flex; gap: 6px; padding: 2px 0; word-break: break-word; font-family: ui-monospace, monospace; }
+  .step.say { font-family: inherit; font-style: italic; }
+  .step .ic { flex: none; }
   .idea { margin: 8px 0 2px; padding: 8px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
   .idea p { margin: 4px 0 8px; }
   .ok { margin: 10px 0; }

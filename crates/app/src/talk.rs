@@ -156,7 +156,7 @@ impl Api {
         let rows = st
             .query_map([], |r| {
                 let msgs: String = r.get(4)?;
-                let last = serde_json::from_str::<Vec<Value>>(&msgs).ok().and_then(|m| m.last().and_then(|x| x["text"].as_str().map(|t| t.chars().take(90).collect::<String>()))).unwrap_or_default();
+                let last = serde_json::from_str::<Vec<Value>>(&msgs).ok().and_then(|m| m.iter().rev().find_map(|x| x["text"].as_str().map(|t| t.chars().take(90).collect::<String>()))).unwrap_or_default();
                 Ok(json!({"id": r.get::<_, String>(0)?, "title": r.get::<_, String>(1)?, "state": r.get::<_, String>(2)?, "updated": r.get::<_, i64>(3)?, "last": last, "mode": r.get::<_, String>(5)?}))
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -304,6 +304,13 @@ impl Api {
         (Some(dir), note)
     }
 
+    /// Shows what Claude is doing: the steps so far ride along as a temporary last message of the running chat.
+    fn talk_progress(&self, id: &str, msgs: &[Value], steps: &[Value]) {
+        let mut shown = msgs.to_vec();
+        shown.push(json!({"role": "activity", "steps": steps, "at": now_ms()}));
+        let _ = self.talk_save(id, "running", &shown);
+    }
+
     /// Serves waiting chat messages (server side). Returns how many ran Claude.
     pub(crate) fn job_talks(&self) -> Result<usize> {
         let ids: Vec<String> = {
@@ -432,7 +439,16 @@ impl Api {
         }
         self.db.lock().unwrap().execute("UPDATE talks SET branch=?2 WHERE id=?1", params![id, branch])?;
         self.count_agent_call();
-        let out = claude.run_work(&path, &(work_prompt(msgs, &branch) + attached), SCHEMA).and_then(|o| extract_talk(&o).ok_or_else(|| anyhow!("claude replied, but not in the expected form")));
+        let mut steps: Vec<Value> = vec![];
+        let mut live = |s: String| {
+            let (k, t) = s.split_once('|').unwrap_or(("run", &s));
+            steps.push(json!({"kind": k, "text": t}));
+            if steps.len() > 80 {
+                steps.remove(0);
+            }
+            self.talk_progress(id, msgs, &steps);
+        };
+        let out = claude.run_work(&path, &(work_prompt(msgs, &branch) + attached), SCHEMA, Some(&mut live)).and_then(|o| extract_talk(&o).ok_or_else(|| anyhow!("claude replied, but not in the expected form")));
         // Whatever was left uncommitted is committed too, so the summary below is complete.
         if !git(&path, &["status", "--porcelain"]).unwrap_or_default().is_empty() {
             let _ = git(&path, &["add", "-A"]);
@@ -450,7 +466,11 @@ impl Api {
         }
         match out {
             Ok((reply, _)) => {
-                msgs.push(json!({"role": "claude", "text": reply, "at": now_ms()}));
+                let mut m = json!({"role": "claude", "text": reply, "at": now_ms()});
+                if !steps.is_empty() {
+                    m["steps"] = json!(steps);
+                }
+                msgs.push(m);
                 self.talk_save(id, "", msgs)?;
                 Ok(true)
             }
@@ -496,13 +516,25 @@ impl Api {
         if scratch {
             p.push_str("\nThe source is NOT available on this server: say so if asked about code, and answer from general knowledge.");
         }
-        let out = claude.run_cli(&dir, &p, SCHEMA, None).and_then(|o| extract_talk(&o).ok_or_else(|| anyhow!("claude replied, but not in the expected form")));
+        let mut steps: Vec<Value> = vec![];
+        let mut live = |s: String| {
+            let (k, t) = s.split_once('|').unwrap_or(("run", &s));
+            steps.push(json!({"kind": k, "text": t}));
+            if steps.len() > 80 {
+                steps.remove(0);
+            }
+            self.talk_progress(id, &msgs, &steps);
+        };
+        let out = claude.run_cli(&dir, &p, SCHEMA, None, Some(&mut live)).and_then(|o| extract_talk(&o).ok_or_else(|| anyhow!("claude replied, but not in the expected form")));
         if let Some(d) = &attach_dir {
             let _ = std::fs::remove_dir_all(d);
         }
         match out {
             Ok((reply, idea)) => {
                 let mut m = json!({"role": "claude", "text": reply, "at": now_ms()});
+                if !steps.is_empty() {
+                    m["steps"] = json!(steps);
+                }
                 if let Some((title, detail)) = idea {
                     m["idea"] = json!({"title": title, "detail": detail, "status": "proposed"});
                 }
