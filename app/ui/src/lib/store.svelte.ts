@@ -178,8 +178,18 @@ export async function loadTrail() {
   } catch { /* history is optional */ }
 }
 
+/** Re-reads the trail (lookups made on other devices arrive through sync) without moving the current position. */
+async function refreshTrail() {
+  const word = app.tab === 'search' ? app.word : '';
+  await loadTrail();
+  if (!word) return;
+  const j = nav.stack.lastIndexOf(word);
+  if (j >= 0) nav.i = j;
+}
+
 export function bump() {
   app.version++;
+  refreshTrail();
 }
 
 export function setTheme(t: 'system' | 'light' | 'dark') {
