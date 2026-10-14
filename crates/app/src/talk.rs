@@ -487,10 +487,6 @@ impl Api {
             self.talk_save(id, "", msgs)?;
             Ok(false)
         };
-        if self.agent_used_today() + 1 > self.agent_cap() {
-            let why = format!("the daily agent allowance ({}) is used up; raise it in Settings or try tomorrow", self.agent_cap());
-            return fail(&mut msgs, why);
-        }
         let (dir, scratch) = match self.repo_dir() {
             Some(d) => (d, false),
             None => {
@@ -509,9 +505,15 @@ impl Api {
             r
         };
         if self.talk_meta(id)?.0 == "work" {
+            if self.agent_used_today() + 1 > self.agent_cap() {
+                let why = format!("the daily agent allowance ({}) is used up; raise it in Settings or try tomorrow", self.agent_cap());
+                if let Some(d) = &attach_dir {
+                    let _ = std::fs::remove_dir_all(d);
+                }
+                return fail(&mut msgs, why);
+            }
             return done(self.job_work(id, &mut msgs, &claude, &note));
         }
-        self.count_agent_call();
         let mut p = prompt(&msgs) + &note;
         if scratch {
             p.push_str("\nThe source is NOT available on this server: say so if asked about code, and answer from general knowledge.");

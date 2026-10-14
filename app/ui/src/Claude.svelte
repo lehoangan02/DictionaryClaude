@@ -2,6 +2,7 @@
   import { onMount, tick } from 'svelte';
   import { call } from './lib/api';
   import { shrink } from './lib/image';
+  import { markdown, diffRows } from './lib/markdown';
   import { app, bump, openDetail, closeDetail } from './lib/store.svelte';
 
   type Idea = { title: string; detail: string; status: 'proposed' | 'approved' | 'dismissed' };
@@ -60,6 +61,22 @@
   const ICON: Record<string, string> = { read: '📄', edit: '✏️', search: '🔍', run: '⌨️', say: '💬' };
   // What Claude is doing right now, as the server reports it.
   const live = $derived([...msgs].reverse().find((m: Msg) => m.role === 'activity')?.steps ?? []);
+  const LABEL: Record<string, [string, string]> = { read: ['read', 'reads'], edit: ['edit', 'edits'], search: ['search', 'searches'], run: ['command', 'commands'], say: ['note', 'notes'] };
+  // "2 reads, 1 edit, 3 commands": what a finished run did, at a glance.
+  function tally(steps: Step[]) {
+    const n: Record<string, number> = {};
+    for (const s of steps) n[s.kind] = (n[s.kind] ?? 0) + 1;
+    return Object.entries(n).filter(([k]) => k !== 'say').map(([k, c]) => `${c} ${(LABEL[k] ?? [k, k])[c === 1 ? 0 : 1]}`).join(', ');
+  }
+  const clock = (ms: number) => { const s = Math.max(0, Math.floor(ms / 1000)); return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`; };
+  const hhmm = (t: number) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  let copied = $state(0);
+  async function copy(m: Msg) { try { await navigator.clipboard.writeText(m.text); copied = m.at; setTimeout(() => (copied = 0), 1500); } catch { /* no clipboard */ } }
+  let allSteps = $state(false);
+  // When this run began (`since` moves with every step the server reports, so it cannot time the run).
+  let began = $state(0);
+  $effect(() => { if (waiting) { if (!began) began = Date.now(); } else began = 0; });
+  const SUGGEST = ['How does the quiz pick words?', 'The History tab feels slow', 'Add a dark-mode toggle to Settings'];
   const approved = $derived(msgs.filter((m) => m.idea?.status === 'approved'));
 
   async function loadList() { chats = await call('talk_list'); }
@@ -161,11 +178,12 @@
     {/if}
     {#each msgs as m (m.at + m.role)}
       {#if m.role === 'activity'}
-      {:else if m.role === 'user'}<div class="m me">{#each m.photos ?? [] as n}{#if thumbs[n]}<img class="th" src={thumbs[n]} alt="Attached" />{:else}<span class="th ph">…</span>{/if}{/each}{m.text}</div>
+      {:else if m.role === 'user'}<div class="m me">{#each m.photos ?? [] as n}{#if thumbs[n]}<img class="th" src={thumbs[n]} alt="Attached" />{:else}<span class="th ph">…</span>{/if}{/each}{m.text}<time>{hhmm(m.at)}</time></div>
       {:else if m.role === 'error'}<div class="m bad">{m.text}</div>
       {:else}
-        <div class="m ai">{#if m.steps?.length}<details class="steps"><summary>Worked through {m.steps.length} step{m.steps.length === 1 ? '' : 's'}</summary>
-            {#each m.steps as st}<div class="step {st.kind}"><span class="ic">{ICON[st.kind] ?? '•'}</span>{st.text}</div>{/each}</details>{/if}{m.text}
+        <div class="m ai">{#if m.steps?.length}<details class="steps"><summary>Worked through {m.steps.length} step{m.steps.length === 1 ? '' : 's'}{#if tally(m.steps)} <span class="muted">· {tally(m.steps)}</span>{/if}</summary>
+            {#each m.steps as st}<div class="step {st.kind}"><span class="ic">{ICON[st.kind] ?? '•'}</span>{st.text}</div>{/each}</details>{/if}<div class="md">{@html markdown(m.text)}</div>
+          <div class="meta"><time>{hhmm(m.at)}</time><button class="lnk" onclick={() => copy(m)}>{copied === m.at ? 'Copied' : 'Copy'}</button></div>
           {#if m.idea}
             <div class="idea card">
               <b>{m.idea.title}</b>
@@ -179,15 +197,19 @@
         </div>
       {/if}
     {:else}
-      <p class="empty">Nothing yet. Try “the History tab feels slow” or “how does the quiz pick words?”.</p>
+      <div class="empty"><p>Ask a question or describe a change.</p>{#each SUGGEST as q}<button class="chip" onclick={() => (msg = q)}>{q}</button>{/each}</div>
     {/each}
-    {#if waiting}<div class="m ai wait">{phase === 'merge' ? 'Merging…' : phase === 'discard' ? 'Discarding…' : phase.startsWith('release') ? 'Building and publishing the release… this takes many minutes.' : mode === 'work' ? 'Claude is working on it… this can take several minutes.' : 'Claude is thinking…'}
-      {#if live.length}<div class="steps live">{#each live.slice(-8) as st}<div class="step {st.kind}"><span class="ic">{ICON[st.kind] ?? '•'}</span>{st.text}</div>{/each}</div>{/if}
+    {#if waiting}<div class="m ai wait" role="status">
+      <div class="status"><span class="spin" aria-hidden="true"></span><span>{phase === 'merge' ? 'Merging…' : phase === 'discard' ? 'Discarding…' : phase.startsWith('release') ? 'Building and publishing the release' : mode === 'work' ? 'Claude is working' : 'Claude is thinking'}</span>
+        <span class="muted small">{clock(now - (began || now))}{#if live.length} · {live.length} step{live.length === 1 ? '' : 's'}{/if}</span></div>
+      {#if phase.startsWith('release')}<p class="small">This takes many minutes; it is safe to leave this screen.</p>{/if}
+      {#if live.length}<div class="steps live">{#each (allSteps ? live : live.slice(-6)) as st, i}<div class="step {st.kind}" class:cur={i === (allSteps ? live : live.slice(-6)).length - 1}><span class="ic">{ICON[st.kind] ?? '•'}</span>{st.text}</div>{/each}
+        {#if live.length > 6}<button class="lnk" onclick={() => (allSteps = !allSteps)}>{allSteps ? 'Show fewer' : `Show all ${live.length}`}</button>{/if}</div>{/if}
       {#if stuck}<br /><span class="small">No answer yet. </span><button class="btn small" onclick={retry}>Try again</button>{/if}</div>{/if}
     {#if branch && !waiting}
       <div class="card work">
         <b>Changes ready</b>
-        <pre>{changes || 'No files changed.'}</pre>
+        {#each diffRows(changes) as r}<div class="file"><code>{r.file}</code><span class="bar"><i class="add" style="flex:{r.add}"></i><i class="del" style="flex:{r.del}"></i></span><span class="muted small">{r.n}</span></div>{:else}<pre>{changes || 'No files changed.'}</pre>{/each}
         <button class="btn small primary" disabled={!changes} onclick={() => finish('merge')}>Merge into the app</button>
         <button class="btn small ghost" onclick={() => finish('discard')}>{sure ? 'Really throw the changes away?' : 'Discard'}</button>
       </div>
@@ -259,5 +281,25 @@
   .send .btn { height: 44px; flex: none; display: grid; place-items: center; }
   .send label.btn { width: 44px; padding: 0; font-size: 20px; cursor: pointer; }
   .small { font-size: 13px; }
+  .m time, .meta time { font-size: 11px; opacity: 0.7; }
+  .m.me time { display: block; text-align: right; margin-top: 2px; }
+  .m.ai { white-space: normal; }
+  .meta { display: flex; gap: 10px; align-items: center; margin-top: 4px; }
+  .lnk { background: none; border: 0; padding: 0; font-size: 12px; color: var(--blue); cursor: pointer; }
+  .md :global(p) { margin: 0 0 8px; } .md :global(p:last-child) { margin-bottom: 0; }
+  .md :global(ul), .md :global(ol) { margin: 0 0 8px; padding-left: 22px; }
+  .md :global(code) { font-family: ui-monospace, monospace; font-size: 0.88em; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+  .md :global(pre.code) { margin: 6px 0 8px; padding: 8px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; overflow-x: auto; white-space: pre; }
+  .md :global(pre.code code) { border: 0; padding: 0; background: none; }
+  .status { display: flex; align-items: center; gap: 8px; font-style: normal; color: var(--text); }
+  .spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--blue); animation: turn 0.9s linear infinite; flex: none; }
+  @keyframes turn { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spin { animation-duration: 3s; } }
+  .step.cur { color: var(--text); font-weight: 600; }
+  .file { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+  .file code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+  .bar { display: flex; width: 70px; height: 6px; border-radius: 3px; overflow: hidden; background: var(--line); }
+  .bar .add { background: #2e9e5b; } .bar .del { background: #d14b4b; }
+  .empty .chip { display: block; margin: 6px 0; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 6px 12px; color: inherit; cursor: pointer; font: inherit; font-size: 14px; }
   button:disabled { opacity: 0.5; }
 </style>

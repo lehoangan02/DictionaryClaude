@@ -369,7 +369,7 @@ fn the_general_chat_answers_proposes_ideas_and_keeps_only_approved_ones() {
     assert_eq!(api.call("talk_list", json!({})).unwrap().as_array().unwrap().len(), 2);
     api.call("talk_delete", json!({"id": c1})).unwrap();
     assert_eq!(api.call("talk_list", json!({})).unwrap().as_array().unwrap().len(), 1);
-    assert_eq!(api.call("agent_status", json!({})).unwrap()["used_today"], 2);
+    assert_eq!(api.call("agent_status", json!({})).unwrap()["used_today"], 0);
     std::env::remove_var("LEXIS_REPO");
 }
 

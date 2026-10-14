@@ -635,7 +635,7 @@ impl Api {
     }
 
     pub(crate) fn agent_cap(&self) -> i64 {
-        self.setting("agents.cap").and_then(|s| s.parse().ok()).or_else(|| std::env::var("LEXIS_AGENT_CAP").ok().and_then(|s| s.parse().ok())).unwrap_or(8)
+        self.setting("agents.cap").and_then(|s| s.parse().ok()).or_else(|| std::env::var("LEXIS_AGENT_CAP").ok().and_then(|s| s.parse().ok())).unwrap_or(50)
     }
 
     pub(crate) fn count_agent_call(&self) {
