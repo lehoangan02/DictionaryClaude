@@ -145,7 +145,7 @@ impl Api {
     pub fn call(&self, cmd: &str, args: Value) -> Result<Value> {
         let out = self.dispatch(cmd, args);
         // Anything that writes synced data nudges the background sync.
-        if out.is_ok() && matches!(cmd, "draft_agents" | "draft_chat" | "talk_new" | "talk_send" | "talk_idea" | "talk_delete" | "talk_finish" | "talk_retry" | "draft_reread" | "draft_create" | "draft_update" | "draft_accept" | "draft_reject" | "entry" | "history_star" | "history_delete" | "history_clear" | "note_save" | "note_delete" | "quiz_start" | "quiz_answer" | "session_delete") {
+        if out.is_ok() && matches!(cmd, "draft_agents" | "draft_chat" | "talk_new" | "talk_send" | "talk_idea" | "talk_delete" | "talk_finish" | "talk_retry" | "talk_stop" | "draft_reread" | "draft_create" | "draft_update" | "draft_accept" | "draft_reject" | "entry" | "history_star" | "history_delete" | "history_clear" | "note_save" | "note_delete" | "quiz_start" | "quiz_answer" | "session_delete") {
             self.dirty.store(true, std::sync::atomic::Ordering::SeqCst);
         }
         out
@@ -203,6 +203,7 @@ impl Api {
             "talk_new" => self.talk_new(&a("mode").unwrap_or_else(|| "ask".into())),
             "talk_finish" => self.talk_finish(&req("id")?, &req("how")?),
             "talk_retry" => self.talk_retry(&req("id")?),
+            "talk_stop" => self.talk_stop(&req("id")?),
             "talk_get" => self.talk_get(&req("id")?),
             "talk_send" => {
                 let photos: Vec<String> = args.get("photos").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(String::from).collect()).unwrap_or_default();

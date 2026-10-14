@@ -370,6 +370,19 @@ fn the_general_chat_answers_proposes_ideas_and_keeps_only_approved_ones() {
     api.call("talk_delete", json!({"id": c1})).unwrap();
     assert_eq!(api.call("talk_list", json!({})).unwrap().as_array().unwrap().len(), 1);
     assert_eq!(api.call("agent_status", json!({})).unwrap()["used_today"], 0);
+    // A chat nobody answers can be given up on, and a run that died with the server is reported on restart.
+    let c3 = api.call("talk_new", json!({})).unwrap()["id"].as_str().unwrap().to_string();
+    let sent = api.call("talk_send", json!({"id": c3, "message": "hello"})).unwrap();
+    assert_eq!(sent["started"], sent["msgs"][0]["at"], "the run is timed from the question");
+    assert!(api.call("talk_delete", json!({"id": c3})).is_err(), "a waiting chat cannot be deleted");
+    let t = api.call("talk_stop", json!({"id": c3})).unwrap();
+    assert_eq!(t["state"], "");
+    assert!(t["msgs"][1]["text"].as_str().unwrap().contains("Stopped"));
+    assert!(api.call("talk_stop", json!({"id": c3})).is_err(), "nothing left to stop");
+    api.call("talk_delete", json!({"id": c3})).unwrap();
+    let c4 = api.call("talk_new", json!({})).unwrap()["id"].as_str().unwrap().to_string();
+    api.call("talk_send", json!({"id": c4, "message": "hello"})).unwrap();
+    assert_eq!(api.recover_talks().unwrap(), 0, "a queued question survives a restart");
     std::env::remove_var("LEXIS_REPO");
 }
 

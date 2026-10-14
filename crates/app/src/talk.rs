@@ -147,7 +147,9 @@ impl Api {
         let (title, state, msgs) = self.talk_load(id)?;
         let (mode, branch, changes) = self.talk_meta(id)?;
         let stale = self.db.lock().unwrap().query_row("SELECT updated FROM talks WHERE id=?1", [id], |r| r.get::<_, i64>(0)).unwrap_or(0);
-        Ok(json!({"id": id, "title": title, "state": state, "msgs": msgs, "mode": mode, "branch": branch, "changes": changes, "updated": stale}))
+        // When the current run began: the question being answered, or (for merge/release) the moment it was asked for.
+        let started = if matches!(state.as_str(), "asked" | "running") { msgs.iter().rev().find(|m| m["role"] == "user").and_then(|m| m["at"].as_i64()).unwrap_or(stale) } else { stale };
+        Ok(json!({"id": id, "title": title, "state": state, "msgs": msgs, "mode": mode, "branch": branch, "changes": changes, "updated": stale, "started": started}))
     }
 
     pub(crate) fn talk_list(&self) -> Result<Value> {
@@ -255,6 +257,36 @@ impl Api {
         }
         self.talk_save(id, how, &msgs)?;
         self.talk_get(id)
+    }
+
+    /// Gives up waiting for a chat that never finished (the server away, crashed or hung): the chat is usable again.
+    /// A run that is somehow still alive on the server may yet add its result.
+    pub(crate) fn talk_stop(&self, id: &str) -> Result<Value> {
+        let (_, state, mut msgs) = self.talk_load(id)?;
+        if state.is_empty() {
+            bail!("nothing is waiting");
+        }
+        msgs.retain(|m| m["role"] != "activity");
+        msgs.push(json!({"role": "error", "text": "Stopped waiting. If the server is still working on it, the result may yet appear.", "at": now_ms()}));
+        self.talk_save(id, "", &msgs)?;
+        self.talk_get(id)
+    }
+
+    /// Server start: a run that was in progress died with the old process. Say so instead of waiting for ever.
+    pub fn recover_talks(&self) -> Result<usize> {
+        let ids: Vec<String> = {
+            let db = self.db.lock().unwrap();
+            let mut st = db.prepare("SELECT id FROM talks WHERE state IN ('running','releasing') AND deleted=0")?;
+            let rows = st.query_map([], |r| r.get(0))?.collect::<std::result::Result<Vec<String>, _>>()?;
+            rows
+        };
+        for id in &ids {
+            let (_, _, mut msgs) = self.talk_load(id)?;
+            msgs.retain(|m| m["role"] != "activity");
+            msgs.push(json!({"role": "error", "text": "The server restarted while this was running. Send the message again.", "at": now_ms()}));
+            self.talk_save(id, "", &msgs)?;
+        }
+        Ok(ids.len())
     }
 
     /// A message nobody answered (the server was away or too old): ask again.

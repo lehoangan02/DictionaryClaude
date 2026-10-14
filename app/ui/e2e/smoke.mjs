@@ -437,8 +437,15 @@ if (BASE_B && process.env.PAIR_A) {
   await clickText(a, '.send button', 'Send');
   await a.waitForSelector('.m.me');
   ok((await a.$eval('.m.me', (e) => e.textContent)).includes('History tab feels slow'), 'the message appears in the chat');
+  await a.waitForSelector('.m.wait .spin', { timeout: 4000 });
+  const t0 = await a.$eval('.m.wait .status', (e) => e.textContent);
+  ok(/\d+s/.test(t0), 'the waiting message shows a running timer');
+  ok(await a.$eval('.chead .btn', (e) => e.textContent.includes('Working')), 'the header says it is working, not a dead Delete button');
+  await a.waitForFunction((x) => !document.querySelector('.m.wait .status') || document.querySelector('.m.wait .status').textContent !== x, { timeout: 3000 }, t0).catch(() => {});
   await a.waitForSelector('.m.bad', { timeout: 30000 });
   ok((await a.$eval('.m.bad', (e) => e.textContent)).includes('test stand-in'), 'a problem with Claude is shown in the chat, not hidden');
+  ok(!(await a.$('.m.wait')), 'the waiting message is gone once the answer (or error) arrived');
+  ok(await a.$eval('.chead .btn', (e) => e.textContent.includes('Delete')), 'a finished chat can be deleted');
 
   // Device B pairs and receives it, including its effect on the thesaurus.
   const b = await newPage(1000, 900);

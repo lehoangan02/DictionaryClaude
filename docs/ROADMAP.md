@@ -56,6 +56,7 @@ Kept current by whoever changes the app (Claude Code included): when you fix som
 ## Upcoming
 
 **Next up**
+- **Claude chats (owner, 2026-10-14): stuck chats can be stopped ("Stop waiting" after 90 s without progress, 30 min for merge/release; also from the list), the server ends runs that died with a restart (`recover_talks`), the timer counts from the question (ticks every second) and the list shows the state and age. Tested with unit + e2e; the "timer advances" and a real stalled chat are not asserted, check on a device. A Stop does not kill a still-running server process: its result may yet arrive.**
 - **Claude tab (owner, 2026-10-14): chat messages no longer count toward the daily agent cap; default cap is 50 (only work/review/release runs count). The chat now shows Markdown, a spinner with elapsed time and step count, a per-run tally (reads/edits/commands), timestamps, Copy, suggestion chips and a per-file change bar. Built and type-checked, not yet released or seen on a device; needs a release and a look.**
 - **Settings redesign (owner, 2026-10-13, next version after v0.11.1):** organise Settings like the iPhone's: a short grouped list of sections (Dictionaries, Sync & devices, Downloads, Pronunciation, On-device AI, Merriam-Webster, Appearance, About), each opening its own page, instead of every card expanded on one long page. Back closes a section page (use `openDetail`).
 - **Self-update, device check:** install v0.7.0 by hand once, then run the update on the Mac, a Linux AppImage and the phone when v0.7.1 is out.

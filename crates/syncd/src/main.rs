@@ -75,6 +75,7 @@ fn main() -> Result<()> {
             }
             let api = Arc::new(Api::open_headless_serving(&cli.data, &cli.packs.clone().unwrap_or_else(|| cli.data.join("packs")))?);
             // Reads photographed notes (OCR) and serves agent requests.
+            let _ = api.recover_talks();
             gredict_app::spawn_job_runner(api.clone(), std::time::Duration::from_secs(5));
             {
                 let api = api.clone();

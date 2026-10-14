@@ -17,6 +17,7 @@
   let branch = $state('');
   let changes = $state('');
   let since = $state(0);
+  let started = $state(0);
   let now = $state(Date.now());
   let msg = $state('');
   let error = $state('');
@@ -57,7 +58,9 @@
   $effect(() => { app.focus = cur !== null; measure(); return () => { app.focus = false; }; });
   const waiting = $derived(['asked', 'running', 'releasing', 'merge', 'discard', 'release_patch', 'release_minor'].includes(phase));
   // Nobody answered for a minute (the server away or out of date): offer to ask again.
-  const stuck = $derived((phase === 'asked' || phase === 'running') && now - since > 60000);
+  // Merging and releasing are slow by nature; a question or a change should show progress within minutes.
+  const staleAfter = (state: string) => (state === 'asked' || state === 'running' ? 90_000 : 30 * 60_000);
+  const stuck = $derived(waiting && now - since > staleAfter(phase));
   const ICON: Record<string, string> = { read: '📄', edit: '✏️', search: '🔍', run: '⌨️', say: '💬' };
   // What Claude is doing right now, as the server reports it.
   const live = $derived([...msgs].reverse().find((m: Msg) => m.role === 'activity')?.steps ?? []);
@@ -73,9 +76,6 @@
   let copied = $state(0);
   async function copy(m: Msg) { try { await navigator.clipboard.writeText(m.text); copied = m.at; setTimeout(() => (copied = 0), 1500); } catch { /* no clipboard */ } }
   let allSteps = $state(false);
-  // When this run began (`since` moves with every step the server reports, so it cannot time the run).
-  let began = $state(0);
-  $effect(() => { if (waiting) { if (!began) began = Date.now(); } else began = 0; });
   const SUGGEST = ['How does the quiz pick words?', 'The History tab feels slow', 'Add a dark-mode toggle to Settings'];
   const approved = $derived(msgs.filter((m) => m.idea?.status === 'approved'));
 
@@ -86,7 +86,7 @@
     const t = await call('talk_get', { id: cur });
     if (!chats.some((c) => c.id === cur)) { cur = null; return; }
     const grew = t.msgs.length !== msgs.length;
-    msgs = t.msgs; phase = t.state; mode = t.mode; branch = t.branch; changes = t.changes; since = t.updated;
+    msgs = t.msgs; phase = t.state; mode = t.mode; branch = t.branch; changes = t.changes; since = t.updated; started = t.started;
     if (grew) { await tick(); end?.scrollIntoView({ block: 'end' }); }
   }
   $effect(() => { void app.version; void cur; load().catch((e) => (error = e.message)); });
@@ -94,20 +94,20 @@
     window.visualViewport?.addEventListener('resize', measure);
     window.addEventListener('resize', measure);
     // The server answers; asking it for news brings the reply without waiting for the next background sync.
+    const tick1 = setInterval(() => { now = Date.now(); }, 1000);
     const t = setInterval(async () => {
-      now = Date.now();
       if (!waiting && !chats.some((c) => c.state)) return;
       await call('sync_now').catch(() => {});
       load().catch(() => {});
     }, 3000);
-    return () => { clearInterval(t); window.visualViewport?.removeEventListener('resize', measure); window.removeEventListener('resize', measure); };
+    return () => { clearInterval(t); clearInterval(tick1); window.visualViewport?.removeEventListener('resize', measure); window.removeEventListener('resize', measure); };
   });
 
   async function send() {
     const m = msg.trim();
     if ((!m && !attached.length) || waiting || sending) return;
     sending = true; error = '';
-    try { const t = await call('talk_send', { id: cur, message: m, photos: attached, ...(model && { model }), ...(effort && { effort }) }); msgs = t.msgs; phase = t.state; msg = ''; attached = []; call('sync_now').catch(() => {}); bump(); await tick(); end?.scrollIntoView({ block: 'end' }); }
+    try { const t = await call('talk_send', { id: cur, message: m, photos: attached, ...(model && { model }), ...(effort && { effort }) }); msgs = t.msgs; phase = t.state; started = t.started; since = t.updated; msg = ''; attached = []; call('sync_now').catch(() => {}); bump(); await tick(); end?.scrollIntoView({ block: 'end' }); }
     catch (e) { error = (e as Error).message; }
     sending = false;
   }
@@ -125,6 +125,9 @@
   async function retry() {
     try { const t = await call('talk_retry', { id: cur }); phase = t.state; since = t.updated; call('sync_now').catch(() => {}); } catch (e) { error = (e as Error).message; }
   }
+  async function stop(id: string | null = cur) {
+    try { const t = await call('talk_stop', { id }); if (id === cur) { msgs = t.msgs; phase = t.state; } call('sync_now').catch(() => {}); await loadList(); } catch (e) { error = (e as Error).message; }
+  }
   let sure = $state(false);
   async function finish(how: 'merge' | 'discard' | 'release_patch' | 'release_minor') {
     if (how === 'discard' && !sure) { sure = true; return; }
@@ -138,7 +141,14 @@
     askDelete = '';
     try { await call('talk_delete', { id }); call('sync_now').catch(() => {}); await loadList(); } catch (e) { error = (e as Error).message; }
   }
-  const ago = (t: number) => new Date(t).toLocaleDateString();
+  const STATE: Record<string, string> = { asked: 'Waiting for the server…', running: 'Claude is answering…', merge: 'Merging…', discard: 'Discarding…', releasing: 'Releasing…', release_patch: 'Release queued…', release_minor: 'Release queued…' };
+  const ago = (t: number) => {
+    const m = Math.round((now - t) / 60000);
+    if (m < 1) return 'just now';
+    if (m < 60) return `${m} min ago`;
+    if (m < 60 * 24) return `${Math.round(m / 60)} h ago`;
+    return new Date(t).toLocaleDateString();
+  };
 </script>
 
 {#if cur === null}
@@ -150,10 +160,14 @@
   <div class="card item">
     <button class="row" onclick={() => openChat(c.id)}>
       <b>{c.title || 'New chat'}{#if c.mode !== 'work'} <span class="tag">Read-only</span>{/if}</b>
-      <span class="muted small">{c.state ? 'Claude is answering…' : c.last}</span>
-      <span class="muted small">{ago(c.updated)}</span>
+      <span class="muted small">{c.state ? STATE[c.state] ?? 'Claude is working…' : c.last}</span>
+      <span class="muted small">{c.state ? `${clock(now - c.updated)} since the last sign of life` : ago(c.updated)}</span>
     </button>
-    <button class="btn small ghost" disabled={!!c.state} onclick={() => removeFromList(c.id)}>{askDelete === c.id ? 'Sure?' : 'Delete'}</button>
+    {#if c.state}
+      <button class="btn small ghost" disabled={now - c.updated <= staleAfter(c.state)} title="Available once the chat stalls" onclick={() => stop(c.id)}>Stop</button>
+    {:else}
+      <button class="btn small ghost" onclick={() => removeFromList(c.id)}>{askDelete === c.id ? 'Sure?' : 'Delete'}</button>
+    {/if}
   </div>
 {:else}
   <p class="empty">No chats yet.</p>
@@ -164,7 +178,7 @@
   <div class="chead">
     <button class="gbtn" onclick={closeDetail} aria-label="Back to chats">←</button>
     <b class="ct">{chats.find((c) => c.id === cur)?.title || 'New chat'}</b>
-    <button class="btn small ghost" disabled={waiting} onclick={removeChat}>Delete</button>
+    {#if waiting}<button class="btn small ghost" onclick={() => (stuck ? stop() : (error = 'Claude is still working; you can stop waiting once it stalls.'))}>{stuck ? 'Stop' : 'Working…'}</button>{:else}<button class="btn small ghost" onclick={removeChat}>Delete</button>{/if}
   </div>
   <div class="msgs" aria-live="polite" bind:this={scroller}>
     {#if approved.length}
@@ -201,11 +215,11 @@
     {/each}
     {#if waiting}<div class="m ai wait" role="status">
       <div class="status"><span class="spin" aria-hidden="true"></span><span>{phase === 'merge' ? 'Merging…' : phase === 'discard' ? 'Discarding…' : phase.startsWith('release') ? 'Building and publishing the release' : mode === 'work' ? 'Claude is working' : 'Claude is thinking'}</span>
-        <span class="muted small">{clock(now - (began || now))}{#if live.length} · {live.length} step{live.length === 1 ? '' : 's'}{/if}</span></div>
+        <span class="muted small">{clock(now - (started || now))}{#if live.length} · {live.length} step{live.length === 1 ? '' : 's'}{/if}</span></div>
       {#if phase.startsWith('release')}<p class="small">This takes many minutes; it is safe to leave this screen.</p>{/if}
       {#if live.length}<div class="steps live">{#each (allSteps ? live : live.slice(-6)) as st, i}<div class="step {st.kind}" class:cur={i === (allSteps ? live : live.slice(-6)).length - 1}><span class="ic">{ICON[st.kind] ?? '•'}</span>{st.text}</div>{/each}
         {#if live.length > 6}<button class="lnk" onclick={() => (allSteps = !allSteps)}>{allSteps ? 'Show fewer' : `Show all ${live.length}`}</button>{/if}</div>{/if}
-      {#if stuck}<br /><span class="small">No answer yet. </span><button class="btn small" onclick={retry}>Try again</button>{/if}</div>{/if}
+      {#if stuck}<div class="small stuckrow">{phase === 'asked' || phase === 'running' ? 'No progress for a while. ' : 'Taking very long. '}{#if phase === 'asked' || phase === 'running'}<button class="btn small" onclick={retry}>Try again</button>{/if}<button class="btn small ghost" onclick={() => stop()}>Stop waiting</button></div>{:else if phase === 'asked'}<span class="muted small">Waiting for the server to pick it up…</span>{/if}</div>{/if}
     {#if branch && !waiting}
       <div class="card work">
         <b>Changes ready</b>
@@ -281,6 +295,7 @@
   .send .btn { height: 44px; flex: none; display: grid; place-items: center; }
   .send label.btn { width: 44px; padding: 0; font-size: 20px; cursor: pointer; }
   .small { font-size: 13px; }
+  .stuckrow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; font-style: normal; }
   .m time, .meta time { font-size: 11px; opacity: 0.7; }
   .m.me time { display: block; text-align: right; margin-top: 2px; }
   .m.ai { white-space: normal; }
