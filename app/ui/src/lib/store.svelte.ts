@@ -25,11 +25,18 @@ export const app = $state({
 /** Words visited, like a browser's history; `i` is the current position (== length when on the home screen). */
 export const nav = $state({ stack: [] as string[], i: 0 });
 
+/** Words the dictionaries do not have: they never reach History, so they must not stay in the Back trail either. */
+const missing = new Set<string>();
+export function markMissing(word: string, isMissing: boolean) {
+  if (isMissing) missing.add(word); else missing.delete(word);
+}
+
 export function open(word: string) {
   app.tab = 'search';
   if (nav.stack[nav.i] === word) { app.word = word; return; }
-  // Opening something new drops whatever was "forward" of here.
-  nav.stack = [...nav.stack.slice(0, nav.i), word];
+  // Opening something new drops whatever was "forward" of here, and a word that turned out not to exist.
+  const upto = nav.stack.slice(0, nav.i + 1); // through the word on screen (all of it from the home screen)
+  nav.stack = [...upto.filter((w) => !missing.has(w) && w !== word), word];
   nav.i = nav.stack.length - 1;
   app.word = word;
 }

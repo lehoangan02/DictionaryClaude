@@ -16,13 +16,6 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 An offline GRE-focused dictionary app (Tauri 2 + Rust core + Svelte UI) for Linux and macOS first, then Android. It adds a notes-driven GRE thesaurus, Barron's and notes quizzes, hybrid search over quiz sessions, multi-device sync through `syncd` on the owner's Ubuntu box, and note-photo OCR with an optional, manually triggered review by Claude + agy agents.
 
-Planned layout (see `docs/PLAN.md`):
-- `crates/core`: all domain logic
-- `crates/packer`: data build CLI
-- `crates/syncd`: Ubuntu sync/OCR/agent-job server
-- `app/src-tauri`: thin Tauri shell
-- `app/ui`: Svelte frontend
-
 ## Hard rules
 
 - **No scraping** of Oxford, Merriam-Webster or Cambridge. Dictionary content comes only from open datasets (Wiktionary/kaikki, Open English WordNet, GCIDE, Moby, CMUdict) and the official MW API, cached.

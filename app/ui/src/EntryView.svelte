@@ -2,7 +2,7 @@
   let noRec = $state(false);
   let noRecWhy = $state('');
   import { call } from './lib/api';
-  import { app, open, goTab, setSource, orderedSources } from './lib/store.svelte';
+  import { app, open, goTab, setSource, orderedSources, markMissing } from './lib/store.svelte';
   import { highlight, posLabel, pronunciations, speak, lastSpeakError } from './lib/format';
   import Thesaurus from './Thesaurus.svelte';
   import HistoryNav from './HistoryNav.svelte';
@@ -27,6 +27,7 @@
       .then(async (d) => {
         if (mine !== seq) return;
         data = d; did = [];
+        markMissing(word, !d.entry && !d.found_in?.length && !d.mw_error);
         if (!d.entry) did = (await call('search', { q: word, source: source === 'mw' ? undefined : source })).did_you_mean;
       })
       .catch((e) => { if (mine === seq) error = e.message; })
