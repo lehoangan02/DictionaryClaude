@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { app, boot, goBack, goForward, goTab, goHome, openMenu, closeMenu, menuToSettings, closeSettings, trackLocation, listenForBack, keepDownloadsGoing, type Tab } from './lib/store.svelte';
+  import { app, boot, goBack, goForward, goTab, openMenu, closeMenu, menuToSettings, closeSettings, trackLocation, listenForBack, keepDownloadsGoing, type Tab } from './lib/store.svelte';
   import SearchBar from './SearchBar.svelte';
   import EntryView from './EntryView.svelte';
   import History from './History.svelte';
@@ -89,8 +89,7 @@
 
 <header class="top" class:scrolled>
   <div class="wrap bar">
-    <button class="gear" onclick={openMenu} aria-label="Menu"><Icon name="menu" size={26} /></button>
-    <button class="brand" onclick={goHome} aria-label="Home">
+    <button class="brand" onclick={openMenu} aria-label="Menu">
       <Logo size={36} /><span class="name">LadyBird</span>
     </button>
     <div class="search"><SearchBar /></div>
