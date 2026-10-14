@@ -52,7 +52,7 @@
     top = Math.round(document.querySelector('.top')?.getBoundingClientRect().bottom ?? 120);
   }
   $effect(() => { app.focus = cur !== null; measure(); return () => { app.focus = false; }; });
-  const waiting = $derived(['asked', 'running', 'releasing'].includes(phase));
+  const waiting = $derived(['asked', 'running', 'releasing', 'merge', 'discard', 'release_patch', 'release_minor'].includes(phase));
   // Nobody answered for a minute (the server away or out of date): offer to ask again.
   const stuck = $derived((phase === 'asked' || phase === 'running') && now - since > 60000);
   const approved = $derived(msgs.filter((m) => m.idea?.status === 'approved'));
@@ -174,7 +174,7 @@
     {:else}
       <p class="empty">Nothing yet. Try “the History tab feels slow” or “how does the quiz pick words?”.</p>
     {/each}
-    {#if waiting}<div class="m ai wait">{phase === 'releasing' ? 'Building and publishing the release… this takes many minutes.' : mode === 'work' ? 'Claude is working on it… this can take several minutes.' : 'Claude is thinking…'}
+    {#if waiting}<div class="m ai wait">{phase === 'merge' ? 'Merging…' : phase === 'discard' ? 'Discarding…' : phase.startsWith('release') ? 'Building and publishing the release… this takes many minutes.' : mode === 'work' ? 'Claude is working on it… this can take several minutes.' : 'Claude is thinking…'}
       {#if stuck}<br /><span class="small">No answer yet. </span><button class="btn small" onclick={retry}>Try again</button>{/if}</div>{/if}
     {#if branch && !waiting}
       <div class="card work">
