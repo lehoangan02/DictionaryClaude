@@ -59,7 +59,7 @@
   const stuck = $derived((phase === 'asked' || phase === 'running') && now - since > 60000);
   const ICON: Record<string, string> = { read: '📄', edit: '✏️', search: '🔍', run: '⌨️', say: '💬' };
   // What Claude is doing right now, as the server reports it.
-  const live = $derived(msgs.findLast((m) => m.role === 'activity')?.steps ?? []);
+  const live = $derived([...msgs].reverse().find((m: Msg) => m.role === 'activity')?.steps ?? []);
   const approved = $derived(msgs.filter((m) => m.idea?.status === 'approved'));
 
   async function loadList() { chats = await call('talk_list'); }
