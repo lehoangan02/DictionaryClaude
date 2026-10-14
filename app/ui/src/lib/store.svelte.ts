@@ -41,6 +41,17 @@ export function open(word: string) {
   app.word = word;
 }
 
+/** The next lookup comes from the Back/Forward arrows: it only re-reads a word, so it must not add a History row. */
+let stepped = false;
+export function takeStepped() { const s = stepped; stepped = false; return s; }
+
+/** After a lookup that History recorded: the trail is History itself, standing on the word just looked up, whatever the dictionary. */
+export async function syncTrail(word: string) {
+  await loadTrail();
+  const j = nav.stack.lastIndexOf(word);
+  if (j >= 0) nav.i = j;
+}
+
 export const canBack = () => nav.i > 0;
 export const canForward = () => nav.i < nav.stack.length - 1;
 export const backWord = () => (nav.i > 0 ? nav.stack[nav.i - 1] : null);
@@ -50,8 +61,8 @@ function show() {
   app.tab = 'search';
   app.word = nav.stack[nav.i] ?? '';
 }
-export function goBack() { if (canBack()) { nav.i--; replace = true; setTimeout(() => (replace = false), 0); show(); } }
-export function goForward() { if (canForward()) { nav.i++; replace = true; setTimeout(() => (replace = false), 0); show(); } }
+export function goBack() { if (canBack()) { nav.i--; stepped = true; replace = true; setTimeout(() => (replace = false), 0); show(); } }
+export function goForward() { if (canForward()) { nav.i++; stepped = true; replace = true; setTimeout(() => (replace = false), 0); show(); } }
 
 /** A word picked from the History list: stand on its latest visit in the trail, so Back and Forward are the words around that visit. */
 export async function openFromHistory(word: string) {
