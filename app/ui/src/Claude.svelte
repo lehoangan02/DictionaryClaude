@@ -38,10 +38,11 @@
   // The model and effort for the next message ('' = the CLI's own default), remembered on this device.
   const MODELS = [['', 'Default model'], ['fable', 'Fable'], ['opus', 'Opus'], ['sonnet', 'Sonnet'], ['haiku', 'Haiku']];
   const EFFORTS = [['', 'Default effort'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High'], ['xhigh', 'Extra high'], ['max', 'Max']];
-  const saved = (k: string) => { try { return localStorage.getItem(k) ?? ''; } catch { return ''; } };
-  let model = $state(saved('claude.model'));
+  const saved = (k: string, d = '') => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
+  // Sonnet unless this device chose otherwise (key v2: earlier devices stored '' without choosing).
+  let model = $state(saved('claude.model2', 'sonnet'));
   let effort = $state(saved('claude.effort'));
-  $effect(() => { try { localStorage.setItem('claude.model', model); localStorage.setItem('claude.effort', effort); } catch { /* private mode */ } });
+  $effect(() => { try { localStorage.setItem('claude.model2', model); localStorage.setItem('claude.effort', effort); } catch { /* private mode */ } });
   let end = $state<HTMLElement | null>(null);
   let scroller = $state<HTMLElement | null>(null);
   // The chat fills what is left of the screen below the top bar, and follows the keyboard.
