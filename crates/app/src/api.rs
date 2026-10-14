@@ -651,7 +651,23 @@ impl Api {
             Some(m) => m.lock().unwrap().get(key)?.into_iter().take(30).collect(),
             None => Vec::new(),
         };
-        Ok(json!({"notes": notes, "barrons": barrons_related, "general": general, "moby": moby}))
+        // Every chip the UI shows that is itself a Barron's word gets a GRE dot.
+        let mut gre_words: Vec<String> = Vec::new();
+        if let Some(b) = &barrons {
+            let mut note_words: Vec<String> = Vec::new();
+            let mut chips: Vec<&str> = syn.iter().chain(&ant).chain(&moby).map(|w| w.as_str()).collect();
+            let notes_json = serde_json::to_value(&notes)?;
+            if let Some(o) = notes_json.as_object() {
+                note_words = o.values().filter_map(|v| v.as_array()).flatten().filter_map(|v| v.as_str().map(String::from)).collect();
+            }
+            chips.extend(note_words.iter().map(|w| w.as_str()));
+            for w in chips {
+                if b.contains(&lemma::key(w)) && !gre_words.iter().any(|g| g == w) {
+                    gre_words.push(w.to_string());
+                }
+            }
+        }
+        Ok(json!({"notes": notes, "barrons": barrons_related, "general": general, "moby": moby, "gre_words": gre_words}))
     }
 }
 

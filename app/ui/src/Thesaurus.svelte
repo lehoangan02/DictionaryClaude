@@ -14,6 +14,7 @@
   const syn: string[] = $derived(data?.general?.synonyms ?? []);
   const ant: string[] = $derived(data?.general?.antonyms ?? []);
   const moby: string[] = $derived(data?.moby ?? []);
+  const greSet = $derived(new Set<string>(data?.gre_words ?? []));
   let showMoby = $state(false);
 </script>
 
@@ -27,7 +28,7 @@
         {#each noteGroups as g (g.k)}
           <p class="row">
             <span class="sym" title={REL[g.k].label}>{REL[g.k].sym}</span>
-            {#each g.items as w (w)}<button class="chip" onclick={() => open(w)}>{w}</button>{/each}
+            {#each g.items as w (w)}<button class="chip" onclick={() => open(w)}>{w}{#if greSet.has(w)}<i class="gdot" title="GRE word (Barron's)"></i>{/if}</button>{/each}
           </p>
         {/each}
       </div>
@@ -52,9 +53,9 @@
       <div class="box rise" style="--i:2">
         <h3>Dictionary synonyms</h3>
         {#if syn.length}<p class="row"><span class="sym" title="Synonyms">≈</span>
-          {#each syn as w (w)}<button class="chip" onclick={() => open(w)}>{w}</button>{/each}</p>{/if}
+          {#each syn as w (w)}<button class="chip" onclick={() => open(w)}>{w}{#if greSet.has(w)}<i class="gdot" title="GRE word (Barron's)"></i>{/if}</button>{/each}</p>{/if}
         {#if ant.length}<p class="row"><span class="sym" title="Opposite">&gt;&lt;</span>
-          {#each ant as w (w)}<button class="chip" onclick={() => open(w)}>{w}</button>{/each}</p>{/if}
+          {#each ant as w (w)}<button class="chip" onclick={() => open(w)}>{w}{#if greSet.has(w)}<i class="gdot" title="GRE word (Barron's)"></i>{/if}</button>{/each}</p>{/if}
       </div>
     {/if}
 
@@ -62,7 +63,7 @@
       <div class="box rise" style="--i:3">
         <h3>More words <span class="muted">· Moby thesaurus</span></h3>
         <p class="row">
-          {#each showMoby ? moby : moby.slice(0, 12) as w (w)}<button class="chip" onclick={() => open(w)}>{w}</button>{/each}
+          {#each showMoby ? moby : moby.slice(0, 12) as w (w)}<button class="chip" onclick={() => open(w)}>{w}{#if greSet.has(w)}<i class="gdot" title="GRE word (Barron's)"></i>{/if}</button>{/each}
           {#if !showMoby && moby.length > 12}<button class="btn small" onclick={() => (showMoby = true)}>+{moby.length - 12}</button>{/if}
         </p>
       </div>
@@ -81,6 +82,7 @@
     display: inline-grid; place-items: center; min-width: 34px; height: 28px; margin-right: 8px; border-radius: 6px;
     background: var(--navy); color: #fff; font-weight: 700; font-size: 14px;
   }
+  .gdot { display: inline-block; width: 7px; height: 7px; margin-left: 6px; border-radius: 50%; background: var(--accent); vertical-align: middle; }
   .gl { list-style: none; margin: 0; padding: 0; }
   .gl li { padding: 5px 0; border-top: 1px solid var(--line); display: grid; grid-template-columns: auto auto 1fr; gap: 4px 10px; align-items: baseline; }
   .gl li:first-child { border-top: 0; }
