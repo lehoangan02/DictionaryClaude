@@ -118,6 +118,11 @@ fn recording(name: &Option<String>) -> Option<String> {
     name.as_ref().map(|n| format!("oald:{n}"))
 }
 
+/// The word origin, unless the extraction only kept a placeholder (a row of dots) with no words in it.
+fn word_origin(s: &Option<String>) -> Option<String> {
+    s.as_deref().map(str::trim).filter(|t| t.chars().any(char::is_alphabetic)).map(str::to_string)
+}
+
 fn make_sounds(ipa_uk: Option<&str>, ipa_us: Option<&str>, audio_uk: Option<String>, audio_us: Option<String>) -> Vec<Sound> {
     let mut out = Vec::new();
     for (ipa, audio, tag) in [(ipa_uk, audio_uk, "UK"), (ipa_us, audio_us, "US")] {
@@ -203,7 +208,7 @@ pub fn build(dir: &Path, out: &Path) -> Result<()> {
             pos: pos_normalize(pos_list[0]),
             sounds,
             senses: all_senses,
-            etymology: raw.word_origin.clone(),
+            etymology: word_origin(&raw.word_origin),
             ..Default::default()
         };
 

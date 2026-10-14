@@ -40,8 +40,9 @@
 
   const entry = $derived(data?.entry);
   const prons = $derived(entry ? pronunciations(entry.blocks) : []);
+  // Packs built before the fix can hold a placeholder origin (a row of dots): only text with letters counts.
   const etyms = $derived(
-    entry ? [...new Set<string>(entry.blocks.map((b: any) => b.etymology).filter(Boolean))] : [],
+    entry ? [...new Set<string>(entry.blocks.map((b: any) => b.etymology).filter((e: any) => e && /\p{L}/u.test(e)))] : [],
   );
   const tabs = $derived((void app.orderVersion, orderedSources().visible));
   // A dictionary without the word is greyed out and cannot be opened; Merriam-Webster is a live lookup, so it is always allowed.
