@@ -201,6 +201,11 @@ impl Api {
             let t: String = if message.is_empty() { "Photo".into() } else { message.chars().take(40).collect() };
             self.db.lock().unwrap().execute("UPDATE talks SET title=?2 WHERE id=?1", params![id, t])?;
         }
+        // Typing "release it" is the owner's own trigger for a release: no agent call is needed.
+        if let Some(how) = release_request(message).filter(|_| self.talk_meta(id).is_ok_and(|(_, branch, _)| branch.is_empty())) {
+            self.talk_save(id, how, &msgs)?;
+            return self.talk_get(id);
+        }
         self.talk_save(id, "asked", &msgs)?;
         self.talk_get(id)
     }
@@ -507,5 +512,30 @@ impl Api {
             }
             Err(e) => fail(&mut msgs, format!("{e:#}")),
         }
+    }
+}
+
+/// A message that only asks for a release ("Release it", "please release as a new feature").
+/// "new feature" or "minor" releases a new feature, anything else a fix.
+fn release_request(message: &str) -> Option<&'static str> {
+    let t = message.trim().trim_end_matches(['.', '!']).to_lowercase();
+    if t.split_whitespace().count() > 8 || !t.split_whitespace().any(|w| w == "release" || w == "publish") {
+        return None;
+    }
+    if t.contains('?') || t.contains("don't") || t.contains("do not") || t.contains("not ") {
+        return None;
+    }
+    Some(if t.contains("feature") || t.contains("minor") { "release_minor" } else { "release_patch" })
+}
+
+#[cfg(test)]
+mod release_request_tests {
+    use super::release_request;
+    #[test]
+    fn recognises_short_release_orders() {
+        assert_eq!(release_request("Release it"), Some("release_patch"));
+        assert_eq!(release_request("please release this as a new feature!"), Some("release_minor"));
+        assert_eq!(release_request("Can you change the release script?"), None);
+        assert_eq!(release_request("don't release yet"), None);
     }
 }
