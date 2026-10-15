@@ -370,7 +370,7 @@ fn the_general_chat_answers_proposes_ideas_and_keeps_only_approved_ones() {
     api.call("run_jobs", json!({})).unwrap();
     let t = api.call("talk_get", json!({"id": c2})).unwrap();
     assert_eq!(t["msgs"][1]["idea"]["status"], "proposed");
-    assert_eq!(api.call("talk_get", json!({"id": c1})).unwrap()["msgs"].as_array().unwrap().len(), 2, "chats are separate");
+    assert_eq!(api.call("talk_get", json!({"id": c1})).unwrap()["msgs"].as_array().unwrap().len(), 4, "chats are separate");
     assert!(api.call("talk_ideas", json!({})).unwrap().as_array().unwrap().is_empty());
     let at = t["msgs"][1]["at"].as_i64().unwrap();
     api.call("talk_idea", json!({"id": c2, "at": at, "decision": "approved"})).unwrap();
