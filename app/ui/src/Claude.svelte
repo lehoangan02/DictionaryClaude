@@ -6,8 +6,8 @@
   import { app, bump, openDetail, closeDetail } from './lib/store.svelte';
 
   type Idea = { title: string; detail: string; status: 'proposed' | 'approved' | 'dismissed' };
-  type Step = { kind: string; text: string };
-  type Msg = { role: 'user' | 'claude' | 'error' | 'activity'; steps?: Step[]; text: string; at: number; idea?: Idea; photos?: string[]; offer?: string };
+  type Step = { kind: string; text: string; at?: number };
+  type Msg = { role: 'user' | 'claude' | 'error' | 'activity'; steps?: Step[]; text: string; at: number; idea?: Idea; photos?: string[]; offer?: string; queued?: boolean };
   type Chat = { id: string; title: string; state: string; updated: number; last: string; mode: string };
   let chats = $state<Chat[]>([]);
   let cur = $state<string | null>(null);
@@ -61,6 +61,22 @@
   // Merging and releasing are slow by nature; a question or a change should show progress within minutes.
   const staleAfter = (state: string) => (state === 'asked' || state === 'running' ? 90_000 : 30 * 60_000);
   const stuck = $derived(waiting && now - since > staleAfter(phase));
+  // While Claude answers, new messages are queued (and can be edited or removed) instead of blocked.
+  const answering = $derived(phase === 'asked' || phase === 'running');
+  const queued = $derived(msgs.filter((m) => m.queued));
+  let editing = $state<number | null>(null);
+  let editText = $state('');
+  async function saveEdit(m: Msg) {
+    try { const t = await call('talk_queue_edit', { id: cur, at: m.at, message: editText }); msgs = t.msgs; editing = null; call('sync_now').catch(() => {}); } catch (e) { error = (e as Error).message; }
+  }
+  async function unqueue(m: Msg) {
+    try { const t = await call('talk_queue_remove', { id: cur, at: m.at }); msgs = t.msgs; call('sync_now').catch(() => {}); } catch (e) { error = (e as Error).message; }
+  }
+  async function sendNow() {
+    try { const t = await call('talk_next', { id: cur }); msgs = t.msgs; phase = t.state; started = t.started; since = t.updated; call('sync_now').catch(() => {}); } catch (e) { error = (e as Error).message; }
+  }
+  // How long a step took (or has been running): each step starts when the previous one was reported.
+  const took = (steps: Step[], i: number) => { const a = steps[i]?.at; return a ? clock((steps[i + 1]?.at ?? now) - a) : ''; };
   const ICON: Record<string, string> = { read: '📄', edit: '✏️', search: '🔍', run: '⌨️', say: '💬' };
   // What Claude is doing right now, as the server reports it.
   const live = $derived([...msgs].reverse().find((m: Msg) => m.role === 'activity')?.steps ?? []);
@@ -105,7 +121,7 @@
 
   async function send() {
     const m = msg.trim();
-    if ((!m && !attached.length) || waiting || sending) return;
+    if ((!m && !attached.length) || (waiting && !answering) || sending) return;
     sending = true; error = '';
     try { const t = await call('talk_send', { id: cur, message: m, photos: attached, ...(model && { model }), ...(effort && { effort }) }); msgs = t.msgs; phase = t.state; started = t.started; since = t.updated; msg = ''; attached = []; call('sync_now').catch(() => {}); bump(); await tick(); end?.scrollIntoView({ block: 'end' }); }
     catch (e) { error = (e as Error).message; }
@@ -192,7 +208,11 @@
     {/if}
     {#each msgs as m (m.at + m.role)}
       {#if m.role === 'activity'}
-      {:else if m.role === 'user'}<div class="m me">{#each m.photos ?? [] as n}{#if thumbs[n]}<img class="th" src={thumbs[n]} alt="Attached" />{:else}<span class="th ph">…</span>{/if}{/each}{m.text}<time>{hhmm(m.at)}</time></div>
+      {:else if m.role === 'user'}<div class="m me" class:queued={m.queued}>{#each m.photos ?? [] as n}{#if thumbs[n]}<img class="th" src={thumbs[n]} alt="Attached" />{:else}<span class="th ph">…</span>{/if}{/each}
+        {#if editing === m.at}<textarea class="qedit" rows="2" bind:value={editText} onkeydown={(e) => { if (e.key === 'Escape') editing = null; }}></textarea>
+          <span class="qrow"><button class="lnk" onclick={() => saveEdit(m)}>Save</button><button class="lnk" onclick={() => (editing = null)}>Cancel</button></span>
+        {:else}{m.text}<time>{m.queued ? 'Queued · goes out after this answer' : hhmm(m.at)}</time>
+          {#if m.queued}<span class="qrow"><button class="lnk" onclick={() => { editing = m.at; editText = m.text; }}>Edit</button><button class="lnk" onclick={() => unqueue(m)}>Remove</button></span>{/if}{/if}</div>
       {:else if m.role === 'error'}<div class="m bad">{m.text}</div>
       {:else}
         <div class="m ai">{#if m.steps?.length}<details class="steps"><summary>Worked through {m.steps.length} step{m.steps.length === 1 ? '' : 's'}{#if tally(m.steps)} <span class="muted">· {tally(m.steps)}</span>{/if}</summary>
@@ -216,10 +236,19 @@
     {#if waiting}<div class="m ai wait" role="status">
       <div class="status"><span class="spin" aria-hidden="true"></span><span>{phase === 'merge' ? 'Merging…' : phase === 'discard' ? 'Discarding…' : phase.startsWith('release') ? 'Building and publishing the release' : mode === 'work' ? 'Claude is working' : 'Claude is thinking'}</span>
         <span class="muted small">{clock(now - (started || now))}{#if live.length} · {live.length} step{live.length === 1 ? '' : 's'}{/if}</span></div>
+      {#if live.length}<div class="small now">Now: {live.at(-1)?.text}{#if live.at(-1)?.at} <span class="muted">({took(live, live.length - 1)})</span>{/if}</div>
+        {#if tally(live)}<div class="small muted">So far: {tally(live)}</div>{/if}{/if}
       {#if phase.startsWith('release')}<p class="small">This takes many minutes; it is safe to leave this screen.</p>{/if}
-      {#if live.length}<div class="steps live">{#each (allSteps ? live : live.slice(-6)) as st, i}<div class="step {st.kind}" class:cur={i === (allSteps ? live : live.slice(-6)).length - 1}><span class="ic">{ICON[st.kind] ?? '•'}</span>{st.text}</div>{/each}
+      {#if live.length}<div class="steps live">{#each (allSteps ? live : live.slice(-6)) as st, i}{@const shown = allSteps ? live : live.slice(-6)}<div class="step {st.kind}" class:cur={i === shown.length - 1}><span class="ic">{ICON[st.kind] ?? '•'}</span><span class="tx">{st.text}</span>{#if st.at}<span class="dur">{took(live, live.length - shown.length + i)}</span>{/if}</div>{/each}
         {#if live.length > 6}<button class="lnk" onclick={() => (allSteps = !allSteps)}>{allSteps ? 'Show fewer' : `Show all ${live.length}`}</button>{/if}</div>{/if}
       {#if stuck}<div class="small stuckrow">{phase === 'asked' || phase === 'running' ? 'No progress for a while. ' : 'Taking very long. '}{#if phase === 'asked' || phase === 'running'}<button class="btn small" onclick={retry}>Try again</button>{/if}<button class="btn small ghost" onclick={() => stop()}>Stop waiting</button></div>{:else if phase === 'asked'}<span class="muted small">Waiting for the server to pick it up…</span>{/if}</div>{/if}
+    {#if queued.length && !waiting}
+      <div class="card work">
+        <b>{queued.length} message{queued.length === 1 ? '' : 's'} waiting</b>
+        <p class="muted small">Nothing is running (the last run was stopped or ended early). Send the first one now, or edit or remove them above.</p>
+        <button class="btn small primary" onclick={sendNow}>Send now</button>
+      </div>
+    {/if}
     {#if branch && !waiting}
       <div class="card work">
         <b>Changes ready</b>
@@ -250,8 +279,8 @@
   </div>
   <div class="send">
     <label class="btn ghost" aria-label="Attach photos">📎<input type="file" accept="image/*" multiple onchange={attach} hidden /></label>
-    <textarea rows="1" bind:value={msg} onkeydown={sendKey} onfocus={() => setTimeout(() => end?.scrollIntoView({ block: 'end' }), 250)} placeholder={mode === 'work' ? 'Ask a question or describe a change' : 'Message Claude'}></textarea>
-    <button class="btn primary" disabled={(!msg.trim() && !attached.length) || waiting || sending} onclick={send}>Send</button>
+    <textarea rows="1" bind:value={msg} onkeydown={sendKey} onfocus={() => setTimeout(() => end?.scrollIntoView({ block: 'end' }), 250)} placeholder={answering ? 'Queue a message for after this answer' : mode === 'work' ? 'Ask a question or describe a change' : 'Message Claude'}></textarea>
+    <button class="btn primary" disabled={(!msg.trim() && !attached.length) || (waiting && !answering) || sending} onclick={send}>{answering ? 'Queue' : 'Send'}</button>
   </div>
 </div>
 {/if}
@@ -280,6 +309,13 @@
   .step { display: flex; gap: 6px; padding: 2px 0; word-break: break-word; font-family: ui-monospace, monospace; }
   .step.say { font-family: inherit; font-style: italic; }
   .step .ic { flex: none; }
+  .step .tx { flex: 1; min-width: 0; }
+  .step .dur { flex: none; opacity: 0.7; font-family: inherit; }
+  .now { color: var(--text); font-style: normal; margin-top: 4px; overflow-wrap: anywhere; }
+  .m.me.queued { background: var(--blue-soft); color: var(--text); border: 1px dashed var(--blue); }
+  .qrow { display: flex; gap: 12px; margin-top: 4px; }
+  .m.me .qrow { justify-content: flex-end; }
+  .qedit { width: 100%; min-width: 220px; font-size: 16px; resize: none; }
   .idea { margin: 8px 0 2px; padding: 8px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
   .idea p { margin: 4px 0 8px; }
   .ok { margin: 10px 0; }
