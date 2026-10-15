@@ -17,7 +17,7 @@
     try { rows = await call('history_list', { q, starred, limit: 300 }); error = ''; }
     catch (e) { error = (e as Error).message; }
   }
-  $effect(() => { void q; void starred; void app.version; load(); });
+  $effect(() => { void q; void starred; void app.version; void app.historyVersion; load(); });
 
   async function star(h: M) { for (const id of h.ids) await call('history_star', { id, starred: h.starred ? 0 : 1 }); await load(); }
   async function del(h: M) { for (const id of h.ids) await call('history_delete', { id }); await load(); }

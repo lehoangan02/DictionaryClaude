@@ -109,6 +109,22 @@ fn replays_and_stale_copies_change_nothing() {
 }
 
 #[test]
+fn history_version_moves_when_a_lookup_arrives_by_sync() {
+    let (Some(mac), Some(phone), Some(server)) = (device("mac"), device("phone"), device("server")) else { return };
+    let v = |a: &Api| a.call("history_version", json!({})).unwrap()["v"].as_i64().unwrap();
+    let (mut c1, mut c2) = (0, 0);
+    sync(&mac, &server, &mut c1);
+    let before = v(&mac);
+    phone.call("entry", json!({"word": "garrulous"})).unwrap();
+    sync(&phone, &server, &mut c2);
+    sync(&mac, &server, &mut c1);
+    let after = v(&mac);
+    assert!(after > before, "the UI's History poll sees a lookup made on another device");
+    sync(&mac, &server, &mut c1);
+    assert_eq!(v(&mac), after, "a sync that brings nothing new leaves it alone");
+}
+
+#[test]
 fn quiz_history_and_search_follow_the_user() {
     let (Some(mac), Some(phone), Some(server)) = (device("mac"), device("phone"), device("server")) else { return };
     if mac.call("quiz_catalog", json!({})).unwrap()["barrons"] != true {

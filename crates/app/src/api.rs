@@ -222,6 +222,8 @@ impl Api {
             "audio_prefetch" => self.audio_prefetch(n("limit", 20) as usize),
             "thesaurus" => Ok(self.thesaurus(&lemma::key(&req("word")?))?),
             "history_list" => self.history_list(a("q").as_deref(), n("limit", 100), n("offset", 0), args.get("starred").and_then(Value::as_bool).unwrap_or(false)),
+            // Changes whenever any History row changes, here or through sync: the UI polls it to stay in step without a manual sync.
+            "history_version" => Ok(json!({"v": self.db.lock().unwrap().query_row("SELECT COALESCE(MAX(seq),0) FROM sync_seq WHERE tbl='lookups'", [], |r| r.get::<_, i64>(0))?})),
             "history_star" => self.exec("UPDATE lookups SET starred=?2, updated=?3 WHERE id=?1", params![req("id")?, n("starred", 1), now_ms()]),
             "history_delete" => self.exec("UPDATE lookups SET deleted=1, updated=?2 WHERE id=?1", params![req("id")?, now_ms()]),
             "history_clear" => self.exec("UPDATE lookups SET deleted=1, updated=?1 WHERE starred=0 AND deleted=0", params![now_ms()]),

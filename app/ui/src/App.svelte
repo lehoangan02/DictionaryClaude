@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { app, boot, goBack, goForward, goTab, openMenu, closeMenu, menuToSettings, closeSettings, trackLocation, listenForBack, keepDownloadsGoing, type Tab } from './lib/store.svelte';
+  import { app, boot, goBack, goForward, goTab, openMenu, closeMenu, menuToSettings, closeSettings, trackLocation, listenForBack, keepDownloadsGoing, watchHistory, type Tab } from './lib/store.svelte';
   import SearchBar from './SearchBar.svelte';
   import EntryView from './EntryView.svelte';
   import History from './History.svelte';
@@ -41,6 +41,7 @@
       ready = true;
       listenForBack();
       keepDownloadsGoing();
+      watchHistory();
     } catch (e) {
       error = (e as Error).message;
     }

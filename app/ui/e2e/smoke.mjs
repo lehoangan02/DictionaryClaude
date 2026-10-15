@@ -465,6 +465,15 @@ if (BASE_B && process.env.PAIR_A) {
   ok(mineB.includes('garrulous') && mineB.includes('voluble'), "device B's thesaurus uses the synced note");
   await b.screenshot({ path: `${OUT}/thesaurus-device-b.png`, fullPage: true });
 
+  // A lookup made on device B reaches device A's word arrows by the background sync alone (nobody presses Sync).
+  await a.bringToFront();
+  await a.goto(BASE + '?w=abate', { waitUntil: 'networkidle0' });
+  await a.waitForSelector('.hw');
+  await b.evaluate(() => fetch('/api/entry', { method: 'POST', body: '{"word":"venerate","source":"wiktionary"}' }).then(() => fetch('/api/sync_now', { method: 'POST', body: '{}' })));
+  await a.evaluate(() => fetch('/api/sync_now', { method: 'POST', body: '{}' })); // stands in for A's background sync (no UI bump)
+  const fwd = await a.waitForFunction(() => document.querySelector('.hn button.r span')?.textContent === 'venerate', { timeout: 10000 }).then(() => true, () => false);
+  ok(fwd, "device B's lookup shows up as Forward on device A without pressing Sync");
+
   // Unpairing returns to device-only without losing data.
   await a.bringToFront(); // a background tab is throttled and would time out
   await a.goto(BASE + '?tab=settings', { waitUntil: 'networkidle0' });

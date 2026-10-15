@@ -20,6 +20,8 @@ export const app = $state({
   menu: false,
   // Bumped when the dictionary order changes so tabs redraw.
   orderVersion: 0,
+  // Bumped when History rows change by any route (a lookup here, or one synced in from another device).
+  historyVersion: 0,
 });
 
 /** Words visited, like a browser's history; `i` is the current position (== length when on the home screen). */
@@ -228,6 +230,23 @@ async function refreshTrail() {
 export function bump() {
   app.version++;
   refreshTrail();
+}
+
+// Lookups made on other devices arrive through the background sync, which the UI never hears about. Watching the
+// History change number keeps the History list and the Back/Forward trail in step without pressing Sync.
+let seenHistory: number | null = null;
+async function checkHistory() {
+  if (document.hidden) return;
+  try {
+    const { v } = await call('history_version');
+    if (seenHistory !== null && v !== seenHistory) { app.historyVersion++; await refreshTrail(); }
+    seenHistory = v;
+  } catch { /* busy or opening: next time */ }
+}
+export function watchHistory() {
+  checkHistory();
+  setInterval(checkHistory, 3000);
+  document.addEventListener('visibilitychange', checkHistory);
 }
 
 export function setTheme(t: 'system' | 'light' | 'dark') {
