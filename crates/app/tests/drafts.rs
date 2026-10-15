@@ -349,13 +349,22 @@ fn the_general_chat_answers_proposes_ideas_and_keeps_only_approved_ones() {
     let c2 = api.call("talk_new", json!({})).unwrap()["id"].as_str().unwrap().to_string();
     assert!(api.call("talk_send", json!({"id": c1, "message": " "})).is_err());
     api.call("talk_send", json!({"id": c1, "message": "how are words stored?"})).unwrap();
-    assert!(api.call("talk_send", json!({"id": c1, "message": "again"})).is_err(), "one question at a time in a chat");
+    // A message sent while Claude is answering waits in the queue, can be edited, and goes out afterwards.
+    let q = api.call("talk_send", json!({"id": c1, "message": "again"})).unwrap();
+    assert_eq!(q["msgs"][1]["queued"], true);
+    let at = q["msgs"][1]["at"].as_i64().unwrap();
+    let q = api.call("talk_queue_edit", json!({"id": c1, "at": at, "message": "once more"})).unwrap();
+    assert_eq!(q["msgs"][1]["text"], "once more");
     api.call("run_jobs", json!({})).unwrap();
     let t = api.call("talk_get", json!({"id": c1})).unwrap();
-    assert_eq!(t["state"], "");
     assert_eq!(t["title"], "how are words stored?");
     assert_eq!(t["msgs"][1]["text"], "It stores words by lemma.");
     assert!(t["msgs"][1]["idea"].is_null());
+    assert_eq!(t["msgs"][2]["text"], "once more");
+    assert!(t["msgs"][2]["queued"].is_null(), "the queued message went out");
+    assert_eq!(t["state"], "asked");
+    api.call("run_jobs", json!({})).unwrap();
+    assert_eq!(api.call("talk_get", json!({"id": c1})).unwrap()["state"], "");
 
     api.call("talk_send", json!({"id": c2, "message": "make it blue"})).unwrap();
     api.call("run_jobs", json!({})).unwrap();

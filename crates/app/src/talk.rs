@@ -42,9 +42,15 @@ pub fn extract_talk(stdout: &str) -> Option<(String, Option<(String, String)>)> 
     serde_json::from_str::<Value>(stdout.trim()).ok().and_then(|v| find(&v, 0))
 }
 
+/// A message sent while Claude was busy: it waits, editable, until the running answer is done.
+fn is_queued(m: &Value) -> bool {
+    m["queued"] == true
+}
+
 fn prompt(msgs: &[Value]) -> String {
     let talk: String = msgs
         .iter()
+        .filter(|m| !is_queued(m))
         .rev()
         .take(16)
         .rev()
@@ -69,7 +75,7 @@ pub const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
 
 /// The model and effort the owner chose on their latest message.
 fn last_pick(msgs: &[Value]) -> (Option<String>, Option<String>) {
-    let m = msgs.iter().rev().find(|m| m["role"] == "user");
+    let m = msgs.iter().rev().find(|m| m["role"] == "user" && !is_queued(m));
     let get = |k: &str, ok: &[&str]| m.and_then(|m| m[k].as_str()).filter(|v| ok.contains(v)).map(str::to_string);
     (get("model", &MODELS), get("effort", &EFFORTS))
 }
@@ -85,6 +91,7 @@ fn git(dir: &Path, args: &[&str]) -> Result<String> {
 fn work_prompt(msgs: &[Value], branch: &str) -> String {
     let talk: String = msgs
         .iter()
+        .filter(|m| !is_queued(m))
         .rev()
         .take(16)
         .rev()
@@ -138,9 +145,72 @@ impl Api {
         Ok((title, state, serde_json::from_str(&msgs).unwrap_or_default()))
     }
 
+    /// Saves the chat. Queued messages are the owner's own and may change while a run is in flight,
+    /// so whatever the database holds of them wins over the copy the caller loaded earlier.
     fn talk_save(&self, id: &str, state: &str, msgs: &[Value]) -> Result<()> {
-        self.db.lock().unwrap().execute("UPDATE talks SET state=?2, msgs=?3, updated=?4 WHERE id=?1", params![id, state, json!(msgs).to_string(), now_ms()])?;
+        let db = self.db.lock().unwrap();
+        let held: String = db.query_row("SELECT msgs FROM talks WHERE id=?1", [id], |r| r.get(0)).unwrap_or_default();
+        let mut all: Vec<Value> = msgs.iter().filter(|m| !is_queued(m)).cloned().collect();
+        all.extend(serde_json::from_str::<Vec<Value>>(&held).unwrap_or_default().into_iter().filter(is_queued));
+        db.execute("UPDATE talks SET state=?2, msgs=?3, updated=?4 WHERE id=?1", params![id, state, json!(all).to_string(), now_ms()])?;
         Ok(())
+    }
+
+    /// Changes the messages of a chat without touching its state, under one lock so a run finishing meanwhile cannot be undone.
+    fn talk_edit_msgs(&self, id: &str, f: impl FnOnce(&str, &mut Vec<Value>) -> Result<()>) -> Result<()> {
+        let db = self.db.lock().unwrap();
+        let (state, held): (String, String) = db.query_row("SELECT state, msgs FROM talks WHERE id=?1 AND deleted=0", [id], |r| Ok((r.get(0)?, r.get(1)?))).map_err(|_| anyhow!("no such chat"))?;
+        let mut msgs: Vec<Value> = serde_json::from_str(&held).unwrap_or_default();
+        f(&state, &mut msgs)?;
+        db.execute("UPDATE talks SET msgs=?2, updated=?3 WHERE id=?1", params![id, json!(msgs).to_string(), now_ms()])?;
+        Ok(())
+    }
+
+    /// Changes the text of a queued message.
+    pub(crate) fn talk_queue_edit(&self, id: &str, at: i64, message: &str) -> Result<Value> {
+        let message = message.trim();
+        if message.len() > 2000 {
+            bail!("write a message of up to 2000 characters");
+        }
+        self.talk_edit_msgs(id, |_, msgs| {
+            let m = msgs.iter_mut().find(|m| m["at"] == at && is_queued(m)).ok_or_else(|| anyhow!("that message is no longer queued"))?;
+            if message.is_empty() && m["photos"].as_array().map_or(true, |p| p.is_empty()) {
+                bail!("a queued message needs text or a photo; remove it instead");
+            }
+            m["text"] = json!(message);
+            Ok(())
+        })?;
+        self.talk_get(id)
+    }
+
+    /// Takes a message out of the queue.
+    pub(crate) fn talk_queue_remove(&self, id: &str, at: i64) -> Result<Value> {
+        self.talk_edit_msgs(id, |_, msgs| {
+            let n = msgs.len();
+            msgs.retain(|m| !(m["at"] == at && is_queued(m)));
+            if msgs.len() == n {
+                bail!("that message is no longer queued");
+            }
+            Ok(())
+        })?;
+        self.talk_get(id)
+    }
+
+    /// Sends the oldest queued message now that nothing is running.
+    pub(crate) fn talk_next(&self, id: &str) -> Result<Value> {
+        self.talk_edit_msgs(id, |state, msgs| {
+            if !state.is_empty() {
+                bail!("Claude is still busy");
+            }
+            let m = msgs.iter_mut().find(|m| is_queued(m)).ok_or_else(|| anyhow!("nothing is queued"))?;
+            if let Some(o) = m.as_object_mut() {
+                o.remove("queued");
+            }
+            m["at"] = json!(now_ms());
+            Ok(())
+        })?;
+        self.db.lock().unwrap().execute("UPDATE talks SET state='asked' WHERE id=?1 AND state=''", [id])?;
+        self.talk_get(id)
     }
 
     pub(crate) fn talk_get(&self, id: &str) -> Result<Value> {
@@ -148,7 +218,7 @@ impl Api {
         let (mode, branch, changes) = self.talk_meta(id)?;
         let stale = self.db.lock().unwrap().query_row("SELECT updated FROM talks WHERE id=?1", [id], |r| r.get::<_, i64>(0)).unwrap_or(0);
         // When the current run began: the question being answered, or (for merge/release) the moment it was asked for.
-        let started = if matches!(state.as_str(), "asked" | "running") { msgs.iter().rev().find(|m| m["role"] == "user").and_then(|m| m["at"].as_i64()).unwrap_or(stale) } else { stale };
+        let started = if matches!(state.as_str(), "asked" | "running") { msgs.iter().rev().find(|m| m["role"] == "user" && !is_queued(m)).and_then(|m| m["at"].as_i64()).unwrap_or(stale) } else { stale };
         Ok(json!({"id": id, "title": title, "state": state, "msgs": msgs, "mode": mode, "branch": branch, "changes": changes, "updated": stale, "started": started}))
     }
 
@@ -184,8 +254,9 @@ impl Api {
             bail!("write a message of up to 2000 characters, with up to 4 photos");
         }
         let (title, state, mut msgs) = self.talk_load(id)?;
-        if matches!(state.as_str(), "asked" | "running") {
-            bail!("Claude is still answering");
+        let busy = matches!(state.as_str(), "asked" | "running");
+        if !busy && !state.is_empty() {
+            bail!("Claude is busy with a merge or a release; wait for it to finish");
         }
         let names = photos.iter().map(|p| self.photo_save(p)).collect::<Result<Vec<_>>>()?;
         let mut m = json!({"role": "user", "text": message, "at": now_ms()});
@@ -197,6 +268,18 @@ impl Api {
         }
         if let Some(v) = effort {
             m["effort"] = json!(v);
+        }
+        if busy {
+            // Claude is answering: the message waits in the queue (editable) and goes out when the answer is in.
+            m["queued"] = json!(true);
+            self.talk_edit_msgs(id, |state, msgs| {
+                if !matches!(state, "asked" | "running") {
+                    bail!("Claude has just finished; send the message again");
+                }
+                msgs.push(m);
+                Ok(())
+            })?;
+            return self.talk_get(id);
         }
         msgs.push(m);
         if title.is_empty() {
@@ -313,7 +396,7 @@ impl Api {
     /// Copies the photos of the latest message into a scratch folder Claude may read.
     /// Returns (folder, the sentence for the prompt; empty without photos).
     fn attach_photos(&self, id: &str, msgs: &[Value]) -> (Option<PathBuf>, String) {
-        let names: Vec<String> = msgs.iter().rev().find(|m| m["role"] == "user").map(crate::drafts::talk_photos).unwrap_or_default();
+        let names: Vec<String> = msgs.iter().rev().find(|m| m["role"] == "user" && !is_queued(m)).map(crate::drafts::talk_photos).unwrap_or_default();
         if names.is_empty() {
             return (None, String::new());
         }
@@ -355,7 +438,11 @@ impl Api {
         for id in ids {
             let state = self.talk_load(&id)?.1;
             match state.as_str() {
-                "asked" => ran += self.job_talk(&id)? as usize,
+                "asked" => {
+                    ran += self.job_talk(&id)? as usize;
+                    // Messages queued meanwhile go out one after another.
+                    let _ = self.talk_next(&id);
+                }
                 how if how.starts_with("release") => self.job_release(&id, how)?,
                 how => self.job_finish(&id, how)?,
             }
@@ -474,7 +561,7 @@ impl Api {
         let mut steps: Vec<Value> = vec![];
         let mut live = |s: String| {
             let (k, t) = s.split_once('|').unwrap_or(("run", &s));
-            steps.push(json!({"kind": k, "text": t}));
+            steps.push(json!({"kind": k, "text": t, "at": now_ms()}));
             if steps.len() > 80 {
                 steps.remove(0);
             }
@@ -553,7 +640,7 @@ impl Api {
         let mut steps: Vec<Value> = vec![];
         let mut live = |s: String| {
             let (k, t) = s.split_once('|').unwrap_or(("run", &s));
-            steps.push(json!({"kind": k, "text": t}));
+            steps.push(json!({"kind": k, "text": t, "at": now_ms()}));
             if steps.len() > 80 {
                 steps.remove(0);
             }
