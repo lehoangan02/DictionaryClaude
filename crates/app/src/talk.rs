@@ -48,9 +48,9 @@ fn is_queued(m: &Value) -> bool {
 }
 
 fn prompt(msgs: &[Value]) -> String {
-    let talk: String = msgs
+    let sent: Vec<&Value> = msgs.iter().filter(|m| !is_queued(m)).collect();
+    let talk: String = sent
         .iter()
-        .filter(|m| !is_queued(m))
         .rev()
         .take(16)
         .rev()
@@ -89,9 +89,9 @@ fn git(dir: &Path, args: &[&str]) -> Result<String> {
 }
 
 fn work_prompt(msgs: &[Value], branch: &str) -> String {
-    let talk: String = msgs
+    let sent: Vec<&Value> = msgs.iter().filter(|m| !is_queued(m)).collect();
+    let talk: String = sent
         .iter()
-        .filter(|m| !is_queued(m))
         .rev()
         .take(16)
         .rev()
