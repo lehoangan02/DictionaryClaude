@@ -320,14 +320,14 @@
   .idea { margin: 8px 0 2px; padding: 8px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
   .idea p { margin: 4px 0 8px; }
   .ok { margin: 10px 0; }
-  .pick { display: flex; gap: 8px; padding: 6px 12px 0; background: var(--surface); border-top: 1px solid var(--line); }
-  .pick select { flex: 1; min-width: 0; font-size: 14px; }
+  .pick { display: flex; gap: 8px; padding: 8px 12px 6px; background: var(--surface); border-top: 1px solid var(--line); }
+  .pick select { flex: 1; min-width: 0; height: 36px; font-size: 14px; padding: 0 8px; }
   .th { display: block; max-width: 160px; max-height: 120px; border-radius: 8px; margin-bottom: 4px; }
   .th.ph { width: 60px; height: 40px; background: var(--panel); }
   .at { position: relative; }
   .at .th { max-width: 64px; max-height: 64px; }
   .x { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; border-radius: 50%; border: 0; background: var(--text); color: var(--bg); line-height: 1; }
-  .send { display: flex; gap: 8px; align-items: end; padding: 6px 12px calc(8px + env(safe-area-inset-bottom)); background: var(--surface); }
+  .send { display: flex; gap: 8px; align-items: end; padding: 4px 12px calc(8px + env(safe-area-inset-bottom)); background: var(--surface); }
   .send textarea { flex: 1; min-width: 0; font-size: 16px; line-height: 1.4; min-height: 44px; max-height: 120px; resize: none; field-sizing: content; }
   .send .btn { height: 44px; flex: none; display: grid; place-items: center; }
   .send label.btn { width: 44px; padding: 0; font-size: 20px; cursor: pointer; }
