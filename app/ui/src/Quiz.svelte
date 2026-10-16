@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from './Icon.svelte';
   import { call } from './lib/api';
   import { app, openDetail, closeDetail } from './lib/store.svelte';
   import { pct, when } from './lib/format';
@@ -64,7 +65,7 @@
   <QuizPlayer session={live} ondone={done} onretry={(id: string) => start({ kind: 'retry', session_id: id })} />
 {:else if review}
   <section class="fadein">
-    <button class="btn small ghost" onclick={() => closeDetail()}>← Back</button>
+    <button class="btn small ghost" onclick={() => closeDetail()}><Icon name="back" size={18} /> Back</button>
     <h1>{review.title}</h1>
     <p class="muted">{when(review.started)} · {review.correct}/{review.total} correct ({pct(review.correct, review.total)}%)</p>
     <div class="act">
@@ -74,7 +75,7 @@
     <ol class="rv">
       {#each review.review as r, ri (r.item.id)}
         <li class="rise" style="--i:{ri}" class:ok={r.correct === true} class:no={r.correct === false}>
-          <span class="mark">{r.correct === true ? '✓' : r.correct === false ? '✗' : '–'}</span>
+          <span class="mark"><Icon name={r.correct === true ? 'check' : r.correct === false ? 'close' : 'minus'} size={18} /></span>
           <div>
             <p class="pr">{r.item.prompt}</p>
             {#if r.correct === true}
@@ -104,7 +105,7 @@
         </button>
         {#if !s.ended}<button class="btn small primary" disabled={busy} onclick={() => resume(s.id)}>Resume</button>{/if}
         <span class="score" class:perfect={s.ended && s.correct === s.total}>{s.correct}/{s.total}<small>{pct(s.correct, s.total)}%</small></span>
-        <button class="ic" onclick={() => remove(s.id)} aria-label="Delete session">✕</button>
+        <button class="ic" onclick={() => remove(s.id)} aria-label="Delete session"><Icon name="close" size={20} /></button>
       </div>
     {:else}
       <p class="empty">{q ? 'No sessions match.' : 'Finished quizzes will be listed here.'}</p>

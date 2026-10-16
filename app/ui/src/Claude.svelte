@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
+  import Icon from './Icon.svelte';
   import { call } from './lib/api';
   import { shrink } from './lib/image';
   import { markdown, diffRows } from './lib/markdown';
@@ -77,7 +78,7 @@
   }
   // How long a step took (or has been running): each step starts when the previous one was reported.
   const took = (steps: Step[], i: number) => { const a = steps[i]?.at; return a ? clock((steps[i + 1]?.at ?? now) - a) : ''; };
-  const ICON: Record<string, string> = { read: '📄', edit: '✏️', search: '🔍', run: '⌨️', say: '💬' };
+  const ICON: Record<string, string> = { read: 'file', edit: 'notes', search: 'search', run: 'terminal', say: 'chat' };
   // What Claude is doing right now, as the server reports it.
   const live = $derived([...msgs].reverse().find((m: Msg) => m.role === 'activity')?.steps ?? []);
   const LABEL: Record<string, [string, string]> = { read: ['read', 'reads'], edit: ['edit', 'edits'], search: ['search', 'searches'], run: ['command', 'commands'], say: ['note', 'notes'] };
@@ -192,7 +193,7 @@
 <!-- A real chat screen: its own header, the messages scroll, the message box stays at the bottom above the keyboard. -->
 <div class="pane" style="top:{top}px;height:{Math.max(220, vh - top)}px">
   <div class="chead">
-    <button class="gbtn" onclick={closeDetail} aria-label="Back to chats">←</button>
+    <button class="gbtn" onclick={closeDetail} aria-label="Back to chats"><Icon name="back" size={20} /></button>
     <b class="ct">{chats.find((c) => c.id === cur)?.title || 'New chat'}</b>
     {#if waiting}<button class="btn small ghost" onclick={() => (stuck ? stop() : (error = 'Claude is still working; you can stop waiting once it stalls.'))}>{stuck ? 'Stop' : 'Working…'}</button>{:else}<button class="btn small ghost" onclick={removeChat}>Delete</button>{/if}
   </div>
@@ -216,7 +217,7 @@
       {:else if m.role === 'error'}<div class="m bad">{m.text}</div>
       {:else}
         <div class="m ai">{#if m.steps?.length}<details class="steps"><summary>Worked through {m.steps.length} step{m.steps.length === 1 ? '' : 's'}{#if tally(m.steps)} <span class="muted">· {tally(m.steps)}</span>{/if}</summary>
-            {#each m.steps as st}<div class="step {st.kind}"><span class="ic">{ICON[st.kind] ?? '•'}</span>{st.text}</div>{/each}</details>{/if}<div class="md">{@html markdown(m.text)}</div>
+            {#each m.steps as st}<div class="step {st.kind}"><span class="ic"><Icon name={ICON[st.kind] ?? 'minus'} size={16} /></span>{st.text}</div>{/each}</details>{/if}<div class="md">{@html markdown(m.text)}</div>
           <div class="meta"><time>{hhmm(m.at)}</time><button class="lnk" onclick={() => copy(m)}>{copied === m.at ? 'Copied' : 'Copy'}</button></div>
           {#if m.idea}
             <div class="idea card">
@@ -239,7 +240,7 @@
       {#if live.length}<div class="small now">Now: {live.at(-1)?.text}{#if live.at(-1)?.at} <span class="muted">({took(live, live.length - 1)})</span>{/if}</div>
         {#if tally(live)}<div class="small muted">So far: {tally(live)}</div>{/if}{/if}
       {#if phase.startsWith('release')}<p class="small">This takes many minutes; it is safe to leave this screen.</p>{/if}
-      {#if live.length}<div class="steps live">{#each (allSteps ? live : live.slice(-6)) as st, i}{@const shown = allSteps ? live : live.slice(-6)}<div class="step {st.kind}" class:cur={i === shown.length - 1}><span class="ic">{ICON[st.kind] ?? '•'}</span><span class="tx">{st.text}</span>{#if st.at}<span class="dur">{took(live, live.length - shown.length + i)}</span>{/if}</div>{/each}
+      {#if live.length}<div class="steps live">{#each (allSteps ? live : live.slice(-6)) as st, i}{@const shown = allSteps ? live : live.slice(-6)}<div class="step {st.kind}" class:cur={i === shown.length - 1}><span class="ic"><Icon name={ICON[st.kind] ?? 'minus'} size={16} /></span><span class="tx">{st.text}</span>{#if st.at}<span class="dur">{took(live, live.length - shown.length + i)}</span>{/if}</div>{/each}
         {#if live.length > 6}<button class="lnk" onclick={() => (allSteps = !allSteps)}>{allSteps ? 'Show fewer' : `Show all ${live.length}`}</button>{/if}</div>{/if}
       {#if stuck}<div class="small stuckrow">{phase === 'asked' || phase === 'running' ? 'No progress for a while. ' : 'Taking very long. '}{#if phase === 'asked' || phase === 'running'}<button class="btn small" onclick={retry}>Try again</button>{/if}<button class="btn small ghost" onclick={() => stop()}>Stop waiting</button></div>{:else if phase === 'asked'}<span class="muted small">Waiting for the server to pick it up…</span>{/if}</div>{/if}
     {#if queued.length && !waiting}
@@ -270,7 +271,7 @@
   {#if error}<p class="err small">{error}</p>{/if}
   {#if attached.length}
     <div class="pick">
-      {#each attached as a, i}<span class="at"><img class="th" src={a} alt="To send" /><button class="x" aria-label="Remove photo" onclick={() => attached.splice(i, 1)}>×</button></span>{/each}
+      {#each attached as a, i}<span class="at"><img class="th" src={a} alt="To send" /><button class="x" aria-label="Remove photo" onclick={() => attached.splice(i, 1)}><Icon name="close" size={14} /></button></span>{/each}
     </div>
   {/if}
   <div class="pick">
@@ -278,7 +279,7 @@
     <select bind:value={effort} aria-label="Effort">{#each EFFORTS as [v, l]}<option value={v}>{l}</option>{/each}</select>
   </div>
   <div class="send">
-    <label class="btn ghost" aria-label="Attach photos">📎<input type="file" accept="image/*" multiple onchange={attach} hidden /></label>
+    <label class="btn ghost" aria-label="Attach photos"><Icon name="attach" size={22} /><input type="file" accept="image/*" multiple onchange={attach} hidden /></label>
     <textarea rows="1" bind:value={msg} onkeydown={sendKey} onfocus={() => setTimeout(() => end?.scrollIntoView({ block: 'end' }), 250)} placeholder={answering ? 'Queue a message for after this answer' : mode === 'work' ? 'Ask a question or describe a change' : 'Message Claude'}></textarea>
     <button class="btn primary" disabled={(!msg.trim() && !attached.length) || (waiting && !answering) || sending} onclick={send}>{answering ? 'Queue' : 'Send'}</button>
   </div>

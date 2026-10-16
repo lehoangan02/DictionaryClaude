@@ -136,7 +136,7 @@
             <p><i>{posLabel(b.pos.replace('.', ''))}</i> {b.definition}</p>
             {#each (b.examples ?? []).slice(0, 2) as ex}<p class="ex">{@render hl(ex, entry.word)}</p>{/each}
           {/each}
-          <button class="btn small" onclick={() => { app.quizUnit = data.barrons[0].unit; goTab('quiz'); }}>Practice unit {data.barrons[0].unit} →</button>
+          <button class="btn small" onclick={() => { app.quizUnit = data.barrons[0].unit; goTab('quiz'); }}>Practice unit {data.barrons[0].unit} <Icon name="forward" size={16} /></button>
         </aside>
       {/if}
 
@@ -164,7 +164,7 @@
                 <p class="def">
                   {#each s.parents ?? [] as par}<span class="parent">{par} ›</span>{/each}
                   {s.gloss}
-                  {#if s.form_of}<button class="chip" onclick={() => open(s.form_of)}>{s.form_of} →</button>{/if}
+                  {#if s.form_of}<button class="chip" onclick={() => open(s.form_of)}>{s.form_of} <Icon name="forward" size={14} /></button>{/if}
                 </p>
                 {#if s.synonyms?.length}
                   <p class="rel"><span class="k">SYNONYM{s.synonyms.length > 1 ? 'S' : ''}</span>
