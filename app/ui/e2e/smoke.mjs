@@ -374,7 +374,9 @@ if (BASE_B && process.env.PAIR_A) {
   };
   const a = await newPage(1000, 900);
   await pairVia(a, BASE, process.env.PAIR_A);
-  ok((await a.$eval('.pill .lbl', (e) => e.textContent)).trim() === 'Home', 'pill shows "Home" when the LAN route verifies');
+  // The pill re-probes after pairing, so give it a moment to leave "Device only" / "Checking…".
+  const homed = await a.waitForFunction(() => document.querySelector('.pill .lbl')?.textContent?.trim() === 'Home', { timeout: 15000 }).then(() => true, () => false);
+  ok(homed, 'pill shows "Home" when the LAN route verifies');
   await a.screenshot({ path: `${OUT}/settings-paired.png` });
 
   // Device A writes a note and syncs.
