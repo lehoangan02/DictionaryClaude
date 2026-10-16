@@ -50,6 +50,35 @@ const LANGUAGE: &str = "Reply in English, unless the owner's last message is cle
 static IN_FLIGHT: Mutex<Vec<String>> = Mutex::new(Vec::new());
 /// Merging, releasing and preparing private copies all touch the one git repository: one at a time.
 static REPO: Mutex<()> = Mutex::new(());
+/// The server's counters at the previous sample: (when, cpu total, cpu idle, bytes received, bytes sent).
+static LAST_LOAD: Mutex<Option<(std::time::Instant, u64, u64, u64, u64)>> = Mutex::new(None);
+/// How many load samples a running chat keeps (one every few seconds).
+const LOAD_KEPT: usize = 90;
+
+/// One reading of the server's load, like GNOME's System Monitor: CPU %, memory %, and network bytes/s in and out.
+/// Linux only (reads /proc); `None` elsewhere and on the first call, which only sets the baseline.
+fn read_load() -> Option<Value> {
+    let stat = std::fs::read_to_string("/proc/stat").ok()?;
+    let cpu: Vec<u64> = stat.lines().next()?.split_whitespace().skip(1).filter_map(|x| x.parse().ok()).collect();
+    let (total, idle) = (cpu.iter().take(8).sum::<u64>(), cpu.get(3)? + cpu.get(4).unwrap_or(&0));
+    let (mut rx, mut tx) = (0u64, 0u64);
+    for l in std::fs::read_to_string("/proc/net/dev").ok()?.lines().skip(2) {
+        let Some((name, rest)) = l.split_once(':') else { continue };
+        let f: Vec<u64> = rest.split_whitespace().filter_map(|x| x.parse().ok()).collect();
+        if name.trim() != "lo" && f.len() >= 9 {
+            rx += f[0];
+            tx += f[8];
+        }
+    }
+    let mem = std::fs::read_to_string("/proc/meminfo").ok()?;
+    let kb = |k: &str| mem.lines().find(|l| l.starts_with(k)).and_then(|l| l.split_whitespace().nth(1)?.parse::<f64>().ok());
+    let used = 100.0 * (1.0 - kb("MemAvailable:")? / kb("MemTotal:")?.max(1.0));
+    let now = std::time::Instant::now();
+    let prev = LAST_LOAD.lock().unwrap_or_else(|e| e.into_inner()).replace((now, total, idle, rx, tx))?;
+    let secs = now.duration_since(prev.0).as_secs_f64().max(0.1);
+    let busy = 100.0 * (1.0 - idle.saturating_sub(prev.2) as f64 / total.saturating_sub(prev.1).max(1) as f64);
+    Some(json!({"at": now_ms(), "cpu": busy.clamp(0.0, 100.0).round(), "mem": used.clamp(0.0, 100.0).round(), "rx": (rx.saturating_sub(prev.3) as f64 / secs).round(), "tx": (tx.saturating_sub(prev.4) as f64 / secs).round()}))
+}
 
 /// A message sent while Claude was busy: it waits, editable, until the running answer is done.
 fn is_queued(m: &Value) -> bool {
@@ -227,7 +256,9 @@ impl Api {
         let (mode, branch, changes) = self.talk_meta(id)?;
         let stale = self.db.lock().unwrap().query_row("SELECT updated FROM talks WHERE id=?1", [id], |r| r.get::<_, i64>(0)).unwrap_or(0);
         // When the current run began: the question being answered, or (for merge/release) the moment it was asked for.
-        let started = if matches!(state.as_str(), "asked" | "running") { msgs.iter().rev().find(|m| m["role"] == "user" && !is_queued(m)).and_then(|m| m["at"].as_i64()).unwrap_or(stale) } else { stale };
+        // A release or merge keeps its own start: the load samples refresh `updated` every few seconds.
+        let began = msgs.iter().find(|m| m["role"] == "activity").and_then(|m| m["began"].as_i64());
+        let started = if matches!(state.as_str(), "asked" | "running") { msgs.iter().rev().find(|m| m["role"] == "user" && !is_queued(m)).and_then(|m| m["at"].as_i64()).unwrap_or(stale) } else { began.unwrap_or(stale) };
         Ok(json!({"id": id, "title": title, "state": state, "msgs": msgs, "mode": mode, "branch": branch, "changes": changes, "updated": stale, "started": started}))
     }
 
@@ -431,7 +462,8 @@ impl Api {
     /// Shows what Claude is doing: the steps so far ride along as a temporary last message of the running chat.
     fn talk_progress(&self, id: &str, msgs: &[Value], steps: &[Value]) {
         let mut shown = msgs.to_vec();
-        shown.push(json!({"role": "activity", "steps": steps, "at": now_ms()}));
+        let load = self.talk_load(id).ok().and_then(|(_, _, held)| held.into_iter().find(|m| m["role"] == "activity")).map(|m| m["load"].clone()).unwrap_or(json!([]));
+        shown.push(json!({"role": "activity", "steps": steps, "load": load, "at": now_ms()}));
         let _ = self.talk_save(id, "running", &shown);
     }
 
@@ -477,6 +509,7 @@ impl Api {
     /// Starts every waiting chat on its own thread, so a slow answer in one chat never holds up the others.
     /// A chat already being served is left alone; the runner calls this every few seconds.
     pub fn spawn_talks(self: &Arc<Self>) {
+        self.sample_load();
         for id in self.talks_waiting().unwrap_or_default() {
             {
                 let mut busy = IN_FLIGHT.lock().unwrap_or_else(|e| e.into_inner());
@@ -489,6 +522,37 @@ impl Api {
             std::thread::spawn(move || {
                 let _ = api.serve_talk(&id);
                 IN_FLIGHT.lock().unwrap_or_else(|e| e.into_inner()).retain(|x| x != &id);
+            });
+        }
+    }
+
+    /// Adds a reading of the server's load to every chat that is running or releasing, so the phone can draw
+    /// live graphs and the owner sees whether the server is compiling, building, uploading or downloading.
+    fn sample_load(&self) {
+        let Some(sample) = read_load() else { return };
+        let ids: Vec<String> = {
+            let db = self.db.lock().unwrap();
+            let Ok(mut st) = db.prepare("SELECT id FROM talks WHERE state IN ('running','releasing') AND deleted=0") else { return };
+            let rows = st.query_map([], |r| r.get(0)).map(|r| r.flatten().collect()).unwrap_or_default();
+            rows
+        };
+        for id in ids {
+            let _ = self.talk_edit_msgs(&id, |state, msgs| {
+                if !matches!(state, "running" | "releasing") {
+                    return Ok(());
+                }
+                let i = match msgs.iter().position(|m| m["role"] == "activity") {
+                    Some(i) => i,
+                    None => {
+                        msgs.push(json!({"role": "activity", "steps": [], "load": [], "began": now_ms(), "at": now_ms()}));
+                        msgs.len() - 1
+                    }
+                };
+                let mut load = msgs[i]["load"].as_array().cloned().unwrap_or_default();
+                load.push(sample.clone());
+                let old = load.len().saturating_sub(LOAD_KEPT);
+                msgs[i]["load"] = json!(load.split_off(old));
+                Ok(())
             });
         }
     }

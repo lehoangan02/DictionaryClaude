@@ -8,7 +8,8 @@
 
   type Idea = { title: string; detail: string; status: 'proposed' | 'approved' | 'dismissed' };
   type Step = { kind: string; text: string; at?: number };
-  type Msg = { role: 'user' | 'claude' | 'error' | 'activity'; steps?: Step[]; text: string; at: number; idea?: Idea; photos?: string[]; offer?: string; queued?: boolean };
+  type Load = { at: number; cpu: number; mem: number; rx: number; tx: number };
+  type Msg = { role: 'user' | 'claude' | 'error' | 'activity'; steps?: Step[]; load?: Load[]; text: string; at: number; idea?: Idea; photos?: string[]; offer?: string; queued?: boolean };
   type Chat = { id: string; title: string; state: string; updated: number; last: string; mode: string };
   let chats = $state<Chat[]>([]);
   let cur = $state<string | null>(null);
@@ -81,6 +82,13 @@
   const ICON: Record<string, string> = { read: 'file', edit: 'notes', search: 'search', run: 'terminal', say: 'chat' };
   // What Claude is doing right now, as the server reports it.
   const live = $derived([...msgs].reverse().find((m: Msg) => m.role === 'activity')?.steps ?? []);
+  // The server's load while it works, like GNOME's System Monitor: CPU and memory in %, network in bytes/s.
+  const load = $derived([...msgs].reverse().find((m: Msg) => m.role === 'activity')?.load ?? []);
+  const KEPT = 90, GW = 200, GH = 44;
+  const line = (vals: number[], max: number) => vals.map((v, i) => `${(GW - (vals.length - 1 - i) * GW / (KEPT - 1)).toFixed(1)},${(GH - 1 - Math.min(v / max, 1) * (GH - 2)).toFixed(1)}`).join(' ');
+  const area = (vals: number[], max: number) => (vals.length ? `${GW - (vals.length - 1) * GW / (KEPT - 1)},${GH} ${line(vals, max)} ${GW},${GH}` : '');
+  const netMax = $derived(Math.max(100_000, ...load.map((l) => Math.max(l.rx, l.tx))));
+  const rate = (b: number) => (b >= 1e6 ? `${(b / 1e6).toFixed(1)} MB/s` : b >= 1e3 ? `${Math.round(b / 1e3)} kB/s` : `${Math.round(b)} B/s`);
   const LABEL: Record<string, [string, string]> = { read: ['read', 'reads'], edit: ['edit', 'edits'], search: ['search', 'searches'], run: ['command', 'commands'], say: ['note', 'notes'] };
   // "2 reads, 1 edit, 3 commands": what a finished run did, at a glance.
   function tally(steps: Step[]) {
@@ -240,6 +248,15 @@
       {#if live.length}<div class="small now">Now: {live.at(-1)?.text}{#if live.at(-1)?.at} <span class="muted">({took(live, live.length - 1)})</span>{/if}</div>
         {#if tally(live)}<div class="small muted">So far: {tally(live)}</div>{/if}{/if}
       {#if phase.startsWith('release')}<p class="small">This takes many minutes; it is safe to leave this screen.</p>{/if}
+      {#if load.length > 1}{@const last = load.at(-1)!}
+        <div class="graphs" aria-label="Server load">
+          <div class="g"><span class="gl">Processor <b>{last.cpu}%</b></span>
+            <svg viewBox="0 0 {GW} {GH}" preserveAspectRatio="none" aria-hidden="true"><polygon class="cpu a" points={area(load.map((l) => l.cpu), 100)} /><polyline class="cpu" points={line(load.map((l) => l.cpu), 100)} /></svg></div>
+          <div class="g"><span class="gl">Memory <b>{last.mem}%</b></span>
+            <svg viewBox="0 0 {GW} {GH}" preserveAspectRatio="none" aria-hidden="true"><polygon class="mem a" points={area(load.map((l) => l.mem), 100)} /><polyline class="mem" points={line(load.map((l) => l.mem), 100)} /></svg></div>
+          <div class="g"><span class="gl">Network <b class="dn">↓ {rate(last.rx)}</b> <b class="up">↑ {rate(last.tx)}</b></span>
+            <svg viewBox="0 0 {GW} {GH}" preserveAspectRatio="none" aria-hidden="true"><polyline class="dn" points={line(load.map((l) => l.rx), netMax)} /><polyline class="up" points={line(load.map((l) => l.tx), netMax)} /></svg></div>
+        </div>{/if}
       {#if live.length}<div class="steps live">{#each (allSteps ? live : live.slice(-6)) as st, i}{@const shown = allSteps ? live : live.slice(-6)}<div class="step {st.kind}" class:cur={i === shown.length - 1}><span class="ic"><Icon name={ICON[st.kind] ?? 'minus'} size={16} /></span><span class="tx">{st.text}</span>{#if st.at}<span class="dur">{took(live, live.length - shown.length + i)}</span>{/if}</div>{/each}
         {#if live.length > 6}<button class="lnk" onclick={() => (allSteps = !allSteps)}>{allSteps ? 'Show fewer' : `Show all ${live.length}`}</button>{/if}</div>{/if}
       {#if stuck}<div class="small stuckrow">{phase === 'asked' || phase === 'running' ? 'No progress for a while. ' : 'Taking very long. '}{#if phase === 'asked' || phase === 'running'}<button class="btn small" onclick={retry}>Try again</button>{/if}<button class="btn small ghost" onclick={() => stop()}>Stop waiting</button></div>{:else if phase === 'asked'}<span class="muted small">Waiting for the server to pick it up…</span>{/if}</div>{/if}
@@ -347,6 +364,17 @@
   .spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line); border-top-color: var(--blue); animation: turn 0.9s linear infinite; flex: none; }
   @keyframes turn { to { transform: rotate(360deg); } }
   @media (prefers-reduced-motion: reduce) { .spin { animation-duration: 3s; } }
+  .graphs { display: grid; gap: 6px; margin-top: 8px; font-style: normal; }
+  .g { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px 2px; }
+  .gl { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--muted); }
+  .gl b { color: var(--text); font-weight: 600; }
+  .g svg { display: block; width: 100%; height: 44px; }
+  .g polyline { fill: none; stroke-width: 1.6; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+  .g polygon { stroke: none; opacity: 0.18; }
+  .cpu { stroke: #2e86de; fill: #2e86de; } .mem { stroke: #8e5bd1; fill: #8e5bd1; }
+  .dn { stroke: #2e9e5b; color: #2e9e5b; } .up { stroke: #e08a1e; color: #e08a1e; }
+  .gl b.dn { color: #2e9e5b; } .gl b.up { color: #e08a1e; }
+  .g polyline.cpu, .g polyline.mem { fill: none; }
   .step.cur { color: var(--text); font-weight: 600; }
   .file { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
   .file code { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
