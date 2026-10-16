@@ -6,6 +6,7 @@ Kept current by whoever changes the app (Claude Code included): when you fix som
 
 **Needs a real-device check (built and unit-tested, never seen working)**
 - **Mac app, real UI:** the Take photo camera (needs the camera entitlement and the macOS Camera prompt), the "Pair now" button and auto-pair on the home Wi-Fi, Merriam-Webster with no dictionary downloaded, the search box edit fix and the plus icon were all verified only by tests/builds. Report anything odd.
+- **Icons instead of emoji (not built yet):** every emoji and symbol glyph in the UI (stars, close, check marks, camera, attach, arrows, pause, chat step icons) is now a Material icon from `Icon.svelte`. Glyphs are inline SVG paths of Google's Material icons (works offline, no font file). Check the buttons look right (sizes, alignment) in the Take photo, quiz, history and chat screens.
 - **NPU on the phone (S24 Ultra, Snapdragon 8 Gen 3):** NNAPI path is untested on the real device. Run Settings → On-device AI → Test it; if it says CPU, the reason is shown under it.
 - **NPU on the Mac:** CoreML (Neural Engine) path never run.
 

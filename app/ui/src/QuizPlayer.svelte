@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from './Icon.svelte';
   import { call } from './lib/api';
   import { app, bump } from './lib/store.svelte';
   import { pct, passageParts } from './lib/format';
@@ -116,13 +117,13 @@
         {/each}
       </ul>
     {:else}
-      <p class="empty">Perfect round. 🎉</p>
+      <p class="empty">Perfect round.</p>
     {/if}
   </section>
 {:else if item}
   <section class="play">
     <header>
-      <button class="btn small ghost" onclick={ondone}>⏸ Pause &amp; exit</button>
+      <button class="btn small ghost" onclick={ondone}><Icon name="pause" size={18} /> Pause &amp; exit</button>
       <span class="muted">{item.group ?? session.title}</span>
       <span class="muted">{i + 1} / {items.length}</span>
     </header>

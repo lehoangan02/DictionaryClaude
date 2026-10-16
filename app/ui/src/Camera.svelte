@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from './Icon.svelte';
   import { onMount } from 'svelte';
 
   // A camera for computers: browsers only open the camera from a file input on phones.
@@ -42,7 +43,7 @@
 <div class="cam" role="dialog" aria-label="Camera">
   <!-- svelte-ignore a11y_media_has_caption -->
   <div class="stage"><video bind:this={video} playsinline muted style="transform: rotate({turn}deg){turn % 180 ? ' scale(0.62)' : ''}"></video></div>
-  <button class="x" onclick={onclose} aria-label="Close camera">✕</button>
+  <button class="x" onclick={onclose} aria-label="Close camera"><Icon name="close" size={22} /></button>
   {#if error}<p class="err">{error}</p>{/if}
   <div class="bar">
     <button class="btn" onclick={onclose}>Cancel</button>

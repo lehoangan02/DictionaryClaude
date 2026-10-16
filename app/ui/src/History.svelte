@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from './Icon.svelte';
   import { call } from './lib/api';
   import { app, openFromHistory, bump } from './lib/store.svelte';
   import { when } from './lib/format';
@@ -62,8 +63,8 @@
       <li animate:flip={{ duration: flipDur() }} out:leave>
         <button class="w" onclick={() => openFromHistory(h.word)}>{h.word}</button>
         <span class="muted t">{new Date(h.ts).toLocaleTimeString(undefined, { timeStyle: 'short' })} · {h.sources.join(', ')}</span>
-        <button class="ic" class:on={h.starred} onclick={() => star(h)} aria-label={h.starred ? 'Unstar' : 'Star'}>{h.starred ? '★' : '☆'}</button>
-        <button class="ic" onclick={() => del(h)} aria-label="Remove">✕</button>
+        <button class="ic" class:on={h.starred} onclick={() => star(h)} aria-label={h.starred ? 'Unstar' : 'Star'}><Icon name={h.starred ? 'star' : 'star-o'} size={22} /></button>
+        <button class="ic" onclick={() => del(h)} aria-label="Remove"><Icon name="close" size={20} /></button>
       </li>
     {/each}
   </ul>

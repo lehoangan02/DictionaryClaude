@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import Icon from './Icon.svelte';
   import { call } from './lib/api';
   import { app, bump, openDetail, closeDetail } from './lib/store.svelte';
   import { shrink } from './lib/image';
@@ -82,16 +83,16 @@
     <p class="muted small">Take or choose photos of handwritten notes. The server reads them; you check the result before anything is saved.</p>
     <div class="row">
       {#if desktopCamera}
-        <button class="btn" onclick={() => { camera = true; openDetail(() => (camera = false)); }}>📷 Take photo</button>
+        <button class="btn" onclick={() => { camera = true; openDetail(() => (camera = false)); }}><Icon name="camera" size={20} /> Take photo</button>
       {:else}
-        <label class="btn">📷 Take photo<input type="file" accept="image/*" capture="environment" onchange={add} hidden /></label>
+        <label class="btn"><Icon name="camera" size={20} /> Take photo<input type="file" accept="image/*" capture="environment" onchange={add} hidden /></label>
       {/if}
-      <label class="btn">🖼️ Add photos<input type="file" accept="image/*" multiple onchange={add} hidden /></label>
+      <label class="btn"><Icon name="image" size={20} /> Add photos<input type="file" accept="image/*" multiple onchange={add} hidden /></label>
     </div>
     {#if picked.length}
       <div class="thumbs">
         {#each picked as p, i (p.url)}
-          <div class="th" in:grow out:grow animate:flip={{ duration: flipDur() }}><img src={p.url} alt="Photo {i + 1}" /><button aria-label="Remove photo {i + 1}" onclick={() => picked.splice(i, 1)}>✕</button></div>
+          <div class="th" in:grow out:grow animate:flip={{ duration: flipDur() }}><img src={p.url} alt="Photo {i + 1}" /><button aria-label="Remove photo {i + 1}" onclick={() => picked.splice(i, 1)}><Icon name="close" size={16} /></button></div>
         {/each}
       </div>
       <div class="row">

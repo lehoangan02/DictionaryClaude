@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import Icon from './Icon.svelte';
   import { call } from './lib/api';
   import { bump } from './lib/store.svelte';
   import { REL } from './lib/format';
@@ -66,7 +67,7 @@
   }
 </script>
 
-<button class="btn small ghost" onclick={onclose}>← Back</button>
+<button class="btn small ghost" onclick={onclose}><Icon name="back" size={18} /> Back</button>
 {#if !d}
   <p class="empty">Loading…</p>
 {:else}
