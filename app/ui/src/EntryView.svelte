@@ -47,7 +47,9 @@
   const tabs = $derived((void app.orderVersion, orderedSources().visible));
   // A dictionary without the word is greyed out and cannot be opened; Merriam-Webster is a live lookup, so it is always allowed.
   const has = (id: string) => id === 'mw' || !!data?.found_in.includes(id);
-  const shownId = $derived<string>(data?.source?.id ?? app.source);
+  // The tab follows the tap at once; the body shows a spinner until the other dictionary's entry arrives.
+  const waiting = $derived(loading && !!data && app.source !== 'auto' && data.source?.id !== app.source);
+  const shownId = $derived<string>(waiting ? app.source : (data?.source?.id ?? app.source));
 
   // Short, modern sentences first; dated quotations stay one click away.
   type Ex = { text: string; by?: string };
@@ -77,7 +79,7 @@
   <p class="err">{error}</p>
 {:else if data}
   <HistoryNav />
-  <article class:dim={loading}>
+  <article class:dim={loading && !waiting}>
     <div class="srcs" role="tablist" aria-label="Dictionary source">
       {#each tabs as s (s.id)}
         <button role="tab" aria-selected={shownId === s.id} class:on={shownId === s.id}
@@ -86,9 +88,11 @@
       {/each}
     </div>
 
-    {#key contentKey}
+    {#key waiting ? 'waiting' : contentKey}
     <div class="body" in:enter={{ y: 12, duration: 280 }}>
-    {#if !entry}
+    {#if waiting}
+      <div class="wait" role="status" aria-label="Loading"><span class="spin"></span></div>
+    {:else if !entry}
       <h1 class="hw">{app.word}</h1>
       {#if data.mw_error}
         <p class="err">{data.mw_error}</p>
@@ -240,6 +244,17 @@
   .home { text-align: center; padding: 56px 0 24px; }
   h1 { font-size: 30px; margin: 0 0 8px; }
   .dim { opacity: 0.55; transition: opacity 0.15s; }
+  .wait { display: flex; justify-content: center; padding: 64px 0; }
+  /* Apple-style activity indicator: a fading ring that turns in twelve steps. */
+  .spin {
+    width: 28px; height: 28px; border-radius: 50%; color: var(--muted, #888);
+    background: conic-gradient(from 0deg, transparent 0, currentColor 100%);
+    -webkit-mask: radial-gradient(circle, transparent 55%, #000 57%);
+    mask: radial-gradient(circle, transparent 55%, #000 57%);
+    animation: turn12 0.9s steps(12) infinite;
+  }
+  @keyframes turn12 { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spin { animation-duration: 2.4s; } }
 
   /* Dictionary switch: a small floating segmented control. */
   .srcs { display: inline-flex; gap: 2px; background: var(--surface); border: 1px solid var(--line); border-radius: 999px; padding: 3px; box-shadow: var(--lift); margin: 0 0 18px; max-width: 100%; overflow-x: auto; }
