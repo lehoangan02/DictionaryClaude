@@ -644,6 +644,11 @@ impl Api {
 
     /// Reads every queued draft, then serves agent requests. Safe to call often.
     pub fn run_jobs_once(&self) -> Result<Value> {
+        self.run_jobs(true)
+    }
+
+    /// `with_talks` false leaves the Claude chats to `spawn_talks`, which runs each chat on its own thread.
+    fn run_jobs(&self, with_talks: bool) -> Result<Value> {
         let (mut ocr_done, mut agents_done) = (0, 0);
         let queued: Vec<String> = {
             let db = self.db.lock().unwrap();
@@ -671,7 +676,9 @@ impl Api {
             self.job_chat(&id)?;
             agents_done += 1;
         }
-        agents_done += self.job_talks()?;
+        if with_talks {
+            agents_done += self.job_talks()?;
+        }
         for id in asked {
             self.job_agents(&id)?;
             agents_done += 1;
@@ -882,8 +889,14 @@ impl Api {
 
 /// Runs the job queue in the background (the sync server does this).
 pub fn spawn_job_runner(api: Arc<Api>, every: Duration) -> std::thread::JoinHandle<()> {
+    // Chats get their own dispatcher, so a long photo read or agent run never delays a chat.
+    let chats = api.clone();
     std::thread::spawn(move || loop {
-        let _ = api.run_jobs_once();
+        chats.spawn_talks();
+        std::thread::sleep(every);
+    });
+    std::thread::spawn(move || loop {
+        let _ = api.run_jobs(false);
         std::thread::sleep(every);
     })
 }

@@ -6,6 +6,7 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, bail, Result};
 use rusqlite::params;
@@ -42,6 +43,14 @@ pub fn extract_talk(stdout: &str) -> Option<(String, Option<(String, String)>)> 
     serde_json::from_str::<Value>(stdout.trim()).ok().and_then(|v| find(&v, 0))
 }
 
+/// Without this, the model sometimes guessed a language from the owner's name or the repo and answered in Vietnamese.
+const LANGUAGE: &str = "Reply in English, unless the owner's last message is clearly written in another language; then use that language. Never pick a language from the owner's name, e-mail or the project's files.";
+
+/// Chats whose run is in flight on this server, so the job runner never starts one twice.
+static IN_FLIGHT: Mutex<Vec<String>> = Mutex::new(Vec::new());
+/// Merging, releasing and preparing private copies all touch the one git repository: one at a time.
+static REPO: Mutex<()> = Mutex::new(());
+
 /// A message sent while Claude was busy: it waits, editable, until the running answer is done.
 fn is_queued(m: &Value) -> bool {
     m["queued"] == true
@@ -61,7 +70,7 @@ fn prompt(msgs: &[Value]) -> String {
         "You are the assistant inside LadyBird, the owner's offline GRE dictionary app. You are in a chat with the owner, who uses the app on a phone. \
          The app's source is the current folder (read it with the Read tool; docs/ROADMAP.md lists known issues and plans, CLAUDE.md the rules). \
          Do not open anything under private/ or any file with keys or tokens. You cannot change anything and must not claim to. \
-         Answer the owner's last message briefly and plainly, in the language they used. \
+         Answer the owner's last message briefly and plainly. {LANGUAGE} \
          When they report a bug, ask for a feature or a change, also give `idea`: a short `title` and a `detail` a programmer could act on \
          (what to change and why, naming the files if you know them). Give no idea for a plain question. \
          The conversation so far:\n{talk}\n\
@@ -104,7 +113,7 @@ fn work_prompt(msgs: &[Value], branch: &str) -> String {
          If the owner only asks a question or chats, just answer and change nothing. Otherwise do what they asked in their last message, carefully and completely, and keep docs/ROADMAP.md true. \
          Do not build or run tests (they are slow; the owner checks before merging) and run no program other than git. \
          When you changed files, commit all your changes on this branch with git (one clear message). Never push, never switch or create branches, never merge. \
-         Then reply briefly and plainly, in the language the owner used, saying what you changed and anything they should check. \
+         Then reply briefly and plainly, saying what you changed and anything they should check. {LANGUAGE} \
          The conversation so far:\n{talk}\n\
          Reply with JSON only: {{\"reply\":string}}"
     )
@@ -428,26 +437,60 @@ impl Api {
 
     /// Serves waiting chat messages (server side). Returns how many ran Claude.
     pub(crate) fn job_talks(&self) -> Result<usize> {
-        let ids: Vec<String> = {
-            let db = self.db.lock().unwrap();
-            let mut st = db.prepare("SELECT id FROM talks WHERE state IN ('asked','merge','discard','release_patch','release_minor') AND deleted=0 ORDER BY updated LIMIT 3")?;
-            let rows = st.query_map([], |r| r.get(0))?.collect::<std::result::Result<Vec<String>, _>>()?;
-            rows
-        };
         let mut ran = 0;
-        for id in ids {
-            let state = self.talk_load(&id)?.1;
-            match state.as_str() {
-                "asked" => {
-                    ran += self.job_talk(&id)? as usize;
-                    // Messages queued meanwhile go out one after another.
-                    let _ = self.talk_next(&id);
-                }
-                how if how.starts_with("release") => self.job_release(&id, how)?,
-                how => self.job_finish(&id, how)?,
-            }
+        for id in self.talks_waiting()? {
+            ran += self.serve_talk(&id)?;
         }
         Ok(ran)
+    }
+
+    fn talks_waiting(&self) -> Result<Vec<String>> {
+        let db = self.db.lock().unwrap();
+        let mut st = db.prepare("SELECT id FROM talks WHERE state IN ('asked','merge','discard','release_patch','release_minor') AND deleted=0 ORDER BY updated")?;
+        let rows = st.query_map([], |r| r.get(0))?.collect::<std::result::Result<Vec<String>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Serves one chat that is waiting. Returns 1 when it ran Claude.
+    fn serve_talk(&self, id: &str) -> Result<usize> {
+        let state = self.talk_load(id)?.1;
+        Ok(match state.as_str() {
+            "asked" => {
+                let ran = self.job_talk(id)? as usize;
+                // Messages queued meanwhile go out one after another.
+                let _ = self.talk_next(id);
+                ran
+            }
+            how if how.starts_with("release") => {
+                let _repo = REPO.lock().unwrap_or_else(|e| e.into_inner());
+                self.job_release(id, how)?;
+                0
+            }
+            how => {
+                let _repo = REPO.lock().unwrap_or_else(|e| e.into_inner());
+                self.job_finish(id, how)?;
+                0
+            }
+        })
+    }
+
+    /// Starts every waiting chat on its own thread, so a slow answer in one chat never holds up the others.
+    /// A chat already being served is left alone; the runner calls this every few seconds.
+    pub fn spawn_talks(self: &Arc<Self>) {
+        for id in self.talks_waiting().unwrap_or_default() {
+            {
+                let mut busy = IN_FLIGHT.lock().unwrap_or_else(|e| e.into_inner());
+                if busy.contains(&id) {
+                    continue;
+                }
+                busy.push(id.clone());
+            }
+            let api = self.clone();
+            std::thread::spawn(move || {
+                let _ = api.serve_talk(&id);
+                IN_FLIGHT.lock().unwrap_or_else(|e| e.into_inner()).retain(|x| x != &id);
+            });
+        }
     }
 
     /// Merges the work of a task chat into the app's main branch, or throws it away. Server side.
@@ -542,6 +585,7 @@ impl Api {
         let Some(repo) = self.repo_dir() else { return fail(msgs, "the app's source is not on this server, so Claude cannot change it from here".into()) };
         let (branch, path) = self.work_paths(id);
         let made: Result<()> = (|| {
+            let _repo = REPO.lock().unwrap_or_else(|e| e.into_inner());
             if !path.join(".git").exists() {
                 std::fs::create_dir_all(path.parent().unwrap())?;
                 let p = path.to_string_lossy().to_string();
