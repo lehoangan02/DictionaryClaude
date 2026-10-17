@@ -16,6 +16,7 @@
   let did = $state<string[]>([]);
   let showAllEtym = $state(false);
   let seq = 0;
+  let dataWord = ''; // the word `data` belongs to
 
   $effect(() => {
     const word = app.word, source = app.source;
@@ -24,10 +25,17 @@
     const mine = ++seq;
     loading = true; error = '';
     const record = isLookup(word, source);
+    // A new word in Merriam-Webster waits on the network: the offline dictionaries answer first, so the tabs
+    // appear at once (Merriam-Webster selected, spinner below) and another dictionary can be opened meanwhile.
+    if (source === 'mw' && dataWord !== word) {
+      call('entry', { word, record: false })
+        .then((d) => { if (mine === seq && loading) { data = d; dataWord = word; did = []; } })
+        .catch(() => {});
+    }
     call('entry', { word, source, record })
       .then(async (d) => {
         if (mine !== seq) return;
-        data = d; did = [];
+        data = d; dataWord = word; did = [];
         const missing = !d.entry && !d.found_in?.length && !d.mw_error;
         markMissing(word, missing);
         if (record && !missing) await syncTrail(word);
