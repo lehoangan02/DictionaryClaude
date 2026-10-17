@@ -22,6 +22,8 @@ use crate::api::Api;
 use crate::pairing::Pairing;
 use crate::userdb::now_ms;
 
+static SYNC_ONE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Route {
     Lan,
@@ -398,6 +400,9 @@ impl Api {
     /// Pushes local changes, then pulls everything new from the server.
     pub(crate) fn sync_now(&self) -> Result<Value> {
         let p = self.pairing().ok_or_else(|| anyhow!("this device is not paired with a sync server"))?;
+        // One sync at a time: the chat screen, a sent message and the background loop all ask for one,
+        // and overlapping runs piled up on a slow link while Claude answered, making every chat lag.
+        let _one = SYNC_ONE.lock().unwrap_or_else(|e| e.into_inner());
         let started = Instant::now();
         let (route, probes, _, _) = self.choose_route(&p);
         let Some(route) = route else {

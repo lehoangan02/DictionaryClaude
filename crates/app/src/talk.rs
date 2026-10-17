@@ -48,8 +48,11 @@ const LANGUAGE: &str = "Reply in English, unless the owner's last message is cle
 
 /// Chats whose run is in flight on this server, so the job runner never starts one twice.
 static IN_FLIGHT: Mutex<Vec<String>> = Mutex::new(Vec::new());
-/// Merging, releasing and preparing private copies all touch the one git repository: one at a time.
+/// Merging and releasing change the server's checkout: one at a time.
 static REPO: Mutex<()> = Mutex::new(());
+/// Making or removing private copies (git worktrees): one at a time, but never behind a release, which holds
+/// `REPO` for up to hours, so a new work chat no longer waits for it. Taken after `REPO` when both are needed.
+static WORKTREES: Mutex<()> = Mutex::new(());
 /// The server's counters at the previous sample: (when, cpu total, cpu idle, bytes received, bytes sent).
 static LAST_LOAD: Mutex<Option<(std::time::Instant, u64, u64, u64, u64)>> = Mutex::new(None);
 /// How many load samples a running chat keeps (one every few seconds).
@@ -502,6 +505,7 @@ impl Api {
             }
             how => {
                 let _repo = REPO.lock().unwrap_or_else(|e| e.into_inner());
+                let _copies = WORKTREES.lock().unwrap_or_else(|e| e.into_inner());
                 self.job_finish(id, how)?;
                 0
             }
@@ -672,7 +676,7 @@ impl Api {
         let Some(repo) = self.repo_dir() else { return fail(msgs, "the app's source is not on this server, so Claude cannot change it from here".into()) };
         let (branch, path) = self.work_paths(id);
         let made: Result<()> = (|| {
-            let _repo = REPO.lock().unwrap_or_else(|e| e.into_inner());
+            let _copies = WORKTREES.lock().unwrap_or_else(|e| e.into_inner());
             if !path.join(".git").exists() {
                 std::fs::create_dir_all(path.parent().unwrap())?;
                 let p = path.to_string_lossy().to_string();
@@ -708,6 +712,7 @@ impl Api {
         let stat = git(&repo, &["diff", "--stat", &format!("{base}...{branch}")]).unwrap_or_default();
         if stat.is_empty() && out.is_ok() {
             // A plain question: nothing changed, so leave no branch or private copy behind.
+            let _copies = WORKTREES.lock().unwrap_or_else(|e| e.into_inner());
             let _ = git(&repo, &["worktree", "remove", "--force", &path.to_string_lossy()]);
             let _ = git(&repo, &["branch", "-D", &branch]);
             self.db.lock().unwrap().execute("UPDATE talks SET branch='', changes='' WHERE id=?1", [id])?;
