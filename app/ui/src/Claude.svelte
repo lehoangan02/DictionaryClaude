@@ -83,11 +83,11 @@
   // What Claude is doing right now, as the server reports it.
   const live = $derived([...msgs].reverse().find((m: Msg) => m.role === 'activity')?.steps ?? []);
   // The server's load while it works, like GNOME's System Monitor: CPU and memory in %, network in bytes/s.
-  const load = $derived([...msgs].reverse().find((m: Msg) => m.role === 'activity')?.load ?? []);
+  const loads = $derived([...msgs].reverse().find((m: Msg) => m.role === 'activity')?.load ?? []);
   const KEPT = 90, GW = 200, GH = 44;
   const line = (vals: number[], max: number) => vals.map((v, i) => `${(GW - (vals.length - 1 - i) * GW / (KEPT - 1)).toFixed(1)},${(GH - 1 - Math.min(v / max, 1) * (GH - 2)).toFixed(1)}`).join(' ');
   const area = (vals: number[], max: number) => (vals.length ? `${GW - (vals.length - 1) * GW / (KEPT - 1)},${GH} ${line(vals, max)} ${GW},${GH}` : '');
-  const netMax = $derived(Math.max(100_000, ...load.map((l) => Math.max(l.rx, l.tx))));
+  const netMax = $derived(Math.max(100_000, ...loads.map((l) => Math.max(l.rx, l.tx))));
   const rate = (b: number) => (b >= 1e6 ? `${(b / 1e6).toFixed(1)} MB/s` : b >= 1e3 ? `${Math.round(b / 1e3)} kB/s` : `${Math.round(b)} B/s`);
   const LABEL: Record<string, [string, string]> = { read: ['read', 'reads'], edit: ['edit', 'edits'], search: ['search', 'searches'], run: ['command', 'commands'], say: ['note', 'notes'] };
   // "2 reads, 1 edit, 3 commands": what a finished run did, at a glance.
@@ -248,14 +248,14 @@
       {#if live.length}<div class="small now">Now: {live.at(-1)?.text}{#if live.at(-1)?.at} <span class="muted">({took(live, live.length - 1)})</span>{/if}</div>
         {#if tally(live)}<div class="small muted">So far: {tally(live)}</div>{/if}{/if}
       {#if phase.startsWith('release')}<p class="small">This takes many minutes; it is safe to leave this screen.</p>{/if}
-      {#if load.length > 1}{@const last = load.at(-1)!}
+      {#if loads.length > 1}{@const last = loads.at(-1)!}
         <div class="graphs" aria-label="Server load">
           <div class="g"><span class="gl">Processor <b>{last.cpu}%</b></span>
-            <svg viewBox="0 0 {GW} {GH}" preserveAspectRatio="none" aria-hidden="true"><polygon class="cpu a" points={area(load.map((l) => l.cpu), 100)} /><polyline class="cpu" points={line(load.map((l) => l.cpu), 100)} /></svg></div>
+            <svg viewBox="0 0 {GW} {GH}" preserveAspectRatio="none" aria-hidden="true"><polygon class="cpu a" points={area(loads.map((l) => l.cpu), 100)} /><polyline class="cpu" points={line(loads.map((l) => l.cpu), 100)} /></svg></div>
           <div class="g"><span class="gl">Memory <b>{last.mem}%</b></span>
-            <svg viewBox="0 0 {GW} {GH}" preserveAspectRatio="none" aria-hidden="true"><polygon class="mem a" points={area(load.map((l) => l.mem), 100)} /><polyline class="mem" points={line(load.map((l) => l.mem), 100)} /></svg></div>
+            <svg viewBox="0 0 {GW} {GH}" preserveAspectRatio="none" aria-hidden="true"><polygon class="mem a" points={area(loads.map((l) => l.mem), 100)} /><polyline class="mem" points={line(loads.map((l) => l.mem), 100)} /></svg></div>
           <div class="g"><span class="gl">Network <b class="dn">↓ {rate(last.rx)}</b> <b class="up">↑ {rate(last.tx)}</b></span>
-            <svg viewBox="0 0 {GW} {GH}" preserveAspectRatio="none" aria-hidden="true"><polyline class="dn" points={line(load.map((l) => l.rx), netMax)} /><polyline class="up" points={line(load.map((l) => l.tx), netMax)} /></svg></div>
+            <svg viewBox="0 0 {GW} {GH}" preserveAspectRatio="none" aria-hidden="true"><polyline class="dn" points={line(loads.map((l) => l.rx), netMax)} /><polyline class="up" points={line(loads.map((l) => l.tx), netMax)} /></svg></div>
         </div>{/if}
       {#if live.length}<div class="steps live">{#each (allSteps ? live : live.slice(-6)) as st, i}{@const shown = allSteps ? live : live.slice(-6)}<div class="step {st.kind}" class:cur={i === shown.length - 1}><span class="ic"><Icon name={ICON[st.kind] ?? 'minus'} size={16} /></span><span class="tx">{st.text}</span>{#if st.at}<span class="dur">{took(live, live.length - shown.length + i)}</span>{/if}</div>{/each}
         {#if live.length > 6}<button class="lnk" onclick={() => (allSteps = !allSteps)}>{allSteps ? 'Show fewer' : `Show all ${live.length}`}</button>{/if}</div>{/if}
