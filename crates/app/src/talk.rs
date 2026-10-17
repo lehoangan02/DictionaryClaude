@@ -54,6 +54,8 @@ static REPO: Mutex<()> = Mutex::new(());
 static LAST_LOAD: Mutex<Option<(std::time::Instant, u64, u64, u64, u64)>> = Mutex::new(None);
 /// How many load samples a running chat keeps (one every few seconds).
 const LOAD_KEPT: usize = 90;
+/// How many times a release is run before its failure is reported.
+const RELEASE_TRIES: u32 = 3;
 
 /// One reading of the server's load, like GNOME's System Monitor: CPU %, memory %, and network bytes/s in and out.
 /// Linux only (reads /proc); `None` elsewhere and on the first call, which only sets the baseline.
@@ -618,15 +620,36 @@ impl Api {
                 bail!("the last tag {tag} is not 0.MINOR.PATCH");
             }
             let version = if how == "release_minor" { format!("0.{}.0", n[1] + 1) } else { format!("0.{}.{}", n[1], n[2] + 1) };
-            let mut c = Command::new("bash");
-            c.current_dir(&repo).arg("scripts/release.sh").arg(&version).arg("--publish");
-            let r = crate::jobs::run(c, std::time::Duration::from_secs(5400))?;
-            if !r.ok {
-                let tail = |s: &str| s.lines().rev().take(6).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
-                bail!("the release {version} failed:\n{}\n{}", tail(&r.stdout), tail(&r.stderr));
+            let tail = |s: &str| s.lines().rev().take(6).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
+            // A failed run is tried again (a flaky test or a network hiccup should not need the owner),
+            // but only while nothing was tagged: after the tag, a rerun would refuse or publish twice.
+            for attempt in 1..=RELEASE_TRIES {
+                let mut c = Command::new("bash");
+                c.current_dir(&repo).arg("scripts/release.sh").arg(&version).arg("--publish");
+                let r = crate::jobs::run(c, std::time::Duration::from_secs(5400))?;
+                if r.ok {
+                    return Ok(format!("Released {version}. The apps offer it as an update; the Mac build is attached a few minutes later."));
+                }
+                let why = format!("the release {version} failed:\n{}\n{}", tail(&r.stdout), tail(&r.stderr));
+                let tagged = git(&repo, &["rev-parse", "-q", "--verify", &format!("refs/tags/v{version}")]).is_ok();
+                if tagged || attempt == RELEASE_TRIES {
+                    bail!("{why}");
+                }
+                // The script sets the version before building; undo that so the next run starts from a clean tree.
+                let _ = git(&repo, &["checkout", "--", "app/src-tauri/tauri.conf.json", "app/src-tauri/Cargo.toml", "app/src-tauri/Cargo.lock"]);
+                let _ = self.talk_edit_msgs(id, |_, m| {
+                    let at = m.iter().position(|x| x["role"] == "activity").unwrap_or(m.len());
+                    m.insert(at, json!({"role": "claude", "text": format!("{why}\n\nTrying again ({} of {RELEASE_TRIES}).", attempt + 1), "at": now_ms()}));
+                    Ok(())
+                });
             }
-            Ok(format!("Released {version}. The apps offer it as an update; the Mac build is attached a few minutes later."))
+            unreachable!()
         })();
+        // Keep the retry notes written meanwhile; the load graphs go once the release ends.
+        if let Ok((_, _, now)) = self.talk_load(id) {
+            msgs = now;
+        }
+        msgs.retain(|m| m["role"] != "activity");
         match result {
             Ok(t) => msgs.push(json!({"role": "claude", "text": t, "at": now_ms()})),
             Err(e) => {
