@@ -119,11 +119,13 @@
     window.visualViewport?.addEventListener('resize', measure);
     window.addEventListener('resize', measure);
     // The server answers; asking it for news brings the reply without waiting for the next background sync.
+    // A sync still in flight is not joined by another one (over a slow link they piled up and every chat lagged).
     const tick1 = setInterval(() => { now = Date.now(); }, 1000);
+    let polling = false;
     const t = setInterval(async () => {
-      if (!waiting && !chats.some((c) => c.state)) return;
-      await call('sync_now').catch(() => {});
-      load().catch(() => {});
+      if (polling || (!waiting && !chats.some((c) => c.state))) return;
+      polling = true;
+      try { await call('sync_now').catch(() => {}); await load().catch(() => {}); } finally { polling = false; }
     }, 3000);
     return () => { clearInterval(t); clearInterval(tick1); window.visualViewport?.removeEventListener('resize', measure); window.removeEventListener('resize', measure); };
   });
