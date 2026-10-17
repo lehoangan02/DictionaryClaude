@@ -52,7 +52,8 @@ ok(!!(await d.$('.gre')), "Barron's card is shown for a GRE word");
 ok((await d.$$('.senses > li')).length >= 2, 'several senses listed');
 await clickText(d, '.srcs button', 'WordNet');
 await d.waitForFunction(() => document.querySelector('.srcs button.on')?.textContent.includes('WordNet'));
-await d.waitForFunction(() => !document.querySelector('article.dim'));
+// While the WordNet entry loads the body shows a spinner (not a dimmed article), so wait for both to go.
+await d.waitForFunction(() => !document.querySelector('article.dim') && !document.querySelector('.wait'));
 ok((await d.$$('.senses > li')).length >= 1, 'WordNet source shows senses');
 
 // A dictionary without the word is greyed out and cannot be opened; the word still shows from one that has it.
