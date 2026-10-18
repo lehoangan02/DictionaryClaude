@@ -35,21 +35,33 @@ jobs:
           npm --prefix app/ui run build
       - name: Build the app (dictionaries are downloaded inside the app, so none are bundled)
         working-directory: app/src-tauri
+        # The runner's hdiutil now and then fails with "Resource busy" while making the .dmg: try up to 3 times
+        # (a retry reuses the compiled app, so only the packing is repeated).
         run: |
           cargo install tauri-cli --version "^2" --locked
-          cargo tauri build --bundles dmg --config '{"bundle":{"resources":null},"build":{"beforeBuildCommand":""}}'
+          for try in 1 2 3; do
+            cargo tauri build --bundles dmg --config '{"bundle":{"resources":null},"build":{"beforeBuildCommand":""}}' && exit 0
+            echo "::warning::building the .dmg failed (try $try of 3)"
+            rm -f target/release/bundle/dmg/*.dmg target/release/bundle/macos/rw.*.dmg
+            sleep 20
+          done
+          exit 1
       - name: Check the app is signed (an unsigned download is reported as damaged)
         run: |
           MNT="$(mktemp -d)"
-          hdiutil attach -nobrowse -readonly -mountpoint "$MNT" app/src-tauri/target/release/bundle/dmg/*.dmg
+          for try in 1 2 3; do hdiutil attach -nobrowse -readonly -mountpoint "$MNT" app/src-tauri/target/release/bundle/dmg/*.dmg && break; [ "$try" = 3 ] && exit 1; sleep 15; done
           codesign --verify --deep --strict "$MNT/LadyBird.app"
-          hdiutil detach "$MNT"
+          hdiutil detach "$MNT" || hdiutil detach -force "$MNT"
       - name: Attach to the release
         run: |
           VERSION="${TAG#v}"
           DMG="$(ls app/src-tauri/target/release/bundle/dmg/*.dmg | head -n 1)"
           cp "$DMG" "LadyBird-${VERSION}-macos-arm64.dmg"
           shasum -a 256 "LadyBird-${VERSION}-macos-arm64.dmg" > "LadyBird-${VERSION}-macos-arm64.dmg.sha256"
-          gh release upload "$TAG" "LadyBird-${VERSION}-macos-arm64.dmg" "LadyBird-${VERSION}-macos-arm64.dmg.sha256" --clobber
+          for try in 1 2 3; do
+            gh release upload "$TAG" "LadyBird-${VERSION}-macos-arm64.dmg" "LadyBird-${VERSION}-macos-arm64.dmg.sha256" --clobber && exit 0
+            sleep 20
+          done
+          exit 1
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
