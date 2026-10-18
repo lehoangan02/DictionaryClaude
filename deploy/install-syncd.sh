@@ -7,8 +7,11 @@ cd "$(dirname "$0")/.."
 BIN=target/release/gredict-syncd
 [ -x "$BIN" ] || { echo "build first: cargo build --release -p gredict-syncd"; exit 1; }
 STATE=/var/lib/lexis-syncd
-install -m 0755 "$BIN" /usr/local/bin/gredict-syncd
-install -d -o lhan -g lhan "$STATE" "$STATE/private" "$STATE/packs"
+install -d -o lhan -g lhan "$STATE" "$STATE/private" "$STATE/packs" "$STATE/bin"
+# Owned by the service, which replaces it with its own rebuild after a chat merge (LEXIS_SELF_UPDATE).
+install -o lhan -g lhan -m 0755 "$BIN" "$STATE/bin/gredict-syncd"
+git rev-parse HEAD > "$STATE/bin/gredict-syncd.commit" && chown lhan:lhan "$STATE/bin/gredict-syncd.commit"
+ln -sf "$STATE/bin/gredict-syncd" /usr/local/bin/gredict-syncd
 # The parsed Barron's book (never the PDF) is what paired devices receive.
 if [ -f private/barrons.sqlite ]; then install -o lhan -g lhan -m 0644 private/barrons.sqlite "$STATE/private/barrons.sqlite"; fi
 # The dictionary packs paired devices can download (Settings -> Dictionaries).

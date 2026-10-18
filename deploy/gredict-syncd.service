@@ -13,7 +13,10 @@ Environment=LEXIS_AGY_BIN=/home/lhan/.local/bin/agy
 # Photos are read by a local vision model (Ollama: `ollama pull qwen2.5vl:3b`), with tesseract as the fallback.
 Environment=LEXIS_OCR=auto
 Environment=LEXIS_OCR_MODEL=qwen2.5vl:3b
-ExecStart=/usr/local/bin/gredict-syncd --data /var/lib/lexis-syncd --private /var/lib/lexis-syncd/private serve --lan 0.0.0.0:25 --wan 0.0.0.0:5025
+# The server rebuilds itself after a chat merge that changes its code: it puts the new build here (a folder it owns)
+# and exits once idle, and Restart= starts the new one. /usr/local/bin/gredict-syncd links to it for pair/devices/revoke.
+Environment=LEXIS_SELF_UPDATE=/var/lib/lexis-syncd/bin/gredict-syncd
+ExecStart=/var/lib/lexis-syncd/bin/gredict-syncd --data /var/lib/lexis-syncd --private /var/lib/lexis-syncd/private serve --lan 0.0.0.0:25 --wan 0.0.0.0:5025
 # Ports below 1024 (the home-network port 25) need this one capability; nothing else is granted.
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE

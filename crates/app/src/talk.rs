@@ -2,10 +2,12 @@
 //! Each chat is a synced `talks` row. The server answers with `claude -p` in a
 //! read-only view of the app's source for the old "ask" chats; "work" chats (every new chat) have full
 //! permissions on the server: Claude changes the app on a private branch, builds and tests it, and the
-//! owner's Merge button brings it in. Ideas from ask chats are approved or dismissed (`talk_ideas`).
+//! owner's Merge button brings it in. After a merge or release the server rebuilds and restarts itself
+//! when its own code changed (`update_server`). Ideas from ask chats are approved or dismissed (`talk_ideas`).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, bail, Result};
@@ -59,6 +61,8 @@ static WORKTREES: Mutex<()> = Mutex::new(());
 static LAST_LOAD: Mutex<Option<(std::time::Instant, u64, u64, u64, u64)>> = Mutex::new(None);
 /// How many load samples a running chat keeps (one every few seconds).
 const LOAD_KEPT: usize = 90;
+/// Set once the server has installed a new build of itself: it restarts as soon as nothing is running.
+static RESTART: AtomicBool = AtomicBool::new(false);
 /// How many times a release is run before its failure is reported.
 const RELEASE_TRIES: u32 = 3;
 
@@ -154,8 +158,8 @@ fn work_prompt(msgs: &[Value], branch: &str, repo: &Path) -> String {
          If the owner only asks a question or chats, just answer and change nothing. Otherwise do what they asked in their last message, carefully and completely, and keep docs/ROADMAP.md true. \
          Check your work before you commit: `cargo check` / `cargo test -p <crate>` for Rust (chats share a build folder, so the first build is slow), `npm run check` in app/ui \
          for the interface (node_modules is linked in). Do not run scripts/release.sh, push, or restart the sync server: the owner's buttons do that. \
-         When you changed files, commit all your changes on this branch (one clear message). Never switch branches and never merge your branch: the owner's Merge button merges it \
-         (server code goes live once the owner reinstalls gredict-syncd) and Release publishes the apps. \
+         When you changed files, commit all your changes on this branch (one clear message). Never switch branches and never merge your branch: the owner's Merge button merges it, \
+         the server then rebuilds and restarts itself when its own code (crates/) changed, and Release publishes the apps. \
          Then reply briefly and plainly, saying what you changed, what you checked, and anything they should look at. \
          The conversation so far:\n{talk}\n\
          {LANGUAGE}\n\
@@ -527,6 +531,7 @@ impl Api {
     /// A chat already being served is left alone; the runner calls this every few seconds.
     pub fn spawn_talks(self: &Arc<Self>) {
         self.sample_load();
+        self.restart_if_idle();
         for id in self.talks_waiting().unwrap_or_default() {
             {
                 let mut busy = IN_FLIGHT.lock().unwrap_or_else(|e| e.into_inner());
@@ -622,6 +627,9 @@ impl Api {
                 }
                 self.db.lock().unwrap().execute("UPDATE talks SET branch='', changes='' WHERE id=?1", [id])?;
                 self.talk_save(id, "", &msgs)?;
+                if how == "merge" {
+                    self.update_server(id, &repo);
+                }
                 // A chat deleted with unmerged work: the branch is gone now, so the chat can go too.
                 if how == "discard" {
                     self.db.lock().unwrap().execute("UPDATE talks SET deleted=1, updated=?2 WHERE id=?1", params![id, now_ms()])?;
@@ -675,6 +683,7 @@ impl Api {
             }
             unreachable!()
         })();
+        let released = result.is_ok();
         // Keep the retry notes written meanwhile; the load graphs go once the release ends.
         if let Ok((_, _, now)) = self.talk_load(id) {
             msgs = now;
@@ -689,7 +698,71 @@ impl Api {
                 msgs.push(json!({"role": "error", "text": format!("{e:#}"), "at": now_ms()}));
             }
         }
-        self.talk_save(id, "", &msgs)
+        self.talk_save(id, "", &msgs)?;
+        if released {
+            if let Some(repo) = self.repo_dir() {
+                self.update_server(id, &repo);
+            }
+        }
+        Ok(())
+    }
+
+    /// After a merge or release: when the server's own code changed since the build it runs, rebuild `gredict-syncd`,
+    /// put it over `LEXIS_SELF_UPDATE` (set only by the systemd unit, so tests never do this) and restart once idle.
+    /// What happened is added to the chat.
+    fn update_server(&self, id: &str, repo: &Path) {
+        let Some(bin) = std::env::var_os("LEXIS_SELF_UPDATE").map(PathBuf::from).filter(|p| !p.as_os_str().is_empty()) else { return };
+        let stamp = bin.with_extension("commit");
+        let Ok(head) = git(repo, &["rev-parse", "HEAD"]) else { return };
+        let built = std::fs::read_to_string(&stamp).unwrap_or_default().trim().to_string();
+        // `git diff --quiet` fails when something differs.
+        if !built.is_empty() && git(repo, &["diff", "--quiet", &built, &head, "--", "crates", "Cargo.toml", "Cargo.lock"]).is_ok() {
+            return;
+        }
+        let say = |role: &str, text: String| {
+            let _ = self.talk_edit_msgs(id, |_, m| {
+                m.push(json!({"role": role, "text": text, "at": now_ms()}));
+                Ok(())
+            });
+        };
+        let done: Result<()> = (|| {
+            let mut c = Command::new("cargo");
+            c.current_dir(repo).env("PATH", crate::jobs::dev_path()).env_remove("CARGO_TARGET_DIR").args(["build", "--release", "-p", "gredict-syncd"]);
+            let r = crate::jobs::run(c, std::time::Duration::from_secs(3600))?;
+            if !r.ok {
+                bail!("{}", r.stderr.lines().rev().take(8).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n"));
+            }
+            // Renamed over the running program, which keeps running until the restart.
+            let new = bin.with_extension("new");
+            std::fs::copy(repo.join("target/release/gredict-syncd"), &new)?;
+            std::fs::rename(&new, &bin)?;
+            std::fs::write(&stamp, &head)?;
+            Ok(())
+        })();
+        match done {
+            Ok(()) => {
+                RESTART.store(true, Ordering::SeqCst);
+                say("claude", "The server's own code changed, so it rebuilt itself and restarts as soon as no chat is running; the app reconnects by itself.".into());
+            }
+            Err(e) => say("error", format!("The server could not rebuild itself with this change, so it still runs the old code:\n{e:#}")),
+        }
+    }
+
+    /// Ends the process so systemd starts the new build (`Restart=on-failure`), once no chat, merge, release or agent review runs.
+    fn restart_if_idle(&self) {
+        if !RESTART.load(Ordering::SeqCst) || !IN_FLIGHT.lock().unwrap_or_else(|e| e.into_inner()).is_empty() {
+            return;
+        }
+        let busy: i64 = self
+            .db
+            .lock()
+            .unwrap()
+            .query_row("SELECT (SELECT COUNT(*) FROM talks WHERE state<>'' AND deleted=0) + (SELECT COUNT(*) FROM drafts WHERE agent_status IN ('running','chat_running') AND deleted=0)", [], |r| r.get(0))
+            .unwrap_or(1);
+        if busy == 0 {
+            eprintln!("restarting to run the new build");
+            std::process::exit(75);
+        }
     }
 
     /// A task: Claude edits a private copy of the app on its own branch. True when it ran Claude.
