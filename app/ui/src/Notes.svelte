@@ -49,7 +49,18 @@
   }
   async function del(n: N) { await call('note_delete', { id: n.id }); if (editing === n.id) fresh(); bump(); await load(); }
 
-  const lineCount = $derived(body.split('\n').filter((l) => l.trim()).length);
+  // Search runs on the notes already loaded: every word typed must appear in the note's text, tags or date.
+  let query = $state('');
+  const shown = $derived.by(() => {
+    const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+    if (!words.length) return notes;
+    return notes.filter((n) => {
+      const hay = `${n.body}\n${n.tags}\n${n.session_date}`.toLowerCase();
+      return words.every((w) => hay.includes(w));
+    });
+  });
+
+  const lineCount =$derived(body.split('\n').filter((l) => l.trim()).length);
 </script>
 
 {#if !reviewing}
@@ -89,7 +100,9 @@
 </section>
 
 <h2>Saved notes</h2>
-{#each notes as n, ni (n.id)}
+<input class="find" type="search" placeholder="Search your notes by content, tag or date…" aria-label="Search notes" bind:value={query} />
+{#if query.trim()}<p class="muted small">{shown.length} of {notes.length} notes match.</p>{/if}
+{#each shown as n, ni (n.id)}
   <article class="card nt rise" style="--i:{ni}">
     <header>
       <b>{n.session_date || 'Undated'}</b>
@@ -101,7 +114,7 @@
     <pre>{n.body}</pre>
   </article>
 {:else}
-  <p class="empty">No notes yet.</p>
+  <p class="empty">{query.trim() ? 'No notes match your search.' : 'No notes yet.'}</p>
 {/each}
 
 {/if}
@@ -119,6 +132,7 @@
   .pill b { background: var(--navy); color: #fff; padding: 3px 9px; font-size: 13px; }
   .small { font-size: 13px; }
   .act { display: flex; gap: 10px; margin-top: 12px; }
+  .find { width: 100%; box-sizing: border-box; margin-bottom: 6px; }
   .nt { margin: 10px 0; }
   .nt header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .sp { flex: 1; }
