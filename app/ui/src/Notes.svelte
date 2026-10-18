@@ -3,6 +3,7 @@
   import { app, open, bump } from './lib/store.svelte';
   import { REL } from './lib/format';
   import Drafts from './Drafts.svelte';
+  import Notebook from './Notebook.svelte';
   import { grow } from './lib/motion';
 
   type N = { id: string; session_date: string; tags: string; body: string; updated: number };
@@ -50,6 +51,7 @@
   async function del(n: N) { await call('note_delete', { id: n.id }); if (editing === n.id) fresh(); bump(); await load(); }
 
   // Search runs on the notes already loaded: every word typed must appear in the note's text, tags or date.
+  let notebook = $state(false);
   let query = $state('');
   const shown = $derived.by(() => {
     const words = query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -99,7 +101,15 @@
   </div>
 </section>
 
-<h2>Saved notes</h2>
+<div class="views" role="tablist" aria-label="How to view saved notes">
+  <h2>Saved notes</h2>
+  <span class="sp"></span>
+  <button class="btn small" class:primary={!notebook} role="tab" aria-selected={!notebook} onclick={() => (notebook = false)}>List</button>
+  <button class="btn small" class:primary={notebook} role="tab" aria-selected={notebook} onclick={() => (notebook = true)}>Notebook</button>
+</div>
+{#if notebook}
+  <Notebook {notes} onedit={(n) => { notebook = false; edit(n); }} />
+{:else}
 <input class="find" type="search" placeholder="Search your notes by content, tag or date…" aria-label="Search notes" bind:value={query} />
 {#if query.trim()}<p class="muted small">{shown.length} of {notes.length} notes match.</p>{/if}
 {#each shown as n, ni (n.id)}
@@ -116,6 +126,7 @@
 {:else}
   <p class="empty">{query.trim() ? 'No notes match your search.' : 'No notes yet.'}</p>
 {/each}
+{/if}
 
 {/if}
 
@@ -136,6 +147,8 @@
   .nt { margin: 10px 0; }
   .nt header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
   .sp { flex: 1; }
+  .views { display: flex; align-items: center; gap: 6px; }
+  .views h2 { margin: 12px 0 8px; }
   .tag { background: var(--panel-2); border-radius: 999px; padding: 0 9px; font-size: 12px; }
   pre { white-space: pre-wrap; margin: 6px 0 0; font-family: 'Lexis Symbols', ui-monospace, Menlo, Consolas, monospace; font-size: 15px; }
   button:disabled { opacity: 0.5; cursor: not-allowed; }
