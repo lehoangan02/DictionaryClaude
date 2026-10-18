@@ -16,6 +16,7 @@ Kept current by whoever changes the app (Claude Code included): when you fix som
 - **Note reading:** the server now reads photos with a local vision model (Ollama `qwen2.5vl:3b`, tesseract only as fallback). Tested end to end from a clean client on the owner's page 1: the 18 lines came back right (see `docs/OCR-SAMPLES.md`), about 3 minutes cold and under a minute warm, on the box's CPU. Page 2 (Vietnamese words, brackets, arrows) has not been run through it yet.
 - **Camera screen (Mac):** video fits the window, X button, Rotate button; falls back to a file picker.
 - **Settings cards** keep a gap; **About** card shows the version; the search **Clear** button works on touch (pointer events). The earlier phone report may have been the old APK; confirm on the new one.
+- **Notes search (built 2026-10-18, untested in the app):** Notes → Saved notes has a search box that filters by content, tags and date (case-insensitive; every word typed must appear). It runs on the notes already loaded, so it works offline; no ranking or fuzzy matching yet.
 - **Quizzes:** answers are chosen first and submitted with "Check answer"; "Pause & exit" keeps the session and the Quizzes screen lists it with a Resume button (progress and misses restored).
 - **History** merges consecutive rows of the same word and lists every dictionary used.
 - **Examples** highlight the headword and common endings.
