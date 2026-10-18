@@ -37,6 +37,9 @@ if [ -n "$(git status --porcelain)" ]; then
 fi
 if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then echo "ERROR: $TAG already exists" >&2; exit 1; fi
 PREV="$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || true)"
+if [ -n "$PREV" ] && [ -z "$(git log "$PREV..HEAD" --pretty='%s' | grep -v '^Release v' || true)" ]; then
+  echo "ERROR: nothing changed since $PREV, so there is nothing new to release" >&2; exit 1
+fi
 
 if [ "$TESTS" = 1 ]; then
   step "running the Rust tests"
@@ -48,6 +51,8 @@ if [ "$TESTS" = 1 ]; then
 fi
 
 step "setting the version to $VERSION"
+# If anything fails before the release commit, put the version files back so the tree stays clean for the next run.
+trap 'git checkout -q -- app/src-tauri/tauri.conf.json app/src-tauri/Cargo.toml app/src-tauri/Cargo.lock 2>/dev/null || true' ERR
 sed -i -E "s/^(  \"version\": \")[0-9]+\.[0-9]+\.[0-9]+(\",)/\1$VERSION\2/" app/src-tauri/tauri.conf.json
 sed -i -E "0,/^version = \"[0-9]+\.[0-9]+\.[0-9]+\"/s//version = \"$VERSION\"/" app/src-tauri/Cargo.toml
 grep -q "\"version\": \"$VERSION\"" app/src-tauri/tauri.conf.json && grep -q "^version = \"$VERSION\"" app/src-tauri/Cargo.toml
@@ -83,7 +88,8 @@ FILE="LadyBird-${VERSION}-x86_64.AppImage"
 cp "$BUILT" "$OUT/$FILE"
 SUM="$(sha256sum "$OUT/$FILE" | cut -d' ' -f1)"
 echo "$SUM  $FILE" > "$OUT/$FILE.sha256"
-if [ -n "$PREV" ]; then CHANGES="$(git log "$PREV..HEAD" --pretty='- %s' | grep -v '^- Release v' | head -n 40)"; else CHANGES="$(git log --pretty='- %s' | head -n 30)"; fi
+# `|| true`: under pipefail an empty grep or `head` closing the pipe early would end the script without a word.
+if [ -n "$PREV" ]; then CHANGES="$(git log "$PREV..HEAD" --pretty='- %s' | grep -v '^- Release v' | head -n 40 || true)"; else CHANGES="$(git log --pretty='- %s' | head -n 30 || true)"; fi
 BODY="${NOTES:+$NOTES
 
 }## Changes
@@ -106,6 +112,7 @@ json.dump({"version": ver, "file": file, "sha256": sha, "size": os.path.getsize(
 PY
 
 step "committing and tagging $TAG"
+trap - ERR
 git add app/src-tauri/tauri.conf.json app/src-tauri/Cargo.toml app/src-tauri/Cargo.lock 2>/dev/null || true
 git commit -q -m "Release $TAG" || true
 git tag -a "$TAG" -m "LadyBird $VERSION"
