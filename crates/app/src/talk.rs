@@ -576,8 +576,21 @@ impl Api {
         let _ = git(&repo, &["worktree", "remove", "--force", &path.to_string_lossy()]);
         let done: Result<String> = (|| {
             if how == "merge" {
+                // A release that failed midway leaves its version bump behind; that is never worth keeping,
+                // so it is undone here (unless a release is running right now).
                 if !git(&repo, &["status", "--porcelain"])?.is_empty() {
-                    bail!("the app's folder on the server has changes that are not committed yet; try again after they are");
+                    let releasing: i64 = self.db.lock().unwrap()
+                        .query_row("SELECT COUNT(*) FROM talks WHERE state='releasing' AND deleted=0", [], |r| r.get(0))
+                        .unwrap_or(0);
+                    if releasing == 0 {
+                        for f in ["app/src-tauri/tauri.conf.json", "app/src-tauri/Cargo.toml", "app/src-tauri/Cargo.lock", "Cargo.lock"] {
+                            let _ = git(&repo, &["checkout", "--", f]);
+                        }
+                    }
+                }
+                let left = git(&repo, &["status", "--short"])?;
+                if !left.is_empty() {
+                    bail!("the app's folder on the server has changes that are not committed yet; try again after they are:\n{left}");
                 }
                 if let Err(e) = git(&repo, &["merge", "--no-ff", "-m", &format!("Merge chat work: {title}"), &branch]) {
                     let _ = git(&repo, &["merge", "--abort"]);
