@@ -491,17 +491,23 @@ impl Agent {
         extract_lines(&out).ok_or_else(|| anyhow!("{} replied, but not in the expected form", self.name))
     }
 
-    /// A task chat: Claude may edit files in `dir` (a private worktree on its own branch) and use git there, nothing else.
-    pub(crate) fn run_work(&self, dir: &Path, prompt: &str, schema: &str, live: Option<&mut dyn FnMut(String)>) -> Result<String> {
+    /// A work chat: the owner gave Claude full permissions on their server (owner, 2026-10-18). It edits the app in `dir`
+    /// (a private worktree on its own branch), builds and tests it, and may work in `extra_dirs` (the server's main checkout).
+    /// The owner's Merge button is still what brings the branch into the app.
+    pub(crate) fn run_work(&self, dir: &Path, extra_dirs: &[&Path], target: &Path, prompt: &str, schema: &str, live: Option<&mut dyn FnMut(String)>) -> Result<String> {
         let mut c = Command::new(&self.bin);
         c.current_dir(dir).arg("-p").arg(prompt).args(["--output-format", if live.is_some() { "stream-json" } else { "json" }, "--json-schema", schema]);
         if live.is_some() {
             c.arg("--verbose");
         }
-        c.args(["--permission-mode", "acceptEdits", "--allowedTools", "Read", "Edit", "Write", "Glob", "Grep", "Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git add:*)", "Bash(git commit:*)"]);
-        c.arg("--add-dir").arg(dir).args(["--disallowedTools", "WebFetch", "WebSearch"]);
+        c.args(["--permission-mode", "bypassPermissions"]).arg("--add-dir").arg(dir);
+        for d in extra_dirs {
+            c.arg("--add-dir").arg(d);
+        }
+        // The service's PATH has neither cargo nor node; chats share one build folder so only the first build is slow.
+        c.env("PATH", dev_path()).env("CARGO_TARGET_DIR", target);
         self.pick(&mut c);
-        let mut r = Self::exec(c, Duration::from_secs(1500), live).map_err(|e| anyhow!("{}: {e:#}", self.name))?;
+        let mut r = Self::exec(c, Duration::from_secs(3600), live).map_err(|e| anyhow!("{}: {e:#}", self.name))?;
         r.stdout = final_result(&r.stdout);
         if let Some(why) = reported_error(&r.stdout).or_else(|| (!r.ok).then(|| r.stderr.lines().find(|l| !l.trim().is_empty()).unwrap_or("no output").trim().to_string())) {
             bail!("{} says: {why}", self.name);
@@ -548,6 +554,20 @@ impl Agent {
         }
         Ok(r.stdout)
     }
+}
+
+/// PATH with cargo (rustup) and the newest node (nvm) in front, for work chats and the server's own rebuild.
+pub(crate) fn dev_path() -> String {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let mut dirs = vec![format!("{home}/.cargo/bin")];
+    let node = std::fs::read_dir(format!("{home}/.nvm/versions/node")).ok().and_then(|r| r.flatten().map(|e| e.path()).max_by_key(|p| {
+        p.file_name().and_then(|n| n.to_str()).map(|n| n.trim_start_matches('v').split('.').map(|x| x.parse::<u32>().unwrap_or(0)).collect::<Vec<_>>()).unwrap_or_default()
+    }));
+    if let Some(n) = node {
+        dirs.push(n.join("bin").display().to_string());
+    }
+    dirs.push(std::env::var("PATH").unwrap_or_else(|_| "/usr/local/bin:/usr/bin:/bin".into()));
+    dirs.join(":")
 }
 
 const CHAT_SCHEMA: &str = r#"{"type":"object","properties":{"reply":{"type":"string"},"text":{"type":"string"}},"required":["reply"]}"#;

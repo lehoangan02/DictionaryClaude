@@ -1,8 +1,8 @@
 //! The general chat with Claude: ask about the app, report problems, suggest changes.
 //! Each chat is a synced `talks` row. The server answers with `claude -p` in a
-//! read-only view of the app's source; Claude never changes anything. What it suggests
-//! shows up as an idea the owner approves or dismisses; approved ideas are what a coding
-//! session picks up (`talk_ideas`).
+//! read-only view of the app's source for the old "ask" chats; "work" chats (every new chat) have full
+//! permissions on the server: Claude changes the app on a private branch, builds and tests it, and the
+//! owner's Merge button brings it in. Ideas from ask chats are approved or dismissed (`talk_ideas`).
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -134,7 +134,7 @@ fn git(dir: &Path, args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&o.stdout).trim().to_string())
 }
 
-fn work_prompt(msgs: &[Value], branch: &str) -> String {
+fn work_prompt(msgs: &[Value], branch: &str, repo: &Path) -> String {
     let sent: Vec<&Value> = msgs.iter().filter(|m| !is_queued(m)).collect();
     let talk: String = sent
         .iter()
@@ -145,15 +145,22 @@ fn work_prompt(msgs: &[Value], branch: &str) -> String {
         .collect::<Vec<_>>()
         .join("\n");
     format!(
-        "You are working on LadyBird, the owner's offline GRE dictionary app, at the owner's request from their phone. The current folder is a private git worktree on branch {branch}: \
-         change the app here and nowhere else. Read CLAUDE.md first and follow it (never touch private/, never put copyrighted text in the repo, keep the style of the surrounding code). \
+        "You are working on LadyBird, the owner's offline GRE dictionary app, at the owner's request from their phone. You run on the owner's own Ubuntu server \
+         with full permissions; it also runs the app's sync server (gredict-syncd) and builds the releases. The owner is the app's only developer: when they ask for something, \
+         do it yourself; never tell them to run a command you can run. \
+         The current folder is a private git worktree on branch {branch}: make code changes here. The server's main checkout is {repo} (branch main): \
+         work there whenever the owner asks or it is in the way (inspect it, undo leftovers of a failed release, commit what belongs there), but put code changes on your branch. \
+         Read CLAUDE.md first and follow it (never commit private/ or copyrighted text, never print keys or tokens, keep the style of the surrounding code). \
          If the owner only asks a question or chats, just answer and change nothing. Otherwise do what they asked in their last message, carefully and completely, and keep docs/ROADMAP.md true. \
-         Do not build or run tests (they are slow; the owner checks before merging) and run no program other than git. \
-         When you changed files, commit all your changes on this branch with git (one clear message). Never push, never switch or create branches, never merge. \
-         Then reply briefly and plainly, saying what you changed and anything they should check. \
+         Check your work before you commit: `cargo check` / `cargo test -p <crate>` for Rust (chats share a build folder, so the first build is slow), `npm run check` in app/ui \
+         for the interface (node_modules is linked in). Do not run scripts/release.sh, push, or restart the sync server: the owner's buttons do that. \
+         When you changed files, commit all your changes on this branch (one clear message). Never switch branches and never merge your branch: the owner's Merge button merges it \
+         (server code goes live once the owner reinstalls gredict-syncd) and Release publishes the apps. \
+         Then reply briefly and plainly, saying what you changed, what you checked, and anything they should look at. \
          The conversation so far:\n{talk}\n\
          {LANGUAGE}\n\
-         Reply with JSON only: {{\"reply\":string}}"
+         Reply with JSON only: {{\"reply\":string}}",
+        repo = repo.display()
     )
 }
 
@@ -705,6 +712,11 @@ impl Api {
                     git(&repo, &["worktree", "add", "-b", &branch, &p, "HEAD"])?;
                 }
             }
+            // So `npm run check` works in the copy without a fresh install (node_modules is not in git).
+            let nm = path.join("app/ui/node_modules");
+            if !nm.exists() && repo.join("app/ui/node_modules").is_dir() {
+                let _ = std::os::unix::fs::symlink(repo.join("app/ui/node_modules"), &nm);
+            }
             Ok(())
         })();
         if let Err(e) = made {
@@ -721,7 +733,7 @@ impl Api {
             }
             self.talk_progress(id, msgs, &steps);
         };
-        let out = claude.run_work(&path, &(work_prompt(msgs, &branch) + attached), SCHEMA, Some(&mut live)).and_then(|o| extract_talk(&o).ok_or_else(|| anyhow!("claude replied, but not in the expected form")));
+        let out = claude.run_work(&path, &[repo.as_path()], &self.data_dir.join("work").join("target"), &(work_prompt(msgs, &branch, &repo) + attached), SCHEMA, Some(&mut live)).and_then(|o| extract_talk(&o).ok_or_else(|| anyhow!("claude replied, but not in the expected form")));
         // Whatever was left uncommitted is committed too, so the summary below is complete.
         if !git(&path, &["status", "--porcelain"]).unwrap_or_default().is_empty() {
             let _ = git(&path, &["add", "-A"]);

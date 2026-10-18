@@ -8,5 +8,5 @@ node_modules/
 app/ui/dist/
 *.sqlite
 *.sqlite-*
-app/ui/node_modules/
+app/ui/node_modules
 data/user/
