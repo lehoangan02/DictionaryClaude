@@ -19,6 +19,10 @@ exit 3
 EOF
 chmod +x "$DATA/bin/agent"
 export LEXIS_CLAUDE_BIN="$DATA/bin/agent" LEXIS_AGY_BIN="$DATA/bin/agent"
+# Work chats make git worktrees and branches in the app's checkout: give them a throwaway one, never this repo.
+mkdir -p "$DATA/repo/docs" && echo "# Roadmap" > "$DATA/repo/docs/ROADMAP.md"
+git -C "$DATA/repo" init -q && git -C "$DATA/repo" add -A && git -C "$DATA/repo" -c user.name=e2e -c user.email=e2e@localhost commit -qm init
+export LEXIS_REPO="$DATA/repo"
 ./target/release/gredict-syncd --data "$DATA/syncd" --san 127.0.0.1 --san localhost serve --lan "127.0.0.1:$LAN" --wan "127.0.0.1:$WAN" >"$DATA/syncd.log" 2>&1 &
 PIDS+=($!)
 # The Oxford recordings are large and optional: the test of them runs only where they have been built.

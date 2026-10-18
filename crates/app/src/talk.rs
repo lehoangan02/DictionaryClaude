@@ -44,7 +44,9 @@ pub fn extract_talk(stdout: &str) -> Option<(String, Option<(String, String)>)> 
 }
 
 /// Without this, the model sometimes guessed a language from the owner's name or the repo and answered in Vietnamese.
-const LANGUAGE: &str = "Reply in English, unless the owner's last message is clearly written in another language; then use that language. Never pick a language from the owner's name, e-mail or the project's files.";
+/// Said last in each prompt: in the middle it was missed, and a reply to an English message came in German.
+const LANGUAGE: &str = "LANGUAGE: write `reply` in English. Only when the owner's last message is written entirely in another language (for example Vietnamese) use that language instead. \
+     Never choose a language from one word, a greeting or slang (\"Dude\" is English), the owner's name, e-mail or the project's files; never answer in German.";
 
 /// Chats whose run is in flight on this server, so the job runner never starts one twice.
 static IN_FLIGHT: Mutex<Vec<String>> = Mutex::new(Vec::new());
@@ -104,10 +106,11 @@ fn prompt(msgs: &[Value]) -> String {
         "You are the assistant inside LadyBird, the owner's offline GRE dictionary app. You are in a chat with the owner, who uses the app on a phone. \
          The app's source is the current folder (read it with the Read tool; docs/ROADMAP.md lists known issues and plans, CLAUDE.md the rules). \
          Do not open anything under private/ or any file with keys or tokens. You cannot change anything and must not claim to. \
-         Answer the owner's last message briefly and plainly. {LANGUAGE} \
+         Answer the owner's last message briefly and plainly. \
          When they report a bug, ask for a feature or a change, also give `idea`: a short `title` and a `detail` a programmer could act on \
          (what to change and why, naming the files if you know them). Give no idea for a plain question. \
          The conversation so far:\n{talk}\n\
+         {LANGUAGE}\n\
          Reply with JSON only: {{\"reply\":string,\"idea\":{{\"title\":string,\"detail\":string}} (optional)}}"
     )
 }
@@ -147,8 +150,9 @@ fn work_prompt(msgs: &[Value], branch: &str) -> String {
          If the owner only asks a question or chats, just answer and change nothing. Otherwise do what they asked in their last message, carefully and completely, and keep docs/ROADMAP.md true. \
          Do not build or run tests (they are slow; the owner checks before merging) and run no program other than git. \
          When you changed files, commit all your changes on this branch with git (one clear message). Never push, never switch or create branches, never merge. \
-         Then reply briefly and plainly, saying what you changed and anything they should check. {LANGUAGE} \
+         Then reply briefly and plainly, saying what you changed and anything they should check. \
          The conversation so far:\n{talk}\n\
+         {LANGUAGE}\n\
          Reply with JSON only: {{\"reply\":string}}"
     )
 }
@@ -649,11 +653,13 @@ impl Api {
                 }
                 let why = format!("the release {version} failed:\n{}\n{}", tail(&r.stdout), tail(&r.stderr));
                 let tagged = git(&repo, &["rev-parse", "-q", "--verify", &format!("refs/tags/v{version}")]).is_ok();
+                // The script sets the version before building; undo that so the next run (or the next merge) starts from a clean tree.
+                if !tagged {
+                    let _ = git(&repo, &["checkout", "--", "app/src-tauri/tauri.conf.json", "app/src-tauri/Cargo.toml", "app/src-tauri/Cargo.lock"]);
+                }
                 if tagged || attempt == RELEASE_TRIES {
                     bail!("{why}");
                 }
-                // The script sets the version before building; undo that so the next run starts from a clean tree.
-                let _ = git(&repo, &["checkout", "--", "app/src-tauri/tauri.conf.json", "app/src-tauri/Cargo.toml", "app/src-tauri/Cargo.lock"]);
                 let _ = self.talk_edit_msgs(id, |_, m| {
                     let at = m.iter().position(|x| x["role"] == "activity").unwrap_or(m.len());
                     m.insert(at, json!({"role": "claude", "text": format!("{why}\n\nTrying again ({} of {RELEASE_TRIES}).", attempt + 1), "at": now_ms()}));
@@ -723,8 +729,8 @@ impl Api {
         }
         let base = git(&repo, &["rev-parse", "--abbrev-ref", "HEAD"]).unwrap_or_else(|_| "HEAD".into());
         let stat = git(&repo, &["diff", "--stat", &format!("{base}...{branch}")]).unwrap_or_default();
-        if stat.is_empty() && out.is_ok() {
-            // A plain question: nothing changed, so leave no branch or private copy behind.
+        if stat.is_empty() {
+            // A plain question, or a run that failed before changing anything: leave no branch or private copy behind.
             let _copies = WORKTREES.lock().unwrap_or_else(|e| e.into_inner());
             let _ = git(&repo, &["worktree", "remove", "--force", &path.to_string_lossy()]);
             let _ = git(&repo, &["branch", "-D", &branch]);
