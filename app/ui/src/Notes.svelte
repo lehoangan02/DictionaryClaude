@@ -62,6 +62,14 @@
     });
   });
 
+  // Pieces of `text` with the searched words marked, case-insensitively.
+  function marks(text: string): { t: string; hit: boolean }[] {
+    const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+    if (!words.length) return [{ t: text, hit: false }];
+    const re = new RegExp(`(${words.sort((a, b) => b.length - a.length).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})`, 'gi');
+    return text.split(re).map((t, i) => ({ t, hit: i % 2 === 1 })).filter((p) => p.t);
+  }
+
   const lineCount =$derived(body.split('\n').filter((l) => l.trim()).length);
 </script>
 
@@ -107,6 +115,7 @@
   <button class="btn small" class:primary={!notebook} role="tab" aria-selected={!notebook} onclick={() => (notebook = false)}>List</button>
   <button class="btn small" class:primary={notebook} role="tab" aria-selected={notebook} onclick={() => (notebook = true)}>Notebook</button>
 </div>
+{#snippet hl(text: string)}{#each marks(text) as p}{#if p.hit}<mark>{p.t}</mark>{:else}{p.t}{/if}{/each}{/snippet}
 {#if notebook}
   <Notebook {notes} onedit={(n) => { notebook = false; edit(n); }} />
 {:else}
@@ -115,13 +124,13 @@
 {#each shown as n, ni (n.id)}
   <article class="card nt rise" style="--i:{ni}">
     <header>
-      <b>{n.session_date || 'Undated'}</b>
-      {#each n.tags.split(',').map((t) => t.trim()).filter(Boolean) as t}<span class="tag">{t}</span>{/each}
+      <b>{#if n.session_date}{@render hl(n.session_date)}{:else}Undated{/if}</b>
+      {#each n.tags.split(',').map((t) => t.trim()).filter(Boolean) as t}<span class="tag">{@render hl(t)}</span>{/each}
       <span class="sp"></span>
       <button class="btn small ghost" onclick={() => edit(n)}>Edit</button>
       <button class="btn small ghost" onclick={() => del(n)}>Delete</button>
     </header>
-    <pre>{n.body}</pre>
+    <pre>{@render hl(n.body)}</pre>
   </article>
 {:else}
   <p class="empty">{query.trim() ? 'No notes match your search.' : 'No notes yet.'}</p>
@@ -151,5 +160,6 @@
   .views h2 { margin: 12px 0 8px; }
   .tag { background: var(--panel-2); border-radius: 999px; padding: 0 9px; font-size: 12px; }
   pre { white-space: pre-wrap; margin: 6px 0 0; font-family: 'Lexis Symbols', ui-monospace, Menlo, Consolas, monospace; font-size: 15px; }
+  mark { background: color-mix(in srgb, var(--accent) 35%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; font-weight: 600; }
   button:disabled { opacity: 0.5; cursor: not-allowed; }
 </style>
