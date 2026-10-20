@@ -25,6 +25,14 @@
   let confirmClear = $state(false);
   async function clear() { await call('history_clear'); confirmClear = false; bump(); await load(); }
 
+  // Paint the typed letters wherever they occur in the word (case-insensitive).
+  function parts(word: string, part: string): { t: string; hit: boolean }[] {
+    const p = part.trim().toLowerCase();
+    const i = p ? word.toLowerCase().indexOf(p) : -1;
+    if (i < 0 || word.toLowerCase().length !== word.length) return [{ t: word, hit: false }];
+    return [{ t: word.slice(0, i), hit: false }, { t: word.slice(i, i + p.length), hit: true }, { t: word.slice(i + p.length), hit: false }];
+  }
+
   // Group by day like a browser history.
   const groups = $derived.by(() => {
     const out: { day: string; items: M[] }[] = [];
@@ -45,7 +53,7 @@
 
 <h1>History</h1>
 <div class="tools">
-  <input type="search" placeholder="Filter by word…" bind:value={q} aria-label="Filter history" />
+  <input type="search" placeholder="Search part of a word…" bind:value={q} aria-label="Filter history" />
   <label class="chk"><input type="checkbox" bind:checked={starred} /> Starred</label>
   {#if confirmClear}
     <button class="btn small" onclick={clear}>Clear unstarred — sure?</button>
@@ -61,7 +69,7 @@
   <ul class="list">
     {#each g.items as h (h.id)}
       <li animate:flip={{ duration: flipDur() }} out:leave>
-        <button class="w" onclick={() => openFromHistory(h.word)}>{h.word}</button>
+        <button class="w" onclick={() => openFromHistory(h.word)}>{#each parts(h.word, q) as p}{#if p.hit}<mark class="hl">{p.t}</mark>{:else}{p.t}{/if}{/each}</button>
         <span class="muted t">{new Date(h.ts).toLocaleTimeString(undefined, { timeStyle: 'short' })} · {h.sources.join(', ')}</span>
         <button class="ic" class:on={h.starred} onclick={() => star(h)} aria-label={h.starred ? 'Unstar' : 'Star'}><Icon name={h.starred ? 'star' : 'star-o'} size={22} /></button>
         <button class="ic" onclick={() => del(h)} aria-label="Remove"><Icon name="close" size={20} /></button>
@@ -81,6 +89,7 @@
   .list li { display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--line); padding: 4px 0; }
   .w { background: none; border: 0; font-size: 18px; color: var(--blue); padding: 8px 0; text-align: left; flex: 1; }
   .t { font-size: 13px; }
+  mark.hl { background: color-mix(in srgb, var(--accent) 35%, transparent); color: inherit; border-radius: 2px; }
   .ic { background: none; border: 0; font-size: 20px; color: var(--muted); min-width: 40px; min-height: 40px; }
   .ic.on { color: var(--accent); }
 </style>
