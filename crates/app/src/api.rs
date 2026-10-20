@@ -473,10 +473,12 @@ impl Api {
 
     fn history_list(&self, q: Option<&str>, limit: i64, offset: i64, starred: bool) -> Result<Value> {
         let db = self.db.lock().unwrap();
-        let pat = format!("{}%", q.map(lemma::key).unwrap_or_default());
+        // Any part of the spelling matches (prefix, middle or ending), not only the start.
+        let part = q.map(lemma::key).unwrap_or_default().replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
+        let pat = format!("%{part}%");
         let mut stmt = db.prepare(
             "SELECT id,ts,key,word,source,starred FROM lookups
-             WHERE key LIKE ?1 AND deleted=0 AND (?2 = 0 OR starred = 1) ORDER BY ts DESC LIMIT ?3 OFFSET ?4",
+             WHERE key LIKE ?1 ESCAPE '\\' AND deleted=0 AND (?2 = 0 OR starred = 1) ORDER BY ts DESC LIMIT ?3 OFFSET ?4",
         )?;
         let rows = stmt
             .query_map(params![pat, starred as i64, limit, offset], |r| {
