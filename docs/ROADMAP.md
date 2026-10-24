@@ -20,7 +20,7 @@ Kept current by whoever changes the app (Claude Code included): when you fix som
 - **Notes search (built 2026-10-18, untested in the app):** Notes → Saved notes has a search box that filters by content, tags and date (case-insensitive; every word typed must appear). It runs on the notes already loaded, so it works offline; no ranking or fuzzy matching yet.
 - **Quizzes:** answers are chosen first and submitted with "Check answer"; "Pause & exit" keeps the session and the Quizzes screen lists it with a Resume button (progress and misses restored).
 - **History** merges consecutive rows of the same word and lists every dictionary used. **the filter finds any part of the spelling (middle or ending, not just the start) and highlights the typed letters; needs a look in the apps.**
-- **Examples** highlight the headword and common endings.
+- **Examples** highlight the headword and common endings. Quotations that end in "…" or do not contain the word (Wiktionary cut them short) are hidden.
 - **Selectable text:** the whole app is non-selectable except definitions, examples, passages, quiz questions, notes and inputs.
 - **Self-update (built, never run on a device):** Settings → About and a banner show a newer GitHub release, download it, verify the SHA-256 and install it (Mac: swaps the app bundle and reopens; Linux: replaces the AppImage; Android: hands the APK to the system installer, which asks once to allow installs from LadyBird). Tested against a stand-in for GitHub only.
 

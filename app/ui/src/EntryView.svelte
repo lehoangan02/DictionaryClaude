@@ -61,7 +61,11 @@
 
   // Short, modern sentences first; dated quotations stay one click away.
   type Ex = { text: string; by?: string };
-  function split(all: Ex[]) {
+  // A quotation Wiktionary cut short (ends in an ellipsis) or that no longer contains the word is dropped.
+  const usable = (e: Ex, word: string) =>
+    !/(…|\.\.\.)\s*$/.test(e.text) && (!e.by || highlight(e.text, word).some((p) => p.hit));
+  function split(all0: Ex[], word: string) {
+    const all = all0.filter((e) => usable(e, word));
     const plain = all.filter((e) => !e.by).sort((a, b) => a.text.length - b.text.length);
     const quotes = all.filter((e) => e.by).sort((a, b) => a.text.length - b.text.length);
     const ordered = [...plain, ...quotes];
@@ -186,8 +190,8 @@
                   <p class="rel"><span class="k">OPPOSITE</span>
                     {#each s.antonyms.slice(0, 6) as w, i}{i ? ', ' : ''}<button class="lk" onclick={() => open(w)}>{w}</button>{/each}</p>
                 {/if}
-                {#if s.examples?.length}
-                  {@const ex = split(s.examples)}
+                {#if s.examples?.length && split(s.examples, entry.word).shown.length}
+                  {@const ex = split(s.examples, entry.word)}
                   <ul class="exs">
                     {#each ex.shown as e}<li>{@render hl(e.text, entry.word)}{#if e.by}<span class="by"> — {e.by}</span>{/if}</li>{/each}
                   </ul>
