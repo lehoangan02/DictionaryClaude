@@ -296,10 +296,15 @@ pub fn handle(api: &Api, tokens: &Tokens, private: &Path, enrolling: Option<&Enr
                 return reply(req, 400, json!({"error": "this device cannot remove itself here; use Unpair"}));
             }
             tokens.revoke(name).map(|gone| {
+                let _ = api.call("claude_login_drop", json!({"device": name}));
                 eprintln!("device `{who}` revoked `{name}`");
                 json!({"revoked": gone})
             })
         }
+        // A device's own Claude login (see crates/app/src/login.rs): always about the calling device, never another.
+        "/v1/claude/status" => api.call("claude_login_get", json!({"device": who})),
+        "/v1/claude/set" => api.call("claude_login_put", json!({"device": who, "token": args.get("token").and_then(Value::as_str).unwrap_or("")})),
+        "/v1/claude/clear" => api.call("claude_login_drop", json!({"device": who})),
         "/v1/hello" => Ok(json!({"device": who, "time": now_ms()})),
         "/v1/push" => api.call("sync_apply", json!({"changes": args.get("changes").cloned().unwrap_or(Value::Null)})),
         "/v1/expand" => api.call("expand_terms", json!({"term": args.get("term").and_then(Value::as_str).unwrap_or("")})),

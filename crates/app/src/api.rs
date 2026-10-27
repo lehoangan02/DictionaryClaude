@@ -261,6 +261,14 @@ impl Api {
             "sync_pair" => self.sync_pair(&req("code")?),
             "devices_list" => self.server_post("/v1/devices", json!({})),
             "device_revoke" => self.server_post("/v1/device/revoke", json!({"name": req("name")?})),
+            // This device's own Claude login, kept on the server (see login.rs); the token is only ever sent, never read back.
+            "claude_login_status" => self.server_post("/v1/claude/status", json!({})),
+            "claude_login_set" => self.server_post("/v1/claude/set", json!({"token": req("token")?})),
+            "claude_login_clear" => self.server_post("/v1/claude/clear", json!({})),
+            // The same, on the server, for the device that called (never reachable from a device's own interface).
+            "claude_login_get" => self.claude_login_get(&req("device")?),
+            "claude_login_put" => self.claude_login_put(&req("device")?, &req("token")?),
+            "claude_login_drop" => self.claude_login_drop(&req("device")?),
             "sync_unpair" => self.sync_unpair(),
             "sync_autopair" => self.sync_autopair(),
             "sync_set_autopair_host" => {

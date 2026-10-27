@@ -130,6 +130,11 @@ fn last_pick(msgs: &[Value]) -> (Option<String>, Option<String>) {
     (get("model", &MODELS), get("effort", &EFFORTS))
 }
 
+/// The paired device that wrote the latest message (set by `talk_send` on that device).
+fn last_by(msgs: &[Value]) -> Option<String> {
+    msgs.iter().rev().find(|m| m["role"] == "user" && !is_queued(m)).and_then(|m| m["by"].as_str()).filter(|d| !d.is_empty()).map(str::to_string)
+}
+
 fn git(dir: &Path, args: &[&str]) -> Result<String> {
     let o = Command::new("git").arg("-C").arg(dir).args(args).output().map_err(|e| anyhow!("git is not available ({e})"))?;
     if !o.status.success() {
@@ -323,6 +328,10 @@ impl Api {
         if !names.is_empty() {
             m["photos"] = json!(names);
         }
+        // Which paired device wrote it: the server answers with that device's own Claude login, if it has one.
+        if let Some(p) = self.pairing() {
+            m["by"] = json!(p.name);
+        }
         if let Some(v) = model {
             m["model"] = json!(v);
         }
@@ -347,7 +356,8 @@ impl Api {
             self.db.lock().unwrap().execute("UPDATE talks SET title=?2 WHERE id=?1", params![id, t])?;
         }
         // Typing "release it" is the owner's own trigger for a release: no agent call is needed.
-        if let Some(how) = release_request(message).filter(|_| self.talk_meta(id).is_ok_and(|(_, branch, _)| branch.is_empty())) {
+        // Only the owner's devices: a person with a login of their own cannot release the app.
+        if let Some(how) = release_request(message).filter(|_| self.talk_meta(id).is_ok_and(|(_, branch, _)| branch.is_empty()) && last_by(&msgs).is_none_or(|d| self.login_for(&d).is_none())) {
             self.talk_save(id, how, &msgs)?;
             return self.talk_get(id);
         }
@@ -846,7 +856,10 @@ impl Api {
             self.talk_save(id, "", msgs)?;
             Ok(false)
         };
-        let (dir, scratch) = match self.repo_dir() {
+        // A person with a Claude login of their own is answered on their subscription, in a scratch folder: they get
+        // a general assistant, not the app's source (with the owner's private files beside it) and not a work chat.
+        let login = last_by(&msgs).and_then(|d| self.login_for(&d));
+        let (dir, scratch) = match self.repo_dir().filter(|_| login.is_none()) {
             Some(d) => (d, false),
             None => {
                 let d = self.data_dir.join("jobs").join("talk");
@@ -856,14 +869,14 @@ impl Api {
         };
         let (model, effort) = last_pick(&msgs);
         let (attach_dir, note) = self.attach_photos(id, &msgs);
-        let claude = Agent { name: "claude", bin: self.env_or("LEXIS_CLAUDE_BIN", "claude"), model, effort, extra: attach_dir.clone() };
+        let claude = Agent { name: "claude", bin: self.env_or("LEXIS_CLAUDE_BIN", "claude"), model, effort, extra: attach_dir.clone(), login: login.clone() };
         let done = |r: Result<bool>| {
             if let Some(d) = &attach_dir {
                 let _ = std::fs::remove_dir_all(d);
             }
             r
         };
-        if self.talk_meta(id)?.0 == "work" {
+        if login.is_none() && self.talk_meta(id)?.0 == "work" {
             if self.agent_used_today() + 1 > self.agent_cap() {
                 let why = format!("the daily agent allowance ({}) is used up; raise it in Settings or try tomorrow", self.agent_cap());
                 if let Some(d) = &attach_dir {
@@ -903,7 +916,7 @@ impl Api {
                 self.talk_save(id, "", &msgs)?;
                 Ok(true)
             }
-            Err(e) => fail(&mut msgs, format!("{e:#}")),
+            Err(e) => fail(&mut msgs, Api::login_hint(&format!("{e:#}"), login.is_some())),
         }
     }
 }

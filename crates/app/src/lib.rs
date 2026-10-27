@@ -6,6 +6,7 @@ mod ai;
 mod audio;
 mod drafts;
 mod jobs;
+mod login;
 pub mod barrons;
 mod mw;
 mod net;

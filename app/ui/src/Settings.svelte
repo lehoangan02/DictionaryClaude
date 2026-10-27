@@ -93,6 +93,23 @@
     if (!confirm(`Remove ${name}? It will stop syncing until it is paired again.`)) return;
     try { await call('device_revoke', { name }); await loadDevices(); } catch (e) { devErr = (e as Error).message; }
   }
+  // Claude account: this device's own Claude login, kept on the server. The token is sent once and never shown again.
+  let cl = $state<{ own: boolean; since: number | null } | null>(null);
+  let clToken = $state('');
+  let clMsg = $state('');
+  let clBusy = $state(false);
+  async function loadCl() { cl = status.paired ? await call('claude_login_status') : null; }
+  $effect(() => { void app.version; void status.paired; loadCl().catch(() => { cl = null; }); });
+  async function saveCl() {
+    clBusy = true; clMsg = 'Checking the token with Claude…';
+    try { cl = await call('claude_login_set', { token: clToken }); clToken = ''; clMsg = 'Signed in. Your chats now use your own Claude subscription.'; }
+    catch (e) { clMsg = (e as Error).message; }
+    clBusy = false;
+  }
+  async function clearCl() {
+    if (!confirm('Sign out of Claude on the server? Your chats will use the server\'s own Claude login again.')) return;
+    try { cl = await call('claude_login_clear'); clMsg = 'Signed out.'; } catch (e) { clMsg = (e as Error).message; }
+  }
   async function unpair() { await call('sync_unpair'); await load(); bump(); msg = 'Unpaired. Your data stays on this device.'; }
   async function saveSsids() { await call('sync_set_home_ssids', { ssids }); msg = 'Saved.'; }
 </script>
@@ -166,6 +183,30 @@
 
 <PackManager />
 <AiCard />
+
+<section class="card rise" style="--i:5">
+  <h3>Claude account</h3>
+  {#if !status.paired}
+    <p class="muted small">Pair this device with the server first; the Claude login is kept there.</p>
+  {:else}
+    <p class="muted small">
+      Chats are answered by the server's Claude. To use <b>your own</b> Claude subscription instead, sign in here. On a computer where you are
+      signed in to Claude, run <code>claude setup-token</code>, then paste the token it prints (it starts with <code>sk-ant-</code>). The server
+      tries it once, keeps it private and never shows it again. Chats from a signed-in device cannot read the app's source or change the app.
+      If Claude later refuses the token, paste a new one here.
+    </p>
+    {#if cl?.own}
+      <p>Signed in with your own Claude account{cl.since ? ` since ${when(cl.since)}` : ''}.</p>
+    {/if}
+    <label class="f">{cl?.own ? 'Replace the token' : 'Claude token'}
+      <input type="password" bind:value={clToken} placeholder="sk-ant-…" autocomplete="off" spellcheck="false" /></label>
+    <div class="row">
+      <button class="btn primary" disabled={clBusy || !clToken.trim()} onclick={saveCl}>{clBusy ? 'Checking…' : 'Sign in'}</button>
+      {#if cl?.own}<button class="btn ghost" disabled={clBusy} onclick={clearCl}>Sign out</button>{/if}
+    </div>
+    {#if clMsg}<p class="msg small">{clMsg}</p>{/if}
+  {/if}
+</section>
 
 <section class="card rise" style="--i:6">
   <h3>About</h3>

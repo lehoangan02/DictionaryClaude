@@ -463,10 +463,16 @@ pub(crate) struct Agent {
     pub(crate) effort: Option<String>,
     /// Claude only: a folder with the photos attached to the message, readable in addition to the working folder.
     pub(crate) extra: Option<PathBuf>,
+    /// Claude only: another person's own sign-in (their token and a config folder of their own), so the run is billed to
+    /// their subscription and never touches the server owner's login. `None` runs as whoever the server is signed in as.
+    pub(crate) login: Option<(String, PathBuf)>,
 }
 
 impl Agent {
     fn pick(&self, c: &mut Command) {
+        if let Some((token, dir)) = &self.login {
+            c.env("CLAUDE_CODE_OAUTH_TOKEN", token).env("CLAUDE_CONFIG_DIR", dir).env_remove("ANTHROPIC_API_KEY").env_remove("ANTHROPIC_AUTH_TOKEN");
+        }
         if let Some(m) = &self.model {
             c.args(["--model", m]);
         }
@@ -510,9 +516,17 @@ impl Agent {
         let mut r = Self::exec(c, Duration::from_secs(3600), live).map_err(|e| anyhow!("{}: {e:#}", self.name))?;
         r.stdout = final_result(&r.stdout);
         if let Some(why) = reported_error(&r.stdout).or_else(|| (!r.ok).then(|| r.stderr.lines().find(|l| !l.trim().is_empty()).unwrap_or("no output").trim().to_string())) {
-            bail!("{} says: {why}", self.name);
+            bail!("{} says: {}", self.name, self.scrub(why));
         }
         Ok(r.stdout)
+    }
+
+    /// Never let a person's token travel into an error message (which ends up in a synced chat).
+    fn scrub(&self, s: String) -> String {
+        match &self.login {
+            Some((t, _)) if !t.is_empty() => s.replace(t.as_str(), "…"),
+            _ => s,
+        }
     }
 
     /// Runs the command; with `live`, each tool use or remark of the agent is passed on as it happens.
@@ -550,9 +564,21 @@ impl Agent {
         // Errors (quota reached, not signed in) come back as JSON on stdout or as text on stderr:
         // say what they say rather than guessing.
         if let Some(why) = reported_error(&r.stdout).or_else(|| (!r.ok).then(|| r.stderr.lines().find(|l| !l.trim().is_empty()).unwrap_or("no output").trim().to_string())) {
-            bail!("{} says: {why}", self.name);
+            bail!("{} says: {}", self.name, self.scrub(why));
         }
         Ok(r.stdout)
+    }
+
+    /// One tiny call to find out whether the person's sign-in is accepted (it costs them a few tokens of their own plan).
+    pub(crate) fn check_login(&self, dir: &Path) -> Result<()> {
+        let mut c = Command::new(&self.bin);
+        c.current_dir(dir).arg("-p").arg("Reply with the single word OK.").args(["--output-format", "json", "--disallowedTools", "Bash", "Read", "Edit", "Write", "WebFetch", "WebSearch"]);
+        self.pick(&mut c);
+        let r = run(c, Duration::from_secs(90)).map_err(|e| anyhow!("{}: {e:#}", self.name))?;
+        match reported_error(&final_result(&r.stdout)).or_else(|| (!r.ok).then(|| r.stderr.lines().find(|l| !l.trim().is_empty()).unwrap_or("no output").trim().to_string())) {
+            Some(why) => bail!("{}", self.scrub(why)),
+            None => Ok(()),
+        }
     }
 }
 
@@ -764,7 +790,7 @@ impl Api {
         for (i, p) in photos.iter().enumerate() {
             std::fs::copy(p, scratch.join(format!("page{}.jpg", i + 1)))?;
         }
-        let claude = Agent { name: "claude", bin: self.env_or("LEXIS_CLAUDE_BIN", "claude"), model: None, effort: None, extra: None };
+        let claude = Agent { name: "claude", bin: self.env_or("LEXIS_CLAUDE_BIN", "claude"), model: None, effort: None, extra: None, login: None };
         self.count_agent_call();
         let prompt = chat_prompt(photos.len(), d["text"].as_str().unwrap_or(""), &chat);
         let out = claude.run_cli(&scratch, &prompt, CHAT_SCHEMA, None, None).and_then(|o| extract_chat(&o).ok_or_else(|| anyhow!("claude replied, but not in the expected form")));
@@ -812,7 +838,7 @@ impl Api {
         let wanted: Vec<Agent> = [("claude", self.env_or("LEXIS_CLAUDE_BIN", "claude")), ("agy", self.env_or("LEXIS_AGY_BIN", "agy"))]
             .into_iter()
             .filter(|(n, _)| mode == "both" || mode == *n)
-            .map(|(name, bin)| Agent { name: if name == "claude" { "claude" } else { "agy" }, bin, model: None, effort: None, extra: None })
+            .map(|(name, bin)| Agent { name: if name == "claude" { "claude" } else { "agy" }, bin, model: None, effort: None, extra: None, login: None })
             .collect();
         // Each round of each agent is one call against the daily allowance.
         let needed = (wanted.len() * if wanted.len() > 1 { 2 } else { 1 }) as i64;
