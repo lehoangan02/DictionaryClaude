@@ -27,11 +27,26 @@
   // Photos attached to the next message (shrunk data URLs) and the thumbnails of sent ones, loaded by name.
   let attached = $state<string[]>([]);
   let thumbs = $state<Record<string, string>>({});
+  async function addPhotos(files: File[]) {
+    try { for (const f of files) if (attached.length < 4) attached.push(await shrink(f)); }
+    catch { error = 'That photo could not be read. Try a JPEG or PNG.'; }
+  }
   async function attach(e: Event) {
     const input = e.target as HTMLInputElement;
-    try { for (const f of Array.from(input.files ?? [])) if (attached.length < 4) attached.push(await shrink(f)); }
-    catch { error = 'That photo could not be read. Try a JPEG or PNG.'; }
+    await addPhotos(Array.from(input.files ?? []));
     input.value = '';
+  }
+  // Dragging images onto the chat attaches them like the paperclip does.
+  let dragging = $state(false);
+  const hasFiles = (e: DragEvent) => !!e.dataTransfer?.types.includes('Files');
+  function dragOver(e: DragEvent) { if (hasFiles(e)) { e.preventDefault(); dragging = true; } }
+  function dragLeave(e: DragEvent) { if (!(e.currentTarget as Node).contains(e.relatedTarget as Node | null)) dragging = false; }
+  async function drop(e: DragEvent) {
+    if (!hasFiles(e)) return;
+    e.preventDefault(); dragging = false;
+    const images = Array.from(e.dataTransfer?.files ?? []).filter((f) => f.type.startsWith('image/'));
+    if (!images.length) error = 'Only images can be dropped into the chat.';
+    else { error = ''; await addPhotos(images); }
   }
   $effect(() => {
     for (const m of msgs) for (const n of m.photos ?? []) {
@@ -201,7 +216,7 @@
 {/each}
 {:else}
 <!-- A real chat screen: its own header, the messages scroll, the message box stays at the bottom above the keyboard. -->
-<div class="pane" style="top:{top}px;height:{Math.max(220, vh - top)}px">
+<div class="pane" class:drag={dragging} role="region" aria-label="Chat" style="top:{top}px;height:{Math.max(220, vh - top)}px" ondragover={dragOver} ondragleave={dragLeave} ondrop={drop}>
   <div class="chead">
     <button class="gbtn" onclick={closeDetail} aria-label="Back to chats"><Icon name="back" size={20} /></button>
     <b class="ct">{chats.find((c) => c.id === cur)?.title || 'New chat'}</b>
@@ -339,6 +354,7 @@
   .idea { margin: 8px 0 2px; padding: 8px 10px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; }
   .idea p { margin: 4px 0 8px; }
   .ok { margin: 10px 0; }
+  .pane.drag { outline: 2px dashed var(--blue); outline-offset: -4px; background: var(--blue-soft); }
   .pick { display: flex; gap: 8px; padding: 8px 12px 6px; background: var(--surface); border-top: 1px solid var(--line); }
   .pick select { flex: 1; min-width: 0; height: 36px; font-size: 14px; padding: 0 8px; }
   .th { display: block; max-width: 160px; max-height: 120px; border-radius: 8px; margin-bottom: 4px; }
