@@ -39,6 +39,9 @@ pub(crate) struct Source {
 }
 
 /// Known pack files in display order.
+/// The `source` of a History row made in the Thesaurus tab; the Dictionary History never lists these.
+const THESAURUS_SOURCE: &str = "thesaurus";
+
 const SOURCES: &[(&str, &str, &str)] = &[
     ("wiktionary", "Wiktionary", "wiktionary.pack"),
     ("wordnet", "WordNet", "wordnet.pack"),
@@ -154,7 +157,7 @@ impl Api {
     pub fn call(&self, cmd: &str, args: Value) -> Result<Value> {
         let out = self.dispatch(cmd, args);
         // Anything that writes synced data nudges the background sync.
-        if out.is_ok() && matches!(cmd, "draft_agents" | "draft_chat" | "talk_new" | "talk_send" | "talk_idea" | "talk_delete" | "talk_finish" | "talk_retry" | "talk_stop" | "talk_next" | "talk_queue_edit" | "talk_queue_remove" | "draft_reread" | "draft_create" | "draft_update" | "draft_accept" | "draft_reject" | "entry" | "history_star" | "history_delete" | "history_clear" | "note_save" | "note_delete" | "quiz_start" | "quiz_answer" | "session_delete") {
+        if out.is_ok() && matches!(cmd, "draft_agents" | "draft_chat" | "talk_new" | "talk_send" | "talk_idea" | "talk_delete" | "talk_finish" | "talk_retry" | "talk_stop" | "talk_next" | "talk_queue_edit" | "talk_queue_remove" | "draft_reread" | "draft_create" | "draft_update" | "draft_accept" | "draft_reject" | "entry" | "thesaurus" | "history_star" | "history_delete" | "history_clear" | "note_save" | "note_delete" | "quiz_start" | "quiz_answer" | "session_delete") {
             self.dirty.store(true, std::sync::atomic::Ordering::SeqCst);
         }
         out
@@ -232,13 +235,22 @@ impl Api {
             "audio_get" => self.audio_get(&req("url")?),
             "audio_oald" => Ok(json!({"url": self.oald_recording(&req("word")?, &a("accent").unwrap_or_default())})),
             "audio_prefetch" => self.audio_prefetch(n("limit", 20) as usize),
-            "thesaurus" => Ok(self.thesaurus(&lemma::key(&req("word")?))?),
-            "history_list" => self.history_list(a("q").as_deref(), n("limit", 100), n("offset", 0), args.get("starred").and_then(Value::as_bool).unwrap_or(false)),
+            "thesaurus" => {
+                let word = req("word")?;
+                let key = lemma::key(&word);
+                let out = self.thesaurus(&key)?;
+                // Searching a word in the Thesaurus tab is a visit of the Thesaurus history, apart from the Dictionary's.
+                if args.get("record").and_then(Value::as_bool).unwrap_or(false) && !key.is_empty() {
+                    self.record_lookup(&key, word.trim(), THESAURUS_SOURCE)?;
+                }
+                Ok(out)
+            }
+            "history_list" => self.history_list(a("q").as_deref(), n("limit", 100), n("offset", 0), args.get("starred").and_then(Value::as_bool).unwrap_or(false), a("scope").as_deref() == Some("thesaurus")),
             // Changes whenever any History row changes, here or through sync: the UI polls it to stay in step without a manual sync.
             "history_version" => Ok(json!({"v": self.db.lock().unwrap().query_row("SELECT COALESCE(MAX(seq),0) FROM sync_seq WHERE tbl='lookups'", [], |r| r.get::<_, i64>(0))?})),
             "history_star" => self.exec("UPDATE lookups SET starred=?2, updated=?3 WHERE id=?1", params![req("id")?, n("starred", 1), now_ms()]),
             "history_delete" => self.exec("UPDATE lookups SET deleted=1, updated=?2 WHERE id=?1", params![req("id")?, now_ms()]),
-            "history_clear" => self.exec("UPDATE lookups SET deleted=1, updated=?1 WHERE starred=0 AND deleted=0", params![now_ms()]),
+            "history_clear" => self.exec("UPDATE lookups SET deleted=1, updated=?1 WHERE starred=0 AND deleted=0 AND (source = ?2) = ?3", params![now_ms(), THESAURUS_SOURCE, a("scope").as_deref() == Some("thesaurus")]),
             "notes_list" => self.notes_list(),
             "note_save" => self.note_save(a("id"), &req("body")?, a("session_date").unwrap_or_default(), a("tags").unwrap_or_default()),
             "note_delete" => {
@@ -481,7 +493,7 @@ impl Api {
         let db = self.db.lock().unwrap();
         // Looking the same word up again within a minute is one history item.
         let recent: Option<String> = db
-            .query_row("SELECT id FROM lookups WHERE key=?1 AND ts > ?2 AND deleted=0 ORDER BY ts DESC LIMIT 1", params![key, now_ms() - 60_000], |r| r.get(0))
+            .query_row("SELECT id FROM lookups WHERE key=?1 AND ts > ?2 AND deleted=0 AND (source = ?3) = (?4 = ?3) ORDER BY ts DESC LIMIT 1", params![key, now_ms() - 60_000, THESAURUS_SOURCE, source], |r| r.get(0))
             .ok();
         match recent {
             Some(id) => db.execute("UPDATE lookups SET ts=?2, updated=?2, source=?3 WHERE id=?1", params![id, now_ms(), source])?,
@@ -495,17 +507,18 @@ impl Api {
 
     // ---- history ------------------------------------------------------------
 
-    fn history_list(&self, q: Option<&str>, limit: i64, offset: i64, starred: bool) -> Result<Value> {
+    /// `thesaurus`: the Thesaurus tab's own history instead of the Dictionary's.
+    fn history_list(&self, q: Option<&str>, limit: i64, offset: i64, starred: bool, thesaurus: bool) -> Result<Value> {
         let db = self.db.lock().unwrap();
         // Any part of the spelling matches (prefix, middle or ending), not only the start.
         let part = q.map(lemma::key).unwrap_or_default().replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_");
         let pat = format!("%{part}%");
         let mut stmt = db.prepare(
             "SELECT id,ts,key,word,source,starred FROM lookups
-             WHERE key LIKE ?1 ESCAPE '\\' AND deleted=0 AND (?2 = 0 OR starred = 1) ORDER BY ts DESC LIMIT ?3 OFFSET ?4",
+             WHERE key LIKE ?1 ESCAPE '\\' AND deleted=0 AND (?2 = 0 OR starred = 1) AND (source = ?5) = ?6 ORDER BY ts DESC LIMIT ?3 OFFSET ?4",
         )?;
         let rows = stmt
-            .query_map(params![pat, starred as i64, limit, offset], |r| {
+            .query_map(params![pat, starred as i64, limit, offset, THESAURUS_SOURCE, thesaurus], |r| {
                 Ok(json!({"id": r.get::<_, String>(0)?, "ts": r.get::<_, i64>(1)?, "key": r.get::<_, String>(2)?,
                           "word": r.get::<_, String>(3)?, "source": r.get::<_, String>(4)?, "starred": r.get::<_, i64>(5)? != 0}))
             })?

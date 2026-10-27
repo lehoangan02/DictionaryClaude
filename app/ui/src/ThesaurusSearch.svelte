@@ -4,6 +4,7 @@
   import { app, open } from './lib/store.svelte';
   import Icon from './Icon.svelte';
   import Thesaurus from './Thesaurus.svelte';
+  import ThesaurusHistory from './ThesaurusHistory.svelte';
   import { drop } from './lib/motion';
 
   type S = { word: string; key: string; barrons: boolean };
@@ -14,6 +15,7 @@
   let idx = $state(-1);
   let focused = $state(false);
   let error = $state('');
+  let visits = $state(0); // bumped after each search so the history list re-reads
   let timer: ReturnType<typeof setTimeout>;
   let seq = 0;
 
@@ -37,8 +39,8 @@
     q = w; sugg = []; focused = false; idx = -1;
     (document.activeElement as HTMLElement | null)?.blur();
     try {
-      data = await call('thesaurus', { word: w });
-      word = w; error = '';
+      data = await call('thesaurus', { word: w, record: true });
+      word = w; error = ''; visits++;
     } catch (e) { error = (e as Error).message; }
   }
 
@@ -84,9 +86,11 @@
 
 {#if error}<p class="err">{error}</p>{/if}
 {#if data}
-  <Thesaurus {data} {word} alone pick={go} />
+  <Thesaurus {data} {word} alone pick={go} lookup={open} />
   <p><button class="btn small ghost" onclick={() => open(word)}>Open “{word}” in the dictionary</button></p>
 {/if}
+
+<ThesaurusHistory pick={go} seen={visits} />
 
 <style>
   .sb { position: relative; margin: 14px 0 4px; }
