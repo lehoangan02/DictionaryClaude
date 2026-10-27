@@ -401,8 +401,10 @@ if [ "$CLAUDE_CODE_OAUTH_TOKEN" = sk-ant-oat01-goodgoodgoodgood ]; then echo '{{
     #[test]
     fn a_guest_signs_in_by_a_link_and_a_pasted_code() {
         let _g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
-        if Command::new("script").arg("--version").output().is_err() {
-            return; // util-linux `script` is how the CLI gets the terminal it insists on
+        // util-linux `script` is how the CLI gets the terminal it insists on; macOS's BSD `script` has other options.
+        let util_linux = Command::new("script").arg("--version").output().is_ok_and(|o| o.status.success() && String::from_utf8_lossy(&o.stdout).contains("util-linux"));
+        if !util_linux {
+            return;
         }
         let api = Api::open_guest(&tmp("linkdata")).unwrap();
         let bins = tmp("linkbins");
