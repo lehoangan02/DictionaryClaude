@@ -96,7 +96,7 @@ fn is_queued(m: &Value) -> bool {
     m["queued"] == true
 }
 
-fn prompt(msgs: &[Value]) -> String {
+fn prompt(msgs: &[Value], guest: bool) -> String {
     let sent: Vec<&Value> = msgs.iter().filter(|m| !is_queued(m)).collect();
     let talk: String = sent
         .iter()
@@ -106,6 +106,16 @@ fn prompt(msgs: &[Value]) -> String {
         .filter_map(|m| Some(format!("{}: {}", if m["role"] == "user" { "OWNER" } else { "YOU" }, m["text"].as_str()?)))
         .collect::<Vec<_>>()
         .join("\n");
+    if guest {
+        return format!(
+            "You are the assistant inside LadyBird, an offline GRE dictionary app, chatting with a student who signed in with their own Claude account. \
+             Help with English vocabulary, the GRE and general questions. You have no access to any files or to the app's code: say so if asked. \
+             Answer the last message briefly and plainly. Give no `idea`. \
+             The conversation so far:\n{talk}\n\
+             {LANGUAGE}\n\
+             Reply with JSON only: {{\"reply\":string}}"
+        );
+    }
     format!(
         "You are the assistant inside LadyBird, the owner's offline GRE dictionary app. You are in a chat with the owner, who uses the app on a phone. \
          The app's source is the current folder (read it with the Read tool; docs/ROADMAP.md lists known issues and plans, CLAUDE.md the rules). \
@@ -299,6 +309,8 @@ impl Api {
         if !matches!(mode, "ask" | "work") {
             bail!("mode must be ask or work");
         }
+        // A guest has no work chats: their chats are plain questions to their own Claude.
+        let mode = if self.is_guest_device() { "ask" } else { mode };
         let id = new_id();
         let t = now_ms();
         self.db.lock().unwrap().execute("INSERT INTO talks(id,created,updated,mode) VALUES(?1,?2,?2,?3)", params![id, t, mode])?;
@@ -347,7 +359,8 @@ impl Api {
             self.db.lock().unwrap().execute("UPDATE talks SET title=?2 WHERE id=?1", params![id, t])?;
         }
         // Typing "release it" is the owner's own trigger for a release: no agent call is needed.
-        if let Some(how) = release_request(message).filter(|_| self.talk_meta(id).is_ok_and(|(_, branch, _)| branch.is_empty())) {
+        // Only the owner's devices: a guest cannot release the app.
+        if let Some(how) = release_request(message).filter(|_| self.talk_meta(id).is_ok_and(|(_, branch, _)| branch.is_empty()) && !self.is_guest_device()) {
             self.talk_save(id, how, &msgs)?;
             return self.talk_get(id);
         }
@@ -387,6 +400,9 @@ impl Api {
     pub(crate) fn talk_finish(&self, id: &str, how: &str) -> Result<Value> {
         if !matches!(how, "merge" | "discard" | "release_patch" | "release_minor") {
             bail!("how must be merge, discard, release_patch or release_minor");
+        }
+        if self.is_guest_device() {
+            bail!("only the owner can merge or release; enter the owner password in Settings if this is your device");
         }
         let (_, state, mut msgs) = self.talk_load(id)?;
         let (_, branch, _) = self.talk_meta(id)?;
@@ -498,7 +514,9 @@ impl Api {
 
     fn talks_waiting(&self) -> Result<Vec<String>> {
         let db = self.db.lock().unwrap();
-        let mut st = db.prepare("SELECT id FROM talks WHERE state IN ('asked','merge','discard','release_patch','release_minor') AND deleted=0 ORDER BY updated")?;
+        // A guest's store answers questions only, whatever state a device claims to have put a chat in.
+        let states = if self.guest { "'asked'" } else { "'asked','merge','discard','release_patch','release_minor'" };
+        let mut st = db.prepare(&format!("SELECT id FROM talks WHERE state IN ({states}) AND deleted=0 ORDER BY updated"))?;
         let rows = st.query_map([], |r| r.get(0))?.collect::<std::result::Result<Vec<String>, _>>()?;
         Ok(rows)
     }
@@ -530,8 +548,10 @@ impl Api {
     /// Starts every waiting chat on its own thread, so a slow answer in one chat never holds up the others.
     /// A chat already being served is left alone; the runner calls this every few seconds.
     pub fn spawn_talks(self: &Arc<Self>) {
-        self.sample_load();
-        self.restart_if_idle();
+        if !self.guest {
+            self.sample_load();
+            self.restart_if_idle();
+        }
         for id in self.talks_waiting().unwrap_or_default() {
             {
                 let mut busy = IN_FLIGHT.lock().unwrap_or_else(|e| e.into_inner());
@@ -846,7 +866,14 @@ impl Api {
             self.talk_save(id, "", msgs)?;
             Ok(false)
         };
-        let (dir, scratch) = match self.repo_dir() {
+        // A guest is answered on their own Claude sign-in, in an empty folder: a general assistant that sees none of the
+        // app's source (with the owner's private files beside it) and cannot do work. Without a sign-in they get no answer
+        // (never the server owner's subscription).
+        let login = self.login_for();
+        if self.guest && login.is_none() {
+            return fail(&mut msgs, "Sign in with your Claude account first: open Settings → Claude account.".into());
+        }
+        let (dir, scratch) = match self.repo_dir().filter(|_| !self.guest) {
             Some(d) => (d, false),
             None => {
                 let d = self.data_dir.join("jobs").join("talk");
@@ -856,14 +883,14 @@ impl Api {
         };
         let (model, effort) = last_pick(&msgs);
         let (attach_dir, note) = self.attach_photos(id, &msgs);
-        let claude = Agent { name: "claude", bin: self.env_or("LEXIS_CLAUDE_BIN", "claude"), model, effort, extra: attach_dir.clone() };
+        let claude = Agent { name: "claude", bin: self.env_or("LEXIS_CLAUDE_BIN", "claude"), model, effort, extra: attach_dir.clone(), login: login.clone() };
         let done = |r: Result<bool>| {
             if let Some(d) = &attach_dir {
                 let _ = std::fs::remove_dir_all(d);
             }
             r
         };
-        if self.talk_meta(id)?.0 == "work" {
+        if !self.guest && self.talk_meta(id)?.0 == "work" {
             if self.agent_used_today() + 1 > self.agent_cap() {
                 let why = format!("the daily agent allowance ({}) is used up; raise it in Settings or try tomorrow", self.agent_cap());
                 if let Some(d) = &attach_dir {
@@ -873,7 +900,7 @@ impl Api {
             }
             return done(self.job_work(id, &mut msgs, &claude, &note));
         }
-        let mut p = prompt(&msgs) + &note;
+        let mut p = prompt(&msgs, self.guest) + &note;
         if scratch {
             p.push_str("\nThe source is NOT available on this server: say so if asked about code, and answer from general knowledge.");
         }
@@ -903,7 +930,7 @@ impl Api {
                 self.talk_save(id, "", &msgs)?;
                 Ok(true)
             }
-            Err(e) => fail(&mut msgs, format!("{e:#}")),
+            Err(e) => fail(&mut msgs, Api::login_hint(&format!("{e:#}"), self.guest)),
         }
     }
 }

@@ -376,3 +376,111 @@ fn a_device_lists_the_others_and_removes_one_but_never_itself() {
     assert!(phone.call("sync_now", json!({})).is_err() || phone.call("server_status", json!({"probe": true})).unwrap()["online"] != true, "the removed device is locked out");
     assert_eq!(mac.call("devices_list", json!({})).unwrap()["devices"].as_array().unwrap().len(), 1);
 }
+
+fn guest_code(s: &Server, name: &str) -> String {
+    Pairing { v: 1, name: name.into(), lan: Some(format!("127.0.0.1:{}", s.lan)), wan: Some(format!("127.0.0.1:{}", s.wan)), token: s.tokens.issue_as(name, false).unwrap(), cert: s.cert.clone() }.encode()
+}
+
+fn headless(name: &str) -> Api {
+    Api::open_headless(&tmp(name)).unwrap()
+}
+
+#[test]
+fn the_owner_password_makes_a_device_the_owners_and_guests_see_none_of_the_owners_data() {
+    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    std::env::set_var("LEXIS_WIFI", "Anan");
+    let s = start();
+    let (mac, visitor, other) = (headless("pw-mac"), headless("pw-visitor"), headless("pw-other"));
+    mac.call("sync_pair", json!({"code": code(&s, "mac", Some(s.lan), Some(s.wan))})).unwrap();
+    visitor.call("sync_pair", json!({"code": guest_code(&s, "visitor")})).unwrap();
+    other.call("sync_pair", json!({"code": guest_code(&s, "other")})).unwrap();
+
+    // Devices paired before roles existed (or by the owner on the server) are the owner's; a joiner is a guest.
+    assert_eq!(mac.call("owner_status", json!({})).unwrap()["role"], "owner");
+    let me = visitor.call("owner_status", json!({})).unwrap();
+    assert_eq!((me["role"].as_str(), me["password_set"].as_bool()), (Some("guest"), Some(false)));
+
+    // The owner's notes reach the server's store; the guest's own notes stay apart from them.
+    mac.call("note_save", json!({"body": "abate = lessen"})).unwrap();
+    mac.call("sync_now", json!({})).unwrap();
+    visitor.call("note_save", json!({"body": "zeal = passion"})).unwrap();
+    visitor.call("sync_now", json!({})).unwrap();
+    other.call("sync_now", json!({})).unwrap();
+    mac.call("sync_now", json!({})).unwrap();
+    assert_eq!(bodies(&visitor), vec!["zeal = passion"], "a guest never receives the owner's notes");
+    assert!(bodies(&other).is_empty());
+    assert_eq!(bodies(&mac), vec!["abate = lessen"], "and the owner never receives a guest's");
+    assert_eq!(bodies(&s.api), vec!["abate = lessen"], "the server's own store holds only the owner's");
+
+    // A guest has no say over the owner's devices, password or book, and sees only itself.
+    assert!(visitor.call("device_revoke", json!({"name": "mac"})).is_err());
+    assert!(visitor.call("owner_set", json!({"password": "correct horse"})).is_err());
+    let l = visitor.call("devices_list", json!({})).unwrap();
+    assert_eq!(l["devices"].as_array().unwrap().len(), 1);
+    assert!(mac.call("claude_login_status", json!({})).is_err(), "the owner's devices use the server's own Claude");
+    assert_eq!(visitor.call("claude_login_status", json!({})).unwrap()["signed_in"], false);
+    // The guest's private store lives apart from the owner's data.
+    assert!(s.dir.join("guests").read_dir().unwrap().count() >= 1);
+
+    // No password yet: nobody can claim to be the owner. The owner sets one from their own device.
+    assert!(visitor.call("owner_login", json!({"password": "anything at all"})).is_err());
+    assert!(mac.call("owner_set", json!({"password": "short"})).is_err());
+    mac.call("owner_set", json!({"password": "correct horse"})).unwrap();
+    assert_eq!(visitor.call("owner_status", json!({})).unwrap()["password_set"], true);
+    let wrong = visitor.call("owner_login", json!({"password": "wrong horse"})).unwrap_err().to_string();
+    assert!(wrong.contains("not the owner password"), "{wrong}");
+    assert!(!s.tokens.is_owner("visitor"));
+
+    // The right password is entered once; the device is then the owner's and receives the owner's notes.
+    assert_eq!(visitor.call("owner_login", json!({"password": "correct horse"})).unwrap()["role"], "owner");
+    assert!(s.tokens.is_owner("visitor"));
+    visitor.call("sync_now", json!({})).unwrap();
+    assert_eq!(bodies(&visitor), vec!["abate = lessen", "zeal = passion"]);
+    assert_eq!(mac.call("devices_list", json!({})).unwrap()["devices"].as_array().unwrap().len(), 3);
+
+    // Changing the password asks the other devices for the new one; the guest "other" is unaffected.
+    assert!(mac.call("owner_set", json!({"password": "new correct horse", "old": "nope nope"})).is_err());
+    mac.call("owner_set", json!({"password": "new correct horse", "old": "correct horse"})).unwrap();
+    assert!(s.tokens.is_owner("mac") && !s.tokens.is_owner("visitor"));
+    assert_eq!(visitor.call("owner_status", json!({})).unwrap()["role"], "guest");
+    assert!(visitor.call("owner_login", json!({"password": "correct horse"})).is_err(), "the old password no longer works");
+
+    // Guessing is throttled across all devices.
+    let mut last = String::new();
+    for _ in 0..10 {
+        last = other.call("owner_login", json!({"password": "guess"})).unwrap_err().to_string();
+    }
+    assert!(last.contains("too many"), "{last}");
+    assert!(visitor.call("owner_login", json!({"password": "new correct horse"})).is_err(), "even the right one waits");
+
+    // Removing a guest deletes its private store.
+    let before = s.dir.join("guests").read_dir().unwrap().count();
+    mac.call("device_revoke", json!({"name": "other"})).unwrap();
+    assert_eq!(s.dir.join("guests").read_dir().unwrap().count(), before - 1);
+}
+
+#[test]
+fn guests_are_not_offered_oxfords_dictionary() {
+    let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    let dir = tmp("guestpacks");
+    let packs = dir.join("packs");
+    std::fs::create_dir_all(&packs).unwrap();
+    for f in ["wordnet.pack", "oald.pack", "oald-audio.pack"] {
+        std::fs::write(packs.join(f), b"SQLite format 3\0 pretend").unwrap();
+    }
+    let tls = ensure_tls(&dir.join("tls"), &["127.0.0.1".into(), "localhost".into()]).unwrap();
+    let (lan, wan) = (free_port(), free_port());
+    let api = Arc::new(Api::open_headless_serving(&dir, &packs).unwrap());
+    serve(api, Arc::new(Tokens::new(&dir)), dir.join("private"), &tls, &[format!("127.0.0.1:{lan}"), format!("127.0.0.1:{wan}")]).unwrap();
+    let s = Server { api: Arc::new(Api::open_headless(&dir.join("x")).unwrap()), lan, wan, dir: dir.clone(), tokens: Tokens::new(&dir), cert: tls.cert_pem };
+    let (owner, guest) = (headless("gp-owner"), headless("gp-guest"));
+    owner.call("sync_pair", json!({"code": code(&s, "owner", Some(lan), Some(wan))})).unwrap();
+    guest.call("sync_pair", json!({"code": guest_code(&s, "guest")})).unwrap();
+    let on_server = |a: &Api, id: &str| a.call("packs_catalog", json!({})).unwrap()["packs"].as_array().unwrap().iter().find(|p| p["id"] == id).unwrap()["on_server"].clone();
+    assert_eq!(on_server(&owner, "oald"), true);
+    assert_eq!(on_server(&owner, "wordnet"), true);
+    assert_eq!(on_server(&guest, "wordnet"), true);
+    assert_eq!(on_server(&guest, "oald"), false);
+    assert_eq!(on_server(&guest, "oald-audio"), false);
+    assert!(guest.call("pack_install", json!({"id": "oald"})).is_err());
+}

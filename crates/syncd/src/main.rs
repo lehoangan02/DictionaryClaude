@@ -47,13 +47,18 @@ enum Cmd {
     /// Create a device token and print its pairing code.
     Pair {
         name: String,
+        /// A guest device: it sees none of the owner's data (the default is an owner device).
+        #[arg(long)]
+        guest: bool,
         #[arg(long, default_value = "192.168.1.7:25")]
         lan: String,
         #[arg(long, default_value = "lhan.duckdns.org:5025")]
         wan: String,
     },
-    /// List paired devices.
+    /// List paired devices and their roles.
     Devices,
+    /// Set the owner password (read from the first line of standard input); other devices become guests until they enter it.
+    Password,
     /// Revoke a device.
     Revoke { name: String },
 }
@@ -100,16 +105,25 @@ fn main() -> Result<()> {
                 let _ = h.join();
             }
         }
-        Cmd::Pair { name, lan, wan } => {
+        Cmd::Pair { name, guest, lan, wan } => {
             let tls = ensure_tls(&cli.data.join("tls"), &cli.sans)?;
-            let token = tokens.issue(&name)?;
+            let token = tokens.issue_as(&name, !guest)?;
             let p = Pairing { v: 1, name, lan: Some(lan), wan: Some(wan), token, cert: tls.cert_pem };
             println!("{}", p.encode());
         }
         Cmd::Devices => {
             for t in tokens.list() {
-                println!("{}", t.name);
+                println!("{}\t{}", t.name, if t.owner { "owner" } else { "guest" });
             }
+        }
+        Cmd::Password => {
+            let mut line = String::new();
+            std::io::stdin().read_line(&mut line)?;
+            let pw = line.trim_end_matches(['\r', '\n']);
+            anyhow::ensure!(pw.chars().count() >= 6, "the password needs at least 6 characters");
+            tokens.set_password(pw)?;
+            tokens.demote_others("")?;
+            println!("owner password set; every device is a guest until it enters it in Settings");
         }
         Cmd::Revoke { name } => println!("{}", if tokens.revoke(&name)? { "revoked" } else { "no such device" }),
     }

@@ -31,9 +31,13 @@ One code per device, created with:
 
 ```bash
 /usr/local/bin/gredict-syncd --data /var/lib/lexis-syncd pair <name>    # prints a code starting `lexis1:`
-/usr/local/bin/gredict-syncd --data /var/lib/lexis-syncd devices        # list paired devices
+/usr/local/bin/gredict-syncd --data /var/lib/lexis-syncd devices        # list paired devices and whether each is an owner or a guest device
 /usr/local/bin/gredict-syncd --data /var/lib/lexis-syncd revoke <name>  # lock a lost device out
+/usr/local/bin/gredict-syncd --data /var/lib/lexis-syncd pair --guest <name>  # a code for someone else: a guest device, none of your data
+echo 'a password' | /usr/local/bin/gredict-syncd --data /var/lib/lexis-syncd password  # (re)set the owner password; every device must then enter it once
 ```
+
+`pair` makes an **owner** device. A device that joins by itself on the home Wi-Fi is a **guest** until its owner enters the owner password in Settings → Owner password (set it first from a device that is already yours). A guest syncs only its own chats into a private store (`/var/lib/lexis-syncd/guests/`) and signs in to its own Claude account in Settings.
 
 Codes for `mac`, `phone` and `ubuntu` were created in `~/lexis-pairing/` (private to your user). **A code is a secret**: anyone holding it can read and change your synced notes. Do not post it or commit it; re-pairing a name replaces its old code. Paste a code into **Settings → Sync server → Pairing code** on that device.
 

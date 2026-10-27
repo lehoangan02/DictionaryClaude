@@ -17,6 +17,10 @@ use crate::api::Api;
 /// Parents before children so a batch applies cleanly.
 pub const TABLES: [&str; 6] = ["notes", "lookups", "sessions", "attempts", "drafts", "talks"];
 
+/// What a guest's private store on the server keeps: their chats (the server answers them), nothing else. Their notes,
+/// history and quizzes stay on their own device.
+const GUEST_TABLES: [&str; 1] = ["talks"];
+
 fn columns(db: &Connection, table: &str) -> Result<Vec<String>> {
     let mut st = db.prepare(&format!("PRAGMA table_info({table})"))?;
     let cols = st.query_map([], |r| r.get::<_, String>(1))?.collect::<std::result::Result<_, _>>()?;
@@ -44,6 +48,10 @@ fn to_sql(v: &Value) -> Sql {
 }
 
 impl Api {
+    fn tables(&self) -> &'static [&'static str] {
+        if self.guest { &GUEST_TABLES } else { &TABLES }
+    }
+
     fn rows_where(&self, db: &Connection, table: &str, clause: &str, p: impl rusqlite::Params) -> Result<Vec<Value>> {
         let cols = columns(db, table)?;
         let mut st = db.prepare(&format!("SELECT {} FROM {table} {clause}", cols.join(",")))?;
@@ -65,7 +73,7 @@ impl Api {
         let db = self.db.lock().unwrap();
         let mut out = Map::new();
         let mut budget = limit;
-        for t in TABLES {
+        for &t in self.tables() {
             let rows = self.rows_where(&db, t, "WHERE updated >= ?1 ORDER BY updated LIMIT ?2", params![since, budget as i64])?;
             budget = budget.saturating_sub(rows.len());
             out.insert(t.to_string(), Value::Array(rows));
@@ -82,9 +90,9 @@ impl Api {
             .collect::<std::result::Result<_, _>>()?;
         let more = keys.len() > limit;
         let keys = &keys[..keys.len().min(limit)];
-        let mut out: Map<String, Value> = TABLES.iter().map(|t| (t.to_string(), json!([]))).collect();
+        let mut out: Map<String, Value> = self.tables().iter().map(|t| (t.to_string(), json!([]))).collect();
         for (t, id, _) in keys {
-            if !TABLES.contains(&t.as_str()) {
+            if !self.tables().contains(&t.as_str()) {
                 continue;
             }
             for row in self.rows_where(&db, t, "WHERE id = ?1", params![id])? {
@@ -106,7 +114,7 @@ impl Api {
             // Rows may arrive before their parents in a later batch.
             db.pragma_update(None, "foreign_keys", false)?;
             let tx = db.transaction()?;
-            for t in TABLES {
+            for &t in self.tables() {
                 let Some(rows) = obj.get(t).and_then(Value::as_array) else { continue };
                 let cols = columns(&tx, t)?;
                 let mut n = 0;
