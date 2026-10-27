@@ -120,7 +120,7 @@ fn main() -> Result<()> {
             let mut line = String::new();
             std::io::stdin().read_line(&mut line)?;
             let pw = line.trim_end_matches(['\r', '\n']);
-            anyhow::ensure!(pw.chars().count() >= 8, "the password needs at least 8 characters");
+            anyhow::ensure!(pw.chars().count() >= 6, "the password needs at least 6 characters");
             tokens.set_password(pw)?;
             tokens.demote_others("")?;
             println!("owner password set; every device is a guest until it enters it in Settings");

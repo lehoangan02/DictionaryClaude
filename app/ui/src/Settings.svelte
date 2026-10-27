@@ -236,7 +236,7 @@
           : 'A new device of yours asks for this password once, in Settings, to be recognised as yours. Until you set one, a new device stays a guest.'}</p>
         {#if who.password_set}<label class="f">Current password
           <input type="password" bind:value={pwOld} autocomplete="current-password" /></label>{/if}
-        <label class="f">{who.password_set ? 'New password' : 'Password'} (at least 8 characters)
+        <label class="f">{who.password_set ? 'New password' : 'Password'} (at least 6 characters)
           <input type="password" bind:value={pw} autocomplete="new-password" /></label>
         <button class="btn" disabled={pwBusy || pw.length < 8 || (who.password_set && !pwOld)} onclick={savePassword}>{who.password_set ? 'Change password' : 'Set password'}</button>
       </details>

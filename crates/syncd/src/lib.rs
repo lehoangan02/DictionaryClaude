@@ -484,8 +484,8 @@ pub fn handle(api: &Api, tokens: &Tokens, private: &Path, enrolling: Option<&Enr
                 return owners_only(req);
             }
             let (new, old) = (text("password"), text("old"));
-            if new.chars().count() < 8 || new.len() > 200 {
-                return reply(req, 400, json!({"error": "choose a password of at least 8 characters"}));
+            if new.chars().count() < 6 || new.len() > 200 {
+                return reply(req, 400, json!({"error": "choose a password of at least 6 characters"}));
             }
             let had = tokens.password_set();
             let allowed = if had { tokens.check_password(&old) } else { Ok(true) };
