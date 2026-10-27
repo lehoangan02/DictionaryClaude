@@ -65,6 +65,8 @@ pub struct Api {
     pub(crate) private_dir: Option<PathBuf>,
     pub(crate) db: Mutex<Connection>,
     pub(crate) device: String,
+    /// The server's private store for one guest (see login.rs): chats only, answered on the guest's own Claude login.
+    pub(crate) guest: bool,
     pub(crate) rng: Mutex<u64>,
     pub(crate) data_dir: PathBuf,
     /// Device-local cache of Merriam-Webster lookups (never synced).
@@ -99,7 +101,14 @@ impl Api {
         let db = userdb::open(&data_dir.join("user.sqlite"))?;
         let device = Self::device_id(&db)?;
         let fuzzy_paths = [data_dir.join("none.fst"), data_dir.join("none.fst")];
-        Ok(Api { sources: Vec::new(), packs_dir: packs_dir.to_path_buf(), pack_progress: Default::default(), reload: Default::default(), moby: None, barrons: RwLock::new(None), private_dir: None, db: Mutex::new(db), device, rng: Mutex::new(now_ms() as u64 | 1), data_dir: data_dir.to_path_buf(), cache: Mutex::new(open_cache(data_dir)?), pron: None, dirty: Default::default(), fuzzy: OnceLock::new(), ai: OnceLock::new(), fuzzy_paths, barrons_syn: RwLock::new(None) })
+        Ok(Api { sources: Vec::new(), packs_dir: packs_dir.to_path_buf(), pack_progress: Default::default(), reload: Default::default(), moby: None, barrons: RwLock::new(None), private_dir: None, db: Mutex::new(db), device, guest: false, rng: Mutex::new(now_ms() as u64 | 1), data_dir: data_dir.to_path_buf(), cache: Mutex::new(open_cache(data_dir)?), pron: None, dirty: Default::default(), fuzzy: OnceLock::new(), ai: OnceLock::new(), fuzzy_paths, barrons_syn: RwLock::new(None) })
+    }
+
+    /// A guest's own store on the sync server: no dictionaries and none of the owner's data.
+    pub fn open_guest(data_dir: &std::path::Path) -> Result<Self> {
+        let mut api = Self::open_headless(data_dir)?;
+        api.guest = true;
+        Ok(api)
     }
 
     fn device_id(db: &Connection) -> Result<String> {
@@ -139,7 +148,7 @@ impl Api {
             p.exists().then(|| Pronunciations::open(&p)).transpose()?.map(Mutex::new)
         };
         let fuzzy_paths = [find("wiktionary.fst"), cfg.data_dir.join("wiktionary.fst")];
-        Ok(Api { sources, packs_dir: cfg.packs_dir.clone(), pack_progress: Default::default(), reload: Default::default(), moby, barrons: RwLock::new(barrons), private_dir: cfg.private_dir, db: Mutex::new(db), device, rng: Mutex::new(now_ms() as u64 | 1), data_dir: cfg.data_dir.clone(), cache: Mutex::new(open_cache(&cfg.data_dir)?), pron, dirty: Default::default(), fuzzy: OnceLock::new(), ai: OnceLock::new(), fuzzy_paths, barrons_syn: RwLock::new(None) })
+        Ok(Api { sources, packs_dir: cfg.packs_dir.clone(), pack_progress: Default::default(), reload: Default::default(), moby, barrons: RwLock::new(barrons), private_dir: cfg.private_dir, db: Mutex::new(db), device, guest: false, rng: Mutex::new(now_ms() as u64 | 1), data_dir: cfg.data_dir.clone(), cache: Mutex::new(open_cache(&cfg.data_dir)?), pron, dirty: Default::default(), fuzzy: OnceLock::new(), ai: OnceLock::new(), fuzzy_paths, barrons_syn: RwLock::new(None) })
     }
 
     pub fn call(&self, cmd: &str, args: Value) -> Result<Value> {
@@ -261,14 +270,21 @@ impl Api {
             "sync_pair" => self.sync_pair(&req("code")?),
             "devices_list" => self.server_post("/v1/devices", json!({})),
             "device_revoke" => self.server_post("/v1/device/revoke", json!({"name": req("name")?})),
-            // This device's own Claude login, kept on the server (see login.rs); the token is only ever sent, never read back.
+            // Who this device is on the server (owner or guest) and, for a guest, its own Claude sign-in (see login.rs).
+            "owner_status" => self.owner_status(),
+            "owner_login" => self.owner_login(&req("password")?),
+            "owner_set" => self.owner_set(&req("password")?, &a("old").unwrap_or_default()),
             "claude_login_status" => self.server_post("/v1/claude/status", json!({})),
             "claude_login_set" => self.server_post("/v1/claude/set", json!({"token": req("token")?})),
             "claude_login_clear" => self.server_post("/v1/claude/clear", json!({})),
-            // The same, on the server, for the device that called (never reachable from a device's own interface).
-            "claude_login_get" => self.claude_login_get(&req("device")?),
-            "claude_login_put" => self.claude_login_put(&req("device")?, &req("token")?),
-            "claude_login_drop" => self.claude_login_drop(&req("device")?),
+            "claude_link_start" => self.server_post("/v1/claude/link", json!({})),
+            "claude_link_finish" => self.server_post("/v1/claude/link/finish", json!({"code": req("code")?})),
+            // The same, on the server, inside one guest's private store (refused anywhere else).
+            "claude_login_get" => self.claude_login_get(),
+            "claude_login_put" => self.claude_login_put(&req("token")?),
+            "claude_login_drop" => self.claude_login_drop(),
+            "claude_link_begin" => self.claude_link_begin(),
+            "claude_link_end" => self.claude_link_end(&req("code")?),
             "sync_unpair" => self.sync_unpair(),
             "sync_autopair" => self.sync_autopair(),
             "sync_set_autopair_host" => {

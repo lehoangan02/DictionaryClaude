@@ -463,15 +463,21 @@ pub(crate) struct Agent {
     pub(crate) effort: Option<String>,
     /// Claude only: a folder with the photos attached to the message, readable in addition to the working folder.
     pub(crate) extra: Option<PathBuf>,
-    /// Claude only: another person's own sign-in (their token and a config folder of their own), so the run is billed to
-    /// their subscription and never touches the server owner's login. `None` runs as whoever the server is signed in as.
+    /// Claude only: a guest's own sign-in (a token, or empty when the sign-in is in the config folder, and that folder), so
+    /// the run is billed to their subscription and never touches the server owner's login. Such a run may read nothing
+    /// but the photos attached to the message. `None` runs as whoever the server is signed in as.
     pub(crate) login: Option<(String, PathBuf)>,
 }
 
 impl Agent {
     fn pick(&self, c: &mut Command) {
         if let Some((token, dir)) = &self.login {
-            c.env("CLAUDE_CODE_OAUTH_TOKEN", token).env("CLAUDE_CONFIG_DIR", dir).env_remove("ANTHROPIC_API_KEY").env_remove("ANTHROPIC_AUTH_TOKEN");
+            c.env("CLAUDE_CONFIG_DIR", dir).env_remove("ANTHROPIC_API_KEY").env_remove("ANTHROPIC_AUTH_TOKEN");
+            if token.is_empty() {
+                c.env_remove("CLAUDE_CODE_OAUTH_TOKEN");
+            } else {
+                c.env("CLAUDE_CODE_OAUTH_TOKEN", token);
+            }
         }
         if let Some(m) = &self.model {
             c.args(["--model", m]);
@@ -547,6 +553,13 @@ impl Agent {
         }
         match self.name {
             // Read only: the Read tool for the photos, nothing that writes or browses.
+            "claude" if self.login.is_some() => {
+                // A guest's run reads only its attached photos (or the empty working folder): "Read" alone would allow any file
+                // the server's user can read, including the owner's private files and login.
+                let only = std::path::absolute(self.extra.as_deref().unwrap_or(dir)).unwrap_or_else(|_| dir.to_path_buf());
+                c.args(["--tools", "Read", "--allowedTools"]).arg(format!("Read(/{}/**)", only.display())).arg("--add-dir").arg(&only);
+                self.pick(&mut c);
+            }
             "claude" => {
                 c.args(["--allowedTools", "Read"]).arg("--add-dir").arg(dir).args(["--disallowedTools", "Bash", "Edit", "Write", "WebFetch", "WebSearch"]);
                 self.pick(&mut c);
@@ -944,6 +957,21 @@ pub fn spawn_job_runner(api: Arc<Api>, every: Duration) -> std::thread::JoinHand
     std::thread::spawn(move || loop {
         let _ = api.run_jobs(false);
         std::thread::sleep(every);
+    })
+}
+
+/// A guest's store only answers their chats (no photo reading, no agents on the owner's login, no work).
+/// It stops by itself once the server forgets the guest (drops its last handle on the store).
+pub fn spawn_guest_runner(api: Arc<Api>, every: Duration) -> std::thread::JoinHandle<()> {
+    let _ = api.recover_talks();
+    let weak = Arc::downgrade(&api);
+    drop(api);
+    std::thread::spawn(move || {
+        while let Some(api) = weak.upgrade() {
+            api.spawn_talks();
+            drop(api);
+            std::thread::sleep(every);
+        }
     })
 }
 

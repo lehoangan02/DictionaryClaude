@@ -20,6 +20,6 @@ mod update;
 pub mod userdb;
 
 pub use api::{Api, Config};
-pub use jobs::spawn_job_runner;
+pub use jobs::{spawn_guest_runner, spawn_job_runner};
 pub use net::spawn_background_sync;
 pub(crate) use barrons::BarronsEntry;

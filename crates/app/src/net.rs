@@ -141,7 +141,7 @@ impl Api {
             .send(serde_json::to_vec(&json!({"have": have}))?)?;
         match resp.status().as_u16() {
             200 => {}
-            404 => return Ok(false), // the server has no book to share
+            404 | 403 => return Ok(false), // the server has no book to share, or this device is a guest
             s => bail!("server answered {s}"),
         }
         if resp.headers().get("Content-Type").and_then(|v| v.to_str().ok()).is_some_and(|t| t.contains("json")) {
@@ -226,6 +226,7 @@ impl Api {
         self.set_setting("sync.pairing", &serde_json::to_string(&p)?)?;
         self.set_setting("sync.cursor", "0")?;
         self.set_setting("sync.pushed", "0")?;
+        self.db.lock().unwrap().execute("DELETE FROM settings WHERE k='sync.role'", [])?;
         Ok(json!({"paired": true, "name": p.name, "lan": p.lan, "wan": p.wan}))
     }
 
@@ -415,6 +416,12 @@ impl Api {
         }
         .unwrap();
         let a = agent(&p.cert, Duration::from_secs(60))?;
+
+        // Which store on the server this device talks to (the owner's, or its own as a guest) decides what is sent and
+        // where pulling starts.
+        if let Some(role) = post(&a, &host, &p.token, "/v1/hello", &json!({})).ok().and_then(|h| h["role"].as_str().map(str::to_string)) {
+            self.note_role(&role);
+        }
 
         let photos_sent = self.upload_photos(&a, &host, &p.token);
 

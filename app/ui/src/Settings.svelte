@@ -83,23 +83,63 @@
   }
 
   // Devices paired with the server: a stale or lost one can be removed from here.
-  let devs = $state<{ me: string; devices: { name: string; created: number; seen: number }[] } | null>(null);
+  let devs = $state<{ me: string; devices: { name: string; created: number; seen: number; role?: string }[] } | null>(null);
   let devErr = $state('');
   async function loadDevices() {
     devErr = '';
     try { devs = await call('devices_list'); } catch { devs = null; devErr = 'Connect to the server to see the paired devices.'; }
   }
   async function removeDevice(name: string) {
-    if (!confirm(`Remove ${name}? It will stop syncing until it is paired again.`)) return;
+    if (!confirm(`Remove ${name}? It will stop syncing until it is paired again. If it is a guest, its chats and Claude sign-in on the server are deleted.`)) return;
     try { await call('device_revoke', { name }); await loadDevices(); } catch (e) { devErr = (e as Error).message; }
   }
-  // Claude account: this device's own Claude login, kept on the server. The token is sent once and never shown again.
-  let cl = $state<{ own: boolean; since: number | null } | null>(null);
+  // Who this device is on the server: the owner's (after the owner password, entered once) or a guest, which sees none of
+  // the owner's data and chats on its own Claude account.
+  let who = $state<{ role: 'owner' | 'guest'; password_set: boolean } | null>(null);
+  let pw = $state('');
+  let pwOld = $state('');
+  let pwMsg = $state('');
+  let pwBusy = $state(false);
+  async function loadWho() { who = status.paired ? await call('owner_status') : null; }
+  $effect(() => { void app.version; void status.paired; loadWho().catch(() => { who = null; }); });
+  async function enterPassword() {
+    pwBusy = true; pwMsg = '';
+    try { who = await call('owner_login', { password: pw }); pw = ''; pwMsg = 'Welcome back. This device is now yours; your notes and history will sync.'; bump(); call('sync_now').catch(() => {}); }
+    catch (e) { pwMsg = (e as Error).message; }
+    pwBusy = false;
+  }
+  async function savePassword() {
+    pwBusy = true; pwMsg = '';
+    try {
+      const changed = who?.password_set;
+      who = await call('owner_set', { password: pw, old: pwOld }); pw = ''; pwOld = '';
+      pwMsg = changed ? 'Password changed. Your other devices ask for the new one once.' : 'Password set. A new device asks for it once, in Settings.';
+    } catch (e) { pwMsg = (e as Error).message; }
+    pwBusy = false;
+  }
+
+  // Claude account (guests): sign in with a link and the code Claude shows, or paste a token. Kept on the server, never shown again.
+  let cl = $state<{ signed_in: boolean; since: number | null } | null>(null);
+  let clLink = $state('');
+  let clCode = $state('');
   let clToken = $state('');
   let clMsg = $state('');
   let clBusy = $state(false);
-  async function loadCl() { cl = status.paired ? await call('claude_login_status') : null; }
-  $effect(() => { void app.version; void status.paired; loadCl().catch(() => { cl = null; }); });
+  async function loadCl() { cl = status.paired && who?.role === 'guest' ? await call('claude_login_status') : null; }
+  $effect(() => { void app.version; void who?.role; loadCl().catch(() => { cl = null; }); });
+  async function startLink() {
+    clBusy = true; clMsg = 'Asking Claude for a sign-in link…';
+    try { clLink = (await call('claude_link_start')).url; clCode = ''; clMsg = ''; }
+    catch (e) { clMsg = (e as Error).message; }
+    clBusy = false;
+  }
+  async function copyLink() { try { await navigator.clipboard.writeText(clLink); clMsg = 'Link copied. Open it in your browser.'; } catch { clMsg = 'Select the link and copy it.'; } }
+  async function finishLink() {
+    clBusy = true; clMsg = 'Checking the code with Claude…';
+    try { cl = await call('claude_link_finish', { code: clCode }); clLink = ''; clCode = ''; clMsg = 'Signed in. Your chats now use your own Claude subscription.'; }
+    catch (e) { clMsg = (e as Error).message; }
+    clBusy = false;
+  }
   async function saveCl() {
     clBusy = true; clMsg = 'Checking the token with Claude…';
     try { cl = await call('claude_login_set', { token: clToken }); clToken = ''; clMsg = 'Signed in. Your chats now use your own Claude subscription.'; }
@@ -107,8 +147,8 @@
     clBusy = false;
   }
   async function clearCl() {
-    if (!confirm('Sign out of Claude on the server? Your chats will use the server\'s own Claude login again.')) return;
-    try { cl = await call('claude_login_clear'); clMsg = 'Signed out.'; } catch (e) { clMsg = (e as Error).message; }
+    if (!confirm('Sign out of Claude on the server? Your chats stop until you sign in again.')) return;
+    try { cl = await call('claude_login_clear'); clLink = ''; clMsg = 'Signed out.'; } catch (e) { clMsg = (e as Error).message; }
   }
   async function unpair() { await call('sync_unpair'); await load(); bump(); msg = 'Unpaired. Your data stays on this device.'; }
   async function saveSsids() { await call('sync_set_home_ssids', { ssids }); msg = 'Saved.'; }
@@ -149,7 +189,7 @@
         <ul class="devs">
           {#each devs.devices as d (d.name)}
             <li>
-              <span class="nm"><b>{d.name}</b>{#if d.name === devs.me} <span class="muted small">(this device)</span>{/if}
+              <span class="nm"><b>{d.name}</b>{#if d.name === devs.me} <span class="muted small">(this device)</span>{/if}{#if d.role === 'guest'} <span class="muted small">(guest)</span>{/if}
                 <span class="muted small">{d.seen ? `last seen ${when(d.seen)}` : 'not seen since this list began'}</span></span>
               {#if d.name !== devs.me}<button class="btn small ghost" onclick={() => removeDevice(d.name)}>Remove</button>{/if}
             </li>
@@ -184,29 +224,75 @@
 <PackManager />
 <AiCard />
 
-<section class="card rise" style="--i:5">
-  <h3>Claude account</h3>
-  {#if !status.paired}
-    <p class="muted small">Pair this device with the server first; the Claude login is kept there.</p>
-  {:else}
-    <p class="muted small">
-      Chats are answered by the server's Claude. To use <b>your own</b> Claude subscription instead, sign in here. On a computer where you are
-      signed in to Claude, run <code>claude setup-token</code>, then paste the token it prints (it starts with <code>sk-ant-</code>). The server
-      tries it once, keeps it private and never shows it again. Chats from a signed-in device cannot read the app's source or change the app.
-      If Claude later refuses the token, paste a new one here.
-    </p>
-    {#if cl?.own}
-      <p>Signed in with your own Claude account{cl.since ? ` since ${when(cl.since)}` : ''}.</p>
+{#if status.paired && who}
+  <section class="card rise" style="--i:4">
+    <h3>Owner password</h3>
+    {#if who.role === 'owner'}
+      <p class="muted small">This is the owner's device: it syncs your notes, history and chats, and chats use the server's own Claude. Other people who pair a device are guests: they see none of this.</p>
+      <details class="alt">
+        <summary>{who.password_set ? 'Change the owner password' : 'Set the owner password'}</summary>
+        <p class="muted small">{who.password_set
+          ? 'Your other devices will ask for the new password once.'
+          : 'A new device of yours asks for this password once, in Settings, to be recognised as yours. Until you set one, a new device stays a guest.'}</p>
+        {#if who.password_set}<label class="f">Current password
+          <input type="password" bind:value={pwOld} autocomplete="current-password" /></label>{/if}
+        <label class="f">{who.password_set ? 'New password' : 'Password'} (at least 8 characters)
+          <input type="password" bind:value={pw} autocomplete="new-password" /></label>
+        <button class="btn" disabled={pwBusy || pw.length < 8 || (who.password_set && !pwOld)} onclick={savePassword}>{who.password_set ? 'Change password' : 'Set password'}</button>
+      </details>
+    {:else}
+      <p class="muted small">This device is a <b>guest</b>: the owner's notes, history and Barron's never reach it, and your own notes stay on this device. If it is the owner's, enter the owner password once.</p>
+      {#if who.password_set}
+        <label class="f">Owner password
+          <input type="password" bind:value={pw} autocomplete="current-password" onkeydown={(e) => { if (e.key === 'Enter' && pw) enterPassword(); }} /></label>
+        <button class="btn primary" disabled={pwBusy || !pw} onclick={enterPassword}>{pwBusy ? 'Checking…' : 'This is my device'}</button>
+      {:else}
+        <p class="muted small">The owner has not set a password yet (they do it from their own device).</p>
+      {/if}
     {/if}
-    <label class="f">{cl?.own ? 'Replace the token' : 'Claude token'}
-      <input type="password" bind:value={clToken} placeholder="sk-ant-…" autocomplete="off" spellcheck="false" /></label>
-    <div class="row">
-      <button class="btn primary" disabled={clBusy || !clToken.trim()} onclick={saveCl}>{clBusy ? 'Checking…' : 'Sign in'}</button>
-      {#if cl?.own}<button class="btn ghost" disabled={clBusy} onclick={clearCl}>Sign out</button>{/if}
-    </div>
+    {#if pwMsg}<p class="msg small">{pwMsg}</p>{/if}
+  </section>
+{/if}
+
+{#if status.paired && who?.role === 'guest'}
+  <section class="card rise" style="--i:5">
+    <h3>Claude account</h3>
+    <p class="muted small">
+      Chats are answered by <b>your own</b> Claude subscription, so you must sign in to Claude here. The sign-in is kept private on the
+      server and never shown again. Your chats cannot read any file on the server or change the app.
+    </p>
+    {#if cl?.signed_in}
+      <p>Signed in to Claude{cl.since ? ` since ${when(cl.since)}` : ''}.</p>
+    {:else}
+      <p class="muted small">You are not signed in, so Claude will not answer yet.</p>
+    {/if}
+    {#if clLink}
+      <ol class="steps small">
+        <li>Open <a href={clLink} target="_blank" rel="noopener">Claude's sign-in page</a> (or <button class="btn small ghost" onclick={copyLink}>copy the link</button>) and sign in to your Claude account.</li>
+        <li>Claude then shows a code. Paste it here.</li>
+      </ol>
+      <label class="f">Code from Claude
+        <input type="text" bind:value={clCode} autocomplete="off" spellcheck="false" placeholder="paste the code" /></label>
+      <div class="row">
+        <button class="btn primary" disabled={clBusy || !clCode.trim()} onclick={finishLink}>{clBusy ? 'Checking…' : 'Finish sign-in'}</button>
+        <button class="btn ghost" disabled={clBusy} onclick={() => { clLink = ''; clMsg = ''; }}>Cancel</button>
+      </div>
+    {:else}
+      <div class="row">
+        <button class="btn primary" disabled={clBusy} onclick={startLink}>{clBusy ? 'Please wait…' : cl?.signed_in ? 'Sign in again' : 'Sign in with Claude'}</button>
+        {#if cl?.signed_in}<button class="btn ghost" disabled={clBusy} onclick={clearCl}>Sign out</button>{/if}
+      </div>
+    {/if}
+    <details class="alt">
+      <summary>Or paste a token instead</summary>
+      <p class="muted small">On a computer where you are signed in to Claude, run <code>claude setup-token</code> and paste the token it prints (it starts with <code>sk-ant-</code>).</p>
+      <label class="f">Claude token
+        <input type="password" bind:value={clToken} placeholder="sk-ant-…" autocomplete="off" spellcheck="false" /></label>
+      <button class="btn" disabled={clBusy || !clToken.trim()} onclick={saveCl}>{clBusy ? 'Checking…' : 'Sign in with the token'}</button>
+    </details>
     {#if clMsg}<p class="msg small">{clMsg}</p>{/if}
-  {/if}
-</section>
+  </section>
+{/if}
 
 <section class="card rise" style="--i:6">
   <h3>About</h3>
@@ -278,6 +364,8 @@
   .f input, .f textarea { font-size: 15px; }
   code { background: var(--panel-2); border-radius: 4px; padding: 1px 6px; font-size: 0.85em; overflow-wrap: anywhere; }
   .msg { margin-top: 10px; }
+  .steps { margin: 8px 0; padding-left: 20px; }
+  .steps li { margin: 6px 0; }
   .alt { margin-top: 14px; }
   .alt summary { color: var(--blue); padding: 6px 0; }
   .chk { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
