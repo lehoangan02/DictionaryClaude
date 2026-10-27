@@ -39,7 +39,7 @@
   // Dragging images onto the chat attaches them like the paperclip does.
   let dragging = $state(false);
   const hasFiles = (e: DragEvent) => !!e.dataTransfer?.types.includes('Files');
-  function dragOver(e: DragEvent) { if (hasFiles(e)) { e.preventDefault(); dragging = true; } }
+  function dragOver(e: DragEvent) { if (hasFiles(e)) { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; dragging = true; } }
   function dragLeave(e: DragEvent) { if (!(e.currentTarget as Node).contains(e.relatedTarget as Node | null)) dragging = false; }
   async function drop(e: DragEvent) {
     if (!hasFiles(e)) return;
