@@ -151,6 +151,3 @@ button:not(:disabled):active, .btn:not(:disabled):active { transform: scale(0.97
 .collapse.open { grid-template-rows: 1fr; opacity: 1; }
 .collapse > .inner { overflow: hidden; min-height: 0; }
 
-/* Find on page (Ctrl/Cmd+F): every match, and the one you are on. */
-::highlight(find) { background-color: #ffe58a; color: #1b1b1b; }
-::highlight(find-cur) { background-color: #ff9632; color: #1b1b1b; }

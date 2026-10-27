@@ -2,18 +2,19 @@
   import { onDestroy, tick } from 'svelte';
   import Icon from './Icon.svelte';
 
-  // Find on page (Ctrl/Cmd+F), like a browser's: matches are painted with the CSS Custom Highlight API,
-  // so the page itself is never edited and Svelte's own DOM stays untouched.
+  // Find on page (Ctrl/Cmd+F), like a browser's: the page itself is never edited and Svelte's own DOM stays untouched.
+  // Matches are marked by boxes drawn over the text from each range's rectangles. (The CSS Custom Highlight API
+  // painted nothing on text inside buttons and chips, which are user-select: none, in WebKit: the count showed, the match did not.)
   let open = $state(false);
   let q = $state('');
   let count = $state(0);
   let cur = $state(0);
   let input = $state<HTMLInputElement>();
+  let marks = $state<{ left: number; top: number; width: number; height: number; cur: boolean }[]>([]);
   let ranges: Range[] = [];
+  let frame = 0;
   let watch: MutationObserver | undefined;
   let later: ReturnType<typeof setTimeout>;
-
-  const highlights: Map<string, unknown> | undefined = (CSS as unknown as { highlights?: Map<string, unknown> }).highlights;
 
   export const isOpen = () => open;
 
@@ -24,6 +25,8 @@
     input?.focus();
     input?.select();
     scan(again);
+    addEventListener('scroll', redraw, { passive: true, capture: true });
+    addEventListener('resize', redraw, { passive: true });
     // Text arrives and leaves as screens change and entries load: keep the matches current while the bar is open.
     const root = document.querySelector('main');
     if (root && !watch) {
@@ -37,6 +40,9 @@
     watch?.disconnect(); watch = undefined;
     clearTimeout(later);
     ranges = []; count = 0;
+    removeEventListener('scroll', redraw, { capture: true });
+    removeEventListener('resize', redraw);
+    cancelAnimationFrame(frame);
     paint();
   }
 
@@ -65,21 +71,29 @@
 
   function paint(scroll = false) {
     const now = ranges[cur];
-    if (highlights) {
-      if (!ranges.length) { highlights.delete('find'); highlights.delete('find-cur'); }
-      else {
-        highlights.set('find', new Highlight(...ranges));
-        const c = new Highlight(now); c.priority = 1; highlights.set('find-cur', c);
-      }
-    } else if (now) {
-      const sel = getSelection();
-      sel?.removeAllRanges(); sel?.addRange(now);
-    }
     if (scroll && now) {
       const r = now.getBoundingClientRect();
       const top = (document.querySelector('header.top')?.getBoundingClientRect().bottom ?? 0) + 24;
       if (r.top < top || r.bottom > innerHeight - 24) scrollBy({ top: r.top - innerHeight / 3 });
     }
+    draw();
+  }
+
+  /** Boxes for the matches on screen (a long page can have thousands); the current one is told apart. */
+  function draw() {
+    const out: typeof marks = [];
+    ranges.forEach((r, i) => {
+      for (const b of r.getClientRects()) {
+        if (b.bottom < 0 || b.top > innerHeight) continue;
+        out.push({ left: b.left, top: b.top, width: b.width, height: b.height, cur: i === cur });
+      }
+    });
+    marks = out;
+  }
+
+  function redraw() {
+    cancelAnimationFrame(frame);
+    frame = requestAnimationFrame(draw);
   }
 
   function step(d: number) {
@@ -92,8 +106,12 @@
     if (e.key === 'Enter') { e.preventDefault(); step(e.shiftKey ? -1 : 1); }
   }
 
-  onDestroy(() => { watch?.disconnect(); highlights?.delete('find'); highlights?.delete('find-cur'); });
+  onDestroy(hide);
 </script>
+
+{#each marks as m}
+  <i class="mark" class:cur={m.cur} style="left: {m.left}px; top: {m.top}px; width: {m.width}px; height: {m.height}px"></i>
+{/each}
 
 {#if open}
   <div class="wrap findbar fadein" role="search" aria-label="Find on page">
@@ -111,6 +129,9 @@
 {/if}
 
 <style>
+  /* Under the sticky header (z-index 20), over the page; never catches a tap. */
+  .mark { position: fixed; z-index: 10; pointer-events: none; border-radius: 2px; background: rgba(255, 210, 40, 0.5); }
+  .mark.cur { background: rgba(255, 130, 20, 0.6); }
   .findbar { display: flex; justify-content: flex-end; padding-top: 6px; padding-bottom: 8px; }
   .box { display: flex; align-items: center; gap: 2px; width: min(100%, 420px); background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 3px 6px 3px 6px; }
   .box:focus-within { background: var(--surface); border-color: var(--blue); }
