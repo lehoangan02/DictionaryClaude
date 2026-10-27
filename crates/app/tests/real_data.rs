@@ -75,6 +75,18 @@ fn notes_feed_the_thesaurus_and_history_records_lookups() {
 
     let h = api.call("history_list", json!({})).unwrap();
     assert_eq!(h[0]["key"], "subside");
+    // The Thesaurus tab keeps its own history: neither list shows the other's rows, and clearing one leaves the other.
+    api.call("thesaurus", json!({"word": "subside", "record": true})).unwrap();
+    api.call("thesaurus", json!({"word": "Abate", "record": true})).unwrap();
+    api.call("thesaurus", json!({"word": "osmosis"})).unwrap(); // a refresh, not a visit
+    let t = api.call("history_list", json!({"scope": "thesaurus"})).unwrap();
+    assert_eq!(t.as_array().unwrap().iter().map(|r| r["word"].as_str().unwrap()).collect::<Vec<_>>(), ["Abate", "subside"]);
+    let h = api.call("history_list", json!({})).unwrap();
+    assert!(h.as_array().unwrap().iter().all(|r| r["source"] != "thesaurus"));
+    assert_eq!(h[0]["key"], "subside");
+    api.call("history_clear", json!({"scope": "thesaurus"})).unwrap();
+    assert!(api.call("history_list", json!({"scope": "thesaurus"})).unwrap().as_array().unwrap().is_empty());
+    assert!(!api.call("history_list", json!({})).unwrap().as_array().unwrap().is_empty());
     // Deleting the note removes its relations from the panel.
     let id = api.call("notes_list", json!({})).unwrap()[0]["id"].as_str().unwrap().to_string();
     api.call("note_delete", json!({"id": id})).unwrap();

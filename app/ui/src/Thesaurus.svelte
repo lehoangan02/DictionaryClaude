@@ -1,10 +1,12 @@
 <script lang="ts">
   import { open } from './lib/store.svelte';
   import { REL } from './lib/format';
+  import Icon from './Icon.svelte';
 
   // `alone`: the Thesaurus tab, where an empty answer is said out loud instead of hiding the panel,
-  // and `pick` decides what a tapped word does (the Dictionary opens it; the tab searches it again).
-  let { data, word, alone = false, pick = open }: { data: any; word: string; alone?: boolean; pick?: (w: string) => void } = $props();
+  // `pick` decides what a tapped word does (the Dictionary opens it; the tab searches it again), and `lookup`, when
+  // given, puts a second button beside each word that opens it in the main dictionary.
+  let { data, word, alone = false, pick = open, lookup }: { data: any; word: string; alone?: boolean; pick?: (w: string) => void; lookup?: (w: string) => void } = $props();
 
   const noteGroups = $derived(
     (['same', 'similar', 'opposite', 'different'] as const)
@@ -20,6 +22,12 @@
   let showMoby = $state(false);
 </script>
 
+{#snippet wordChip(w: string)}
+  <span class="pair">
+    <button class="chip" onclick={() => pick(w)}>{w}{#if greSet.has(w)}<i class="gdot" title="GRE word (Barron's)"></i>{/if}</button>{#if lookup}<button class="go" onclick={() => lookup(w)} title="Look up “{w}” in the dictionary" aria-label="Look up {w} in the dictionary"><Icon name="book" size={15} /></button>{/if}
+  </span>
+{/snippet}
+
 {#if hasNotes || gre.length || syn.length || ant.length || moby.length}
   <section class="th rise" class:alone style="--i:2">
     <h2>{alone ? word : 'GRE thesaurus'} <span class="muted">· {alone ? 'GRE thesaurus' : word}</span></h2>
@@ -30,7 +38,7 @@
         {#each noteGroups as g (g.k)}
           <p class="row">
             <span class="sym" title={REL[g.k].label}>{REL[g.k].sym}</span>
-            {#each g.items as w (w)}<button class="chip" onclick={() => pick(w)}>{w}{#if greSet.has(w)}<i class="gdot" title="GRE word (Barron's)"></i>{/if}</button>{/each}
+            {#each g.items as w (w)}{@render wordChip(w)}{/each}
           </p>
         {/each}
       </div>
@@ -42,7 +50,8 @@
         <ul class="gl">
           {#each gre as g (g.key)}
             <li>
-              <button class="w" onclick={() => pick(g.word)}>{g.word}</button>
+              <span class="wg"><button class="w" onclick={() => pick(g.word)}>{g.word}</button>
+              {#if lookup}<button class="go" onclick={() => lookup(g.word)} title="Look up “{g.word}” in the dictionary" aria-label="Look up {g.word} in the dictionary"><Icon name="book" size={15} /></button>{/if}</span>
               <span class="u">unit {g.unit}</span>
               <span class="d">{g.definition}</span>
             </li>
@@ -55,9 +64,9 @@
       <div class="box rise" style="--i:2">
         <h3>Dictionary synonyms</h3>
         {#if syn.length}<p class="row"><span class="sym" title="Synonyms">≈</span>
-          {#each syn as w (w)}<button class="chip" onclick={() => pick(w)}>{w}{#if greSet.has(w)}<i class="gdot" title="GRE word (Barron's)"></i>{/if}</button>{/each}</p>{/if}
+          {#each syn as w (w)}{@render wordChip(w)}{/each}</p>{/if}
         {#if ant.length}<p class="row"><span class="sym" title="Opposite">&gt;&lt;</span>
-          {#each ant as w (w)}<button class="chip" onclick={() => pick(w)}>{w}{#if greSet.has(w)}<i class="gdot" title="GRE word (Barron's)"></i>{/if}</button>{/each}</p>{/if}
+          {#each ant as w (w)}{@render wordChip(w)}{/each}</p>{/if}
       </div>
     {/if}
 
@@ -65,7 +74,7 @@
       <div class="box rise" style="--i:3">
         <h3>More words <span class="muted">· Moby thesaurus</span></h3>
         <p class="row">
-          {#each showMoby ? moby : moby.slice(0, 12) as w (w)}<button class="chip" onclick={() => pick(w)}>{w}{#if greSet.has(w)}<i class="gdot" title="GRE word (Barron's)"></i>{/if}</button>{/each}
+          {#each showMoby ? moby : moby.slice(0, 12) as w (w)}{@render wordChip(w)}{/each}
           {#if !showMoby && moby.length > 12}<button class="btn small" onclick={() => (showMoby = true)}>+{moby.length - 12}</button>{/if}
         </p>
       </div>
@@ -88,6 +97,13 @@
     background: var(--navy); color: #fff; font-weight: 700; font-size: 14px;
   }
   .gdot { display: inline-block; width: 7px; height: 7px; margin-left: 6px; border-radius: 50%; background: var(--accent); vertical-align: middle; }
+  .pair { display: inline-flex; align-items: center; margin: 2px 4px 2px 0; }
+  .pair .chip { margin: 0; }
+  .pair .chip:not(:last-child) { border-top-right-radius: 0; border-bottom-right-radius: 0; border-right: 0; }
+  .go { display: inline-grid; place-items: center; width: 28px; height: 28px; padding: 0; background: var(--bg); color: var(--muted); border: 1px solid var(--line); border-radius: 0 999px 999px 0; }
+  .go:hover { background: var(--panel-2); color: var(--blue); }
+  .wg { display: inline-flex; align-items: center; gap: 8px; }
+  .wg .go { border-radius: 50%; }
   .gl { list-style: none; margin: 0; padding: 0; }
   .gl li { padding: 5px 0; border-top: 1px solid var(--line); display: grid; grid-template-columns: auto auto 1fr; gap: 4px 10px; align-items: baseline; }
   .gl li:first-child { border-top: 0; }
