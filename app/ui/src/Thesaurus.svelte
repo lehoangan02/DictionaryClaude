@@ -2,7 +2,9 @@
   import { open } from './lib/store.svelte';
   import { REL } from './lib/format';
 
-  let { data, word }: { data: any; word: string } = $props();
+  // `alone`: the Thesaurus tab, where an empty answer is said out loud instead of hiding the panel,
+  // and `pick` decides what a tapped word does (the Dictionary opens it; the tab searches it again).
+  let { data, word, alone = false, pick = open }: { data: any; word: string; alone?: boolean; pick?: (w: string) => void } = $props();
 
   const noteGroups = $derived(
     (['same', 'similar', 'opposite', 'different'] as const)
@@ -19,8 +21,8 @@
 </script>
 
 {#if hasNotes || gre.length || syn.length || ant.length || moby.length}
-  <section class="th rise" style="--i:2">
-    <h2>GRE thesaurus <span class="muted">· {word}</span></h2>
+  <section class="th rise" class:alone style="--i:2">
+    <h2>{alone ? word : 'GRE thesaurus'} <span class="muted">· {alone ? 'GRE thesaurus' : word}</span></h2>
 
     {#if hasNotes}
       <div class="box mine rise" style="--i:0">
@@ -28,7 +30,7 @@
         {#each noteGroups as g (g.k)}
           <p class="row">
             <span class="sym" title={REL[g.k].label}>{REL[g.k].sym}</span>
-            {#each g.items as w (w)}<button class="chip" onclick={() => open(w)}>{w}{#if greSet.has(w)}<i class="gdot" title="GRE word (Barron's)"></i>{/if}</button>{/each}
+            {#each g.items as w (w)}<button class="chip" onclick={() => pick(w)}>{w}{#if greSet.has(w)}<i class="gdot" title="GRE word (Barron's)"></i>{/if}</button>{/each}
           </p>
         {/each}
       </div>
@@ -40,7 +42,7 @@
         <ul class="gl">
           {#each gre as g (g.key)}
             <li>
-              <button class="w" onclick={() => open(g.word)}>{g.word}</button>
+              <button class="w" onclick={() => pick(g.word)}>{g.word}</button>
               <span class="u">unit {g.unit}</span>
               <span class="d">{g.definition}</span>
             </li>
@@ -53,9 +55,9 @@
       <div class="box rise" style="--i:2">
         <h3>Dictionary synonyms</h3>
         {#if syn.length}<p class="row"><span class="sym" title="Synonyms">≈</span>
-          {#each syn as w (w)}<button class="chip" onclick={() => open(w)}>{w}{#if greSet.has(w)}<i class="gdot" title="GRE word (Barron's)"></i>{/if}</button>{/each}</p>{/if}
+          {#each syn as w (w)}<button class="chip" onclick={() => pick(w)}>{w}{#if greSet.has(w)}<i class="gdot" title="GRE word (Barron's)"></i>{/if}</button>{/each}</p>{/if}
         {#if ant.length}<p class="row"><span class="sym" title="Opposite">&gt;&lt;</span>
-          {#each ant as w (w)}<button class="chip" onclick={() => open(w)}>{w}{#if greSet.has(w)}<i class="gdot" title="GRE word (Barron's)"></i>{/if}</button>{/each}</p>{/if}
+          {#each ant as w (w)}<button class="chip" onclick={() => pick(w)}>{w}{#if greSet.has(w)}<i class="gdot" title="GRE word (Barron's)"></i>{/if}</button>{/each}</p>{/if}
       </div>
     {/if}
 
@@ -63,16 +65,19 @@
       <div class="box rise" style="--i:3">
         <h3>More words <span class="muted">· Moby thesaurus</span></h3>
         <p class="row">
-          {#each showMoby ? moby : moby.slice(0, 12) as w (w)}<button class="chip" onclick={() => open(w)}>{w}{#if greSet.has(w)}<i class="gdot" title="GRE word (Barron's)"></i>{/if}</button>{/each}
+          {#each showMoby ? moby : moby.slice(0, 12) as w (w)}<button class="chip" onclick={() => pick(w)}>{w}{#if greSet.has(w)}<i class="gdot" title="GRE word (Barron's)"></i>{/if}</button>{/each}
           {#if !showMoby && moby.length > 12}<button class="btn small" onclick={() => (showMoby = true)}>+{moby.length - 12}</button>{/if}
         </p>
       </div>
     {/if}
   </section>
+{:else if alone}
+  <p class="muted">No synonyms, opposites or related GRE words found for “{word}”.</p>
 {/if}
 
 <style>
   .th { margin-top: 28px; }
+  .th.alone { margin-top: 12px; }
   h2 { margin-bottom: 8px; }
   h3 { margin: 0 0 6px; font-size: 14px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
   .box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin: 10px 0; }

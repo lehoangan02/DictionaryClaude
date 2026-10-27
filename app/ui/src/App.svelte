@@ -6,6 +6,7 @@
   import History from './History.svelte';
   import Quiz from './Quiz.svelte';
   import Notes from './Notes.svelte';
+  import ThesaurusSearch from './ThesaurusSearch.svelte';
   import Settings from './Settings.svelte';
   import Claude from './Claude.svelte';
   import ServerPill from './ServerPill.svelte';
@@ -54,6 +55,7 @@
     { id: 'history', label: 'History', icon: 'history' },
     { id: 'quiz', label: 'Quizzes', icon: 'quiz' },
     { id: 'notes', label: 'Notes', icon: 'notes' },
+    { id: 'thesaurus', label: 'Thesaurus', icon: 'swap' },
     { id: 'claude', label: 'Claude', icon: 'chat' },
   ];
 
@@ -145,6 +147,8 @@
           <Quiz />
         {:else if app.tab === 'notes'}
           <Notes />
+        {:else if app.tab === 'thesaurus'}
+          <ThesaurusSearch />
         {:else}
           <Claude />
         {/if}
@@ -211,7 +215,7 @@
     .desk { display: none; }
     /* Floating pill navigation at the bottom. */
     .tabbar {
-      display: grid; grid-template-columns: repeat(5, 1fr); position: fixed; z-index: 20;
+      display: grid; grid-template-columns: repeat(6, 1fr); position: fixed; z-index: 20;
       left: 12px; right: 12px; bottom: calc(10px + env(safe-area-inset-bottom));
       background: var(--surface); border: 1px solid var(--line); border-radius: 24px; box-shadow: var(--shadow); padding: 4px;
     }
@@ -220,7 +224,7 @@
       content: ''; position: fixed; z-index: -1; left: 0; right: 0; bottom: 0; pointer-events: none;
       height: calc(78px + env(safe-area-inset-bottom)); background: linear-gradient(to bottom, transparent, var(--bg) 45%);
     }
-    .tabbar button { background: none; border: 0; padding: 7px 2px 6px; display: flex; flex-direction: column; align-items: center; font-size: 11px; color: var(--muted); gap: 1px; border-radius: 18px; }
+    .tabbar button { background: none; border: 0; padding: 7px 2px 6px; display: flex; flex-direction: column; align-items: center; font-size: 10px; color: var(--muted); gap: 1px; border-radius: 18px; min-width: 0; }
     .tabbar button { transition: background-color var(--t) var(--ease), color var(--t) var(--ease), transform var(--t-fast) var(--ease); }
     .tabbar button.on { color: var(--blue); background: var(--blue-soft); font-weight: 700; }
   }
