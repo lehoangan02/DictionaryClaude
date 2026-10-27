@@ -51,6 +51,18 @@
     await addFiles(Array.from(input.files ?? []));
     input.value = '';
   }
+  // Dragging images onto the screen adds them like "Add photos" does.
+  let dragging = $state(false);
+  const hasFiles = (e: DragEvent) => !!e.dataTransfer?.types.includes('Files');
+  function dragOver(e: DragEvent) { if (hasFiles(e)) { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; dragging = true; } }
+  function dragLeave(e: DragEvent) { if (!(e.currentTarget as Node).contains(e.relatedTarget as Node | null)) dragging = false; }
+  async function drop(e: DragEvent) {
+    if (!hasFiles(e)) return;
+    e.preventDefault(); dragging = false;
+    const images = Array.from(e.dataTransfer?.files ?? []).filter((f) => f.type.startsWith('image/'));
+    if (!images.length) error = 'Only images can be dropped here.';
+    else await addFiles(images);
+  }
 
   async function send() {
     busy = true; error = '';
@@ -78,9 +90,10 @@
 {#if open}
   <DraftReview id={open} onclose={() => closeDetail()} />
 {:else}
+  <div class="drops" class:drag={dragging} role="region" aria-label="Photograph your notes" ondragover={dragOver} ondragleave={dragLeave} ondrop={drop}>
   <section class="card rise">
     <h3>Photograph your notes</h3>
-    <p class="muted small">Take or choose photos of handwritten notes. The server reads them; you check the result before anything is saved.</p>
+    <p class="muted small">Take, choose or drop photos of handwritten notes. The server reads them; you check the result before anything is saved.</p>
     <div class="row">
       {#if desktopCamera}
         <button class="btn" onclick={() => { camera = true; openDetail(() => (camera = false)); }}><Icon name="camera" size={20} /> Take photo</button>
@@ -113,9 +126,12 @@
       </button>
     {/each}
   {/if}
+  </div>
 {/if}
 
 <style>
+  .drops { min-height: 60vh; border-radius: 12px; }
+  .drops.drag { outline: 2px dashed var(--blue); outline-offset: -4px; background: var(--blue-soft); }
   h3 { margin: 0 0 6px; font-size: 14px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
   .small { font-size: 13px; }
   .row { display: flex; gap: 10px; align-items: end; flex-wrap: wrap; margin-top: 10px; }
