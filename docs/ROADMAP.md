@@ -63,7 +63,7 @@ Kept current by whoever changes the app (Claude Code included): when you fix som
 - **Unpairing on purpose turns auto-pair off** until "Pair now" is pressed (by design); there is no per-device list or revoke button in the app yet.
 - **APK signing key lives only on the Ubuntu box** (`~/.lexis-keys/`): test builds from the Mac use a separate application id and debug signing so they never replace the real app. Back the key up.
 - **Many Rust tests skip on the Mac** (no `data/packs`, no `private/`); copy the packs from the box (see SETUP step 5) to run them all. The browser e2e test needs the same.
-- **Mobile UI** was fixed for the Settings screen (tap highlight, selection, tab-bar fade, wrapping rows); other screens have not been audited at phone width.
+- **Mobile UI** was fixed for the Settings screen (tap highlight, selection, tab-bar fade, wrapping rows); other screens have not been audited at phone width. The bottom tab bar no longer crams seven labels together: only the current tab shows its name, the others are icons (not yet seen on the phone).
 - `quiz.rs:511` has a harmless "does not need to be mutable" compiler warning.
 
 ## Upcoming
