@@ -241,7 +241,7 @@ fn kept_forms(forms: Vec<RForm>, flavor: Flavor) -> Vec<Form> {
 }
 
 /// The dump as lines, whether it is gzipped (the English one) or plain JSONL (the Vietnamese one).
-fn open_lines(input: &Path) -> Result<Box<dyn BufRead>> {
+pub(crate) fn open_lines(input: &Path) -> Result<Box<dyn BufRead>> {
     let file = File::open(input).with_context(|| input.display().to_string())?;
     let mut magic = [0u8; 2];
     let mut head = BufReader::new(file);

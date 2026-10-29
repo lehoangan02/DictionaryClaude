@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use anyhow::{anyhow, bail, Result};
 use gredict_core::entry::Entry;
+use gredict_core::family::{self, FamilyPack};
 use gredict_core::forms;
 use gredict_core::notes::{self, Graph};
 use gredict_core::pack::Pack;
@@ -65,6 +66,8 @@ pub struct Api {
     /// Set when a pack was added or removed: the shell should reopen the Api.
     pub(crate) reload: std::sync::atomic::AtomicBool,
     pub(crate) moby: Option<Mutex<Thesaurus>>,
+    /// Which words are built from which (`family.pack`), for the Forms tab.
+    family: Option<Mutex<FamilyPack>>,
     /// Hot-swappable: a paired device receives the parsed book from the server.
     pub(crate) barrons: RwLock<Option<Arc<Barrons>>>,
     pub(crate) private_dir: Option<PathBuf>,
@@ -106,7 +109,7 @@ impl Api {
         let db = userdb::open(&data_dir.join("user.sqlite"))?;
         let device = Self::device_id(&db)?;
         let fuzzy_paths = [data_dir.join("none.fst"), data_dir.join("none.fst")];
-        Ok(Api { sources: Vec::new(), packs_dir: packs_dir.to_path_buf(), pack_progress: Default::default(), reload: Default::default(), moby: None, barrons: RwLock::new(None), private_dir: None, db: Mutex::new(db), device, guest: false, rng: Mutex::new(now_ms() as u64 | 1), data_dir: data_dir.to_path_buf(), cache: Mutex::new(open_cache(data_dir)?), pron: None, dirty: Default::default(), fuzzy: OnceLock::new(), ai: OnceLock::new(), fuzzy_paths, barrons_syn: RwLock::new(None) })
+        Ok(Api { sources: Vec::new(), packs_dir: packs_dir.to_path_buf(), pack_progress: Default::default(), reload: Default::default(), moby: None, family: None, barrons: RwLock::new(None), private_dir: None, db: Mutex::new(db), device, guest: false, rng: Mutex::new(now_ms() as u64 | 1), data_dir: data_dir.to_path_buf(), cache: Mutex::new(open_cache(data_dir)?), pron: None, dirty: Default::default(), fuzzy: OnceLock::new(), ai: OnceLock::new(), fuzzy_paths, barrons_syn: RwLock::new(None) })
     }
 
     /// A guest's own store on the sync server: no dictionaries and none of the owner's data.
@@ -144,6 +147,8 @@ impl Api {
         // No packs is allowed: a fresh phone starts empty and downloads them.
         let moby = find("moby.pack");
         let moby = moby.exists().then(|| Thesaurus::open(&moby)).transpose()?.map(Mutex::new);
+        let family = find("family.pack");
+        let family = family.exists().then(|| FamilyPack::open(&family)).transpose()?.map(Mutex::new);
         let barrons = match cfg.private_dir.as_ref().map(|d| d.join("barrons.sqlite")) {
             Some(p) if p.exists() => Some(Arc::new(Barrons::open(&p)?)),
             _ => None,
@@ -153,7 +158,7 @@ impl Api {
             p.exists().then(|| Pronunciations::open(&p)).transpose()?.map(Mutex::new)
         };
         let fuzzy_paths = [find("wiktionary.fst"), cfg.data_dir.join("wiktionary.fst")];
-        Ok(Api { sources, packs_dir: cfg.packs_dir.clone(), pack_progress: Default::default(), reload: Default::default(), moby, barrons: RwLock::new(barrons), private_dir: cfg.private_dir, db: Mutex::new(db), device, guest: false, rng: Mutex::new(now_ms() as u64 | 1), data_dir: cfg.data_dir.clone(), cache: Mutex::new(open_cache(&cfg.data_dir)?), pron, dirty: Default::default(), fuzzy: OnceLock::new(), ai: OnceLock::new(), fuzzy_paths, barrons_syn: RwLock::new(None) })
+        Ok(Api { sources, packs_dir: cfg.packs_dir.clone(), pack_progress: Default::default(), reload: Default::default(), moby, family, barrons: RwLock::new(barrons), private_dir: cfg.private_dir, db: Mutex::new(db), device, guest: false, rng: Mutex::new(now_ms() as u64 | 1), data_dir: cfg.data_dir.clone(), cache: Mutex::new(open_cache(&cfg.data_dir)?), pron, dirty: Default::default(), fuzzy: OnceLock::new(), ai: OnceLock::new(), fuzzy_paths, barrons_syn: RwLock::new(None) })
     }
 
     pub fn call(&self, cmd: &str, args: Value) -> Result<Value> {
@@ -661,7 +666,46 @@ impl Api {
             }
         }
         let did_you_mean = if groups.is_empty() { self.fuzzy(&key)? } else { Vec::new() };
-        Ok(json!({"key": key, "word": shown, "groups": groups, "did_you_mean": did_you_mean}))
+        // The family belongs to the lemma: "went" shows the family of "go".
+        let root = groups.first().and_then(|g| g["lemma"].as_str()).unwrap_or(&shown).to_string();
+        let family = self.family_of(&root, src)?;
+        Ok(json!({"key": key, "word": shown, "groups": groups, "did_you_mean": did_you_mean, "family": family}))
+    }
+
+    /// The word family of `word` (null without `family.pack`), each word with its parts of speech and first meaning.
+    fn family_of(&self, word: &str, dict: &Source) -> Result<Value> {
+        let Some(fp) = &self.family else { return Ok(Value::Null) };
+        let fam = {
+            let fp = fp.lock().unwrap();
+            family::family(word, &|k| fp.links(k), &|id| fp.stem_mates(id))?
+        };
+        let pack = dict.pack.lock().unwrap();
+        let say = |w: &str| -> Result<Value> {
+            let mut pos: Vec<String> = Vec::new();
+            let mut gloss: Option<String> = None;
+            if let Some(e) = pack.get(&lemma::key(w))? {
+                for b in e.blocks.iter().filter(|b| b.word.is_none() && b.senses.iter().any(|s| s.form_of.is_none())) {
+                    if !pos.contains(&b.pos) {
+                        pos.push(b.pos.clone());
+                    }
+                    if gloss.is_none() {
+                        gloss = b.senses.iter().find(|s| s.form_of.is_none()).map(|s| s.gloss.chars().take(110).collect());
+                    }
+                }
+            }
+            Ok(json!({"word": w, "pos": pos, "gloss": gloss}))
+        };
+        let mut members = Vec::new();
+        for m in &fam.members {
+            let mut v = say(&m.word)?;
+            v["depth"] = json!(m.depth);
+            v["from"] = json!(m.from);
+            v["via"] = json!(m.via);
+            members.push(v);
+        }
+        let related = fam.related.iter().map(|w| say(w)).collect::<Result<Vec<_>>>()?;
+        let stem = fam.stem.iter().map(|w| say(w)).collect::<Result<Vec<_>>>()?;
+        Ok(json!({"word": word, "members": members, "related": related, "stem": stem}))
     }
 
     fn thesaurus(&self, key: &str) -> Result<Value> {

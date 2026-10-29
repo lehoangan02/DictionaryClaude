@@ -11,10 +11,14 @@
   let idx = $state(-1);
   let focused = $state(false);
   let error = $state('');
+  let more = $state(false);
   let timer: ReturnType<typeof setTimeout>;
   let seq = 0;
 
   const posName: Record<string, string> = { verb: 'Verb', noun: 'Noun', adj: 'Adjective', adv: 'Adverb' };
+  const posShort: Record<string, string> = { verb: 'v.', noun: 'n.', adj: 'adj.', adv: 'adv.', prep: 'prep.', conj: 'conj.', intj: 'interj.', pron: 'pron.', name: 'name' };
+  const SHOWN = 24;
+  const short = (pos: string[]) => pos.map((p) => posShort[p] ?? p).join(' · ');
 
   function onInput() {
     clearTimeout(timer);
@@ -33,7 +37,7 @@
     w = w.trim();
     if (!w) return;
     seq++;
-    q = w; sugg = []; focused = false; idx = -1;
+    q = w; sugg = []; focused = false; idx = -1; more = false;
     (document.activeElement as HTMLElement | null)?.blur();
     try {
       data = await call('forms', { word: w });
@@ -54,7 +58,7 @@
 </script>
 
 <h1>Word forms</h1>
-<p class="muted">Type a word, in any of its forms, to see all of its forms laid out: plurals, tenses, participles and degrees of comparison.</p>
+<p class="muted">Type a word, in any of its forms, to see all of its forms laid out (plurals, tenses, participles, degrees of comparison) and the family of words built from the same root.</p>
 
 <div class="sb">
   <span class="lens"><Icon name="search" size={20} /></span>
@@ -112,6 +116,57 @@
       <p>Did you mean {#each data.did_you_mean as w, i (w)}{#if i}, {/if}<button class="w" onclick={() => go(w)}>{w}</button>{/each}?</p>
     {/if}
   {/each}
+
+  {#if data.family === null}
+    <p class="muted fam-miss">The word family needs the “Word families” download (Settings → Downloads).</p>
+  {:else if data.family.members.length > 1 || data.family.related.length || data.family.stem.length}
+    {@const fam = data.family}
+    <section class="grp">
+      <div class="gh">
+        <h2>Word family</h2>
+        <span class="muted">words built from the same root as “{fam.word}”</span>
+      </div>
+      {#if fam.members.length > 1}
+        <ul class="box tree">
+          {#each more ? fam.members : fam.members.slice(0, SHOWN) as m (m.word + m.depth)}
+            <li style:padding-left="{Math.min(m.depth, 4) * 18}px">
+              <div class="line">
+                <button class="w" class:me={m.word.toLowerCase() === fam.word.toLowerCase()} onclick={() => go(m.word)}>{m.word}</button>
+                {#if m.pos.length}<span class="pos">{short(m.pos)}</span>{/if}
+                {#if m.from}<span class="how">{m.from}{#if m.via}{' + '}{m.via}{:else}{', derived term'}{/if}</span>{/if}
+              </div>
+              {#if m.gloss}<div class="gloss muted">{m.gloss}</div>{/if}
+            </li>
+          {/each}
+        </ul>
+        {#if !more && fam.members.length > SHOWN}
+          <button class="btn small ghost" onclick={() => (more = true)}>Show all {fam.members.length} words</button>
+        {/if}
+      {/if}
+      {#if fam.related.length}
+        <div class="box">
+          <h3>Related words</h3>
+          <p class="muted note">Listed as related by Wiktionary.</p>
+          <ul class="plain">
+            {#each fam.related as r (r.word)}
+              <li><button class="w" onclick={() => go(r.word)}>{r.word}</button>{#if r.pos.length}<span class="pos">{short(r.pos)}</span>{/if}{#if r.gloss}<span class="gloss muted">{r.gloss}</span>{/if}</li>
+            {/each}
+          </ul>
+        </div>
+      {/if}
+      {#if fam.stem.length}
+        <div class="box">
+          <h3>Probably the same family</h3>
+          <p class="muted note">Guessed from spelling alone (they share the stem); Wiktionary does not link them, so a few may be unrelated.</p>
+          <ul class="plain">
+            {#each fam.stem as r (r.word)}
+              <li><button class="w" onclick={() => go(r.word)}>{r.word}</button>{#if r.pos.length}<span class="pos">{short(r.pos)}</span>{/if}{#if r.gloss}<span class="gloss muted">{r.gloss}</span>{/if}</li>
+            {/each}
+          </ul>
+        </div>
+      {/if}
+    </section>
+  {/if}
 {/if}
 
 <style>
@@ -150,4 +205,17 @@
   .w { background: none; border: 0; padding: 0; font-weight: 700; color: var(--blue); font-size: inherit; }
   .n { font-style: normal; font-size: 12px; color: var(--muted); margin-left: 3px; }
   .note { margin: 8px 0 0; font-size: 13px; }
+  .tree, .plain { list-style: none; margin: 10px 0; padding: 4px 14px; }
+  .plain { margin: 0; padding: 0; }
+  .tree li { padding-top: 7px; padding-bottom: 7px; border-top: 1px solid var(--line); }
+  .tree li:first-child { border-top: 0; }
+  .plain li { padding: 5px 0; border-top: 1px solid var(--line); font-size: 16px; }
+  .line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; font-size: 17px; }
+  .me { background: var(--blue-soft); border-radius: 6px; padding: 0 6px; margin: 0 -6px; }
+  .pos { font-size: 12px; color: var(--accent); font-style: italic; margin-left: 6px; }
+  .line .pos { margin-left: 0; }
+  .how { font-size: 13px; color: var(--muted); }
+  .gloss { font-size: 14px; }
+  .plain .gloss { margin-left: 8px; }
+  .fam-miss { margin-top: 20px; }
 </style>

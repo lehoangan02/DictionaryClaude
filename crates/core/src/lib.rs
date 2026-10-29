@@ -2,6 +2,7 @@
 
 pub mod ai;
 pub mod entry;
+pub mod family;
 pub mod forms;
 pub mod fuzzy;
 pub mod ipa;

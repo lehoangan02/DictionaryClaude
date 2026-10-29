@@ -1,5 +1,6 @@
 mod barrons;
 mod cmudict;
+mod family;
 mod gcide;
 mod moby;
 mod oald;
@@ -68,6 +69,8 @@ enum Cmd {
         #[arg(long)]
         limit: Option<usize>,
     },
+    /// Build the word-family pack (`family.pack`) from the kaikki.org English Wiktionary dump (the same file the Wiktionary pack is built from).
+    Family { input: PathBuf, out: PathBuf },
     /// Parse the Barron's PDF and print per-unit statistics (no files written yet).
     Barrons {
         pdf: PathBuf,
@@ -115,6 +118,7 @@ fn main() -> Result<()> {
         }
         Cmd::Wiktionary { input, out, limit } => wiktionary::build(&input, &out, limit)?,
         Cmd::Viwiktionary { input, out, limit } => wiktionary::build_flavor(&input, &out, limit, wiktionary::Flavor::Vietnamese)?,
+        Cmd::Family { input, out } => family::build(&input, &out)?,
         Cmd::Barrons { pdf, out } => {
             let lines = barrons::text::lines(&pdf_text(&pdf)?);
             let units = barrons::split_units(&lines);
