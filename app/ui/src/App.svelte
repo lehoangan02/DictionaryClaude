@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { app, boot, goBack, goForward, goTab, openMenu, closeMenu, menuToSettings, closeSettings, trackLocation, listenForBack, keepDownloadsGoing, watchHistory, type Tab } from './lib/store.svelte';
+  import { app, boot, goBack, goForward, goTab, openMenu, closeMenu, menuToSettings, openMore, closeMore, moreTo, closeSettings, trackLocation, listenForBack, keepDownloadsGoing, watchHistory, type Tab } from './lib/store.svelte';
   import SearchBar from './SearchBar.svelte';
   import EntryView from './EntryView.svelte';
   import History from './History.svelte';
@@ -51,15 +51,18 @@
 
   $effect(() => { void app.tab; void app.word; if (ready) trackLocation(); });
 
-  const tabs: { id: Tab; label: string; icon: string }[] = [
-    { id: 'search', label: 'Dictionary', icon: 'book' },
-    { id: 'history', label: 'History', icon: 'history' },
-    { id: 'quiz', label: 'Quizzes', icon: 'quiz' },
-    { id: 'notes', label: 'Notes', icon: 'notes' },
-    { id: 'thesaurus', label: 'Thesaurus', icon: 'swap' },
-    { id: 'forms', label: 'Forms', icon: 'grid' },
-    { id: 'claude', label: 'Claude', icon: 'chat' },
+  const tabs: { id: Tab; label: string; icon: string; hint: string }[] = [
+    { id: 'search', label: 'Dictionary', icon: 'book', hint: 'Look up a word' },
+    { id: 'history', label: 'History', icon: 'history', hint: 'The words you looked up, by day' },
+    { id: 'quiz', label: 'Quizzes', icon: 'quiz', hint: "Barron's units and quizzes of your notes" },
+    { id: 'notes', label: 'Notes', icon: 'notes', hint: "Your tutor's notes and note photos" },
+    { id: 'thesaurus', label: 'Thesaurus', icon: 'swap', hint: 'Synonyms and opposites of a word' },
+    { id: 'forms', label: 'Forms', icon: 'grid', hint: 'Plurals, tenses and the family of a word' },
+    { id: 'claude', label: 'Claude', icon: 'chat', hint: 'Ask about the app or ask for a change' },
   ];
+  // A phone's bottom bar holds four screens with their names, plus More for the rest (seven do not fit).
+  const bar = (['search', 'thesaurus', 'quiz', 'notes'] as Tab[]).map((id) => tabs.find((t) => t.id === id)!);
+  const extra = tabs.filter((t) => !bar.includes(t));
 
   // Keys that are text editing, or have their own meaning inside a control, are left alone.
   function typing(t: EventTarget | null) {
@@ -116,6 +119,21 @@
   </aside>
 {/if}
 
+{#if app.more}
+  <div class="scrim" onclick={closeMore} role="presentation"></div>
+  <div class="sheet" role="dialog" aria-label="More" in:fly={{ y: 360, duration: 260 }} out:fly={{ y: 360, duration: 180 }}>
+    <div class="grab" aria-hidden="true"></div>
+    {#each extra as t (t.id)}
+      <button class="mrow" class:on={app.tab === t.id} onclick={() => moreTo(t.id)}>
+        <span class="mic"><Icon name={t.icon} size={24} /></span><span class="mtx"><b>{t.label}</b><small>{t.hint}</small></span>
+      </button>
+    {/each}
+    <button class="mrow" onclick={() => moreTo('settings')}>
+      <span class="mic"><Icon name="settings" size={24} /></span><span class="mtx"><b>Settings</b><small>Dictionaries, sync, downloads and appearance</small></span>
+    </button>
+  </div>
+{/if}
+
 {#if app.settings}
   <div class="scrim" onclick={closeSettings} role="presentation"></div>
   <aside class="panel" aria-label="Settings" in:fly={{ x: 420, duration: 240 }} out:fly={{ x: 420, duration: 180 }}>
@@ -163,11 +181,14 @@
 
 {#if !app.focus}
 <nav class="tabbar" aria-label="Sections" in:enter={{ y: 40, duration: 260 }} out:softFade>
-  {#each tabs as t (t.id)}
-    <button class:on={app.tab === t.id} onclick={() => goTab(t.id)} aria-label={t.label}>
-      <Icon name={t.icon} size={24} /><span>{t.label}</span>
+  {#each bar as t (t.id)}
+    <button class:on={app.tab === t.id} onclick={() => goTab(t.id)} aria-current={app.tab === t.id ? 'page' : undefined}>
+      <span class="pill"><Icon name={t.icon} size={24} /></span><span class="lbl">{t.label}</span>
     </button>
   {/each}
+  <button class:on={extra.some((t) => t.id === app.tab)} onclick={openMore} aria-haspopup="dialog" aria-expanded={app.more}>
+    <span class="pill"><Icon name="more" size={24} /></span><span class="lbl">More</span>
+  </button>
 </nav>
 {/if}
 
@@ -189,6 +210,21 @@
     padding-top: env(safe-area-inset-top);
   }
   .phead { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px 8px 20px; border-bottom: 1px solid var(--line); background: var(--surface); font-size: 18px; }
+  /* The phone's More sheet rises from the bottom: one row per screen, with a line saying what it is for. */
+  .sheet {
+    position: fixed; z-index: 41; left: 0; right: 0; bottom: 0; max-width: 560px; margin: 0 auto;
+    background: var(--surface); border-radius: 24px 24px 0 0; box-shadow: 0 -10px 40px rgba(16, 40, 80, 0.25);
+    padding: 6px 12px calc(14px + env(safe-area-inset-bottom)); display: grid; gap: 2px;
+  }
+  .grab { width: 36px; height: 4px; border-radius: 2px; background: var(--line); margin: 4px auto 10px; }
+  .mrow { display: flex; align-items: center; gap: 14px; background: none; border: 0; border-radius: 16px; padding: 10px 12px; color: var(--text); text-align: left; }
+  .mrow:hover, .mrow:active { background: var(--panel-2); }
+  .mrow.on { background: var(--blue-soft); }
+  .mic { font-size: 19px; width: 44px; height: 44px; flex: none; border-radius: 50%; display: grid; place-items: center; background: var(--panel-2); color: var(--blue); }
+  .mrow.on .mic { background: var(--surface); }
+  .mtx { display: grid; gap: 2px; min-width: 0; }
+  .mtx b { font-size: 17px; }
+  .mtx small { color: var(--muted); font-size: 14px; }
   .pbody { overflow-y: auto; padding: 4px 16px calc(24px + env(safe-area-inset-bottom)); flex: 1; -webkit-overflow-scrolling: touch; }
   /* A floating bar: white, lifted off the page by its shadow, it stays put while content scrolls. */
   .top {
@@ -217,22 +253,18 @@
   @media (max-width: 720px) {
     .name { display: none; }
     .desk { display: none; }
-    /* Floating pill navigation at the bottom. */
+    /* A bottom bar docked to the screen's edge, as Android's: five slots, each an icon over its name, the current one in a tinted pill. */
     .tabbar {
-      display: flex; gap: 2px; position: fixed; z-index: 20;
-      left: 12px; right: 12px; bottom: calc(10px + env(safe-area-inset-bottom));
-      background: var(--surface); border: 1px solid var(--line); border-radius: 24px; box-shadow: var(--shadow); padding: 4px;
+      display: flex; position: fixed; z-index: 20; left: 0; right: 0; bottom: 0;
+      background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -4px 18px rgba(16, 40, 80, 0.08);
+      padding: 6px max(4px, env(safe-area-inset-right)) calc(6px + env(safe-area-inset-bottom)) max(4px, env(safe-area-inset-left));
     }
-    /* Content scrolls under the pill: fade it out so no text shows in the gaps around it. */
-    .tabbar::before {
-      content: ''; position: fixed; z-index: -1; left: 0; right: 0; bottom: 0; pointer-events: none;
-      height: calc(78px + env(safe-area-inset-bottom)); background: linear-gradient(to bottom, transparent, var(--bg) 45%);
-    }
-    /* Seven labels do not fit side by side (worse with a large system font): only the current tab shows its name, the rest are icons. */
-    .tabbar button { flex: 1 1 0; background: none; border: 0; padding: 8px 0; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 11px; color: var(--muted); gap: 2px; border-radius: 18px; min-width: 0; white-space: nowrap; }
-    .tabbar button span { display: none; }
-    .tabbar button { transition: background-color var(--t) var(--ease), color var(--t) var(--ease), transform var(--t-fast) var(--ease); }
-    .tabbar button.on { flex: 0 0 auto; padding: 8px 14px; color: var(--blue); background: var(--blue-soft); font-weight: 700; }
-    .tabbar button.on span { display: block; }
+    .tabbar button { flex: 1 1 0; min-width: 0; background: none; border: 0; padding: 4px 2px; display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--muted); font-size: 12px; font-weight: 500; transition: color var(--t) var(--ease); }
+    /* Icons are sized in em (app.css): 19px makes them 24px. */
+    .pill { font-size: 19px; display: grid; place-items: center; width: 60px; max-width: 100%; height: 32px; border-radius: 16px; transition: background-color var(--t) var(--ease); }
+    .lbl { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tabbar button:active .pill { background: var(--panel-2); }
+    .tabbar button.on { color: var(--blue); font-weight: 700; }
+    .tabbar button.on .pill { background: var(--blue-soft); }
   }
 </style>

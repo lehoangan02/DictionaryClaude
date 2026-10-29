@@ -18,6 +18,8 @@ export const app = $state({
   settings: false,
   // The left drawer (menu) is open.
   menu: false,
+  // The phone's "More" sheet (the screens that do not fit in the bottom bar) is open.
+  more: false,
   // Bumped when the dictionary order changes so tabs redraw.
   orderVersion: 0,
   // Bumped when History rows change by any route (a lookup here, or one synced in from another device).
@@ -167,6 +169,18 @@ export function menuToSettings() {
   if (!app.menu) return openSettings();
   app.menu = false; app.settings = true;
   stack[stack.length - 1].close = () => (app.settings = false);
+}
+
+export function openMore() {
+  if (app.more || app.menu || app.settings) return;
+  app.more = true;
+  openDetail(() => (app.more = false));
+}
+export function closeMore() { closeDetail(); }
+/** A choice in the More sheet: the sheet's place in the Back trail goes, and the choice opens as a tab tap would. */
+export function moreTo(t: Tab | 'settings') {
+  if (app.more && top().close) { stack.pop(); app.more = false; }
+  if (t === 'settings') openSettings(); else goTab(t);
 }
 
 /** Closes the open detail the way Back does. */

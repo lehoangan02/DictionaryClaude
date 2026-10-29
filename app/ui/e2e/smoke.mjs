@@ -151,6 +151,27 @@ await new Promise((r) => setTimeout(r, 700));
 ok((await m.$$('.srow')).length >= 1, 'retrieval search "wrong" finds the session with mistakes');
 await m.screenshot({ path: `${OUT}/quiz-sessions-mobile.png`, fullPage: true });
 
+// ---- phone navigation: four named tabs and More, a sheet with the other screens and what each is for ----
+{
+  const p = await newPage(390, 844);
+  await p.goto(BASE + '?tab=quiz', { waitUntil: 'networkidle0' });
+  const names = await p.$$eval('.tabbar button', (bs) => bs.map((b) => b.textContent.trim()));
+  ok(JSON.stringify(names) === JSON.stringify(['Dictionary', 'Thesaurus', 'Quizzes', 'Notes', 'More']), 'the phone bar shows four named tabs and More');
+  ok(await p.$$eval('.tabbar .lbl', (ls) => ls.every((l) => l.scrollWidth <= l.clientWidth)), 'no tab name is cut off at phone width');
+  await p.click('.tabbar button:last-child');
+  await p.waitForSelector('.sheet .mrow');
+  await p.screenshot({ path: `${OUT}/more-sheet-mobile.png` });
+  await p.evaluate(() => history.back());
+  await p.waitForFunction(() => !document.querySelector('.sheet'), { timeout: 4000 }).catch(() => {});
+  ok(!(await p.$('.sheet')) && (await text(p, 'h1')) === 'Quizzes', 'Back closes the More sheet and stays on the tab');
+  await p.click('.tabbar button:last-child');
+  await p.waitForSelector('.sheet .mrow');
+  await clickText(p, '.sheet .mrow', 'History');
+  await p.waitForFunction(() => !document.querySelector('.sheet') && document.querySelector('h1')?.textContent === 'History', { timeout: 4000 }).catch(() => {});
+  ok((await text(p, 'h1')) === 'History' && (await text(p, '.tabbar button.on')) === 'More', 'a screen chosen from More opens, with More marked as current');
+  await p.close();
+}
+
 // ---- motion: screens animate in, and reduced motion switches it off ----
 {
   const m1 = await newPage(1000, 800);
