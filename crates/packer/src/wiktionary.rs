@@ -1,5 +1,9 @@
 //! Converts the kaikki.org Wiktionary English dump (wiktextract JSONL, one
-//! line per word+part-of-speech) into a dictionary pack.
+//! line per word+part-of-speech) into a dictionary pack. The same reader
+//! builds the English-to-Vietnamese pack from the Vietnamese Wiktionary
+//! extract of the English words (`Flavor::Vietnamese`): same line shape, with
+//! Vietnamese glosses, a Vietnamese translation under each example and
+//! Vietnamese labels in `raw_tags`.
 //!
 //! Lines are grouped by lemma key as they stream past. A zstd dictionary is
 //! trained on the first few thousand groups, which roughly halves the size of
@@ -7,7 +11,7 @@
 
 use std::collections::HashSet;
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -38,6 +42,7 @@ struct Line {
 struct RSense {
     glosses: Vec<String>,
     tags: Vec<String>,
+    raw_tags: Vec<String>,
     examples: Vec<RExample>,
     synonyms: Vec<RWord>,
     antonyms: Vec<RWord>,
@@ -50,6 +55,7 @@ struct RSense {
 struct RExample {
     text: String,
     r#ref: String,
+    translation: String,
 }
 
 #[derive(Deserialize, Default)]
@@ -57,6 +63,7 @@ struct RExample {
 struct RSound {
     ipa: String,
     tags: Vec<String>,
+    raw_tags: Vec<String>,
     mp3_url: String,
     ogg_url: String,
 }
@@ -66,6 +73,7 @@ struct RSound {
 struct RForm {
     form: String,
     tags: Vec<String>,
+    raw_tags: Vec<String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -84,6 +92,31 @@ struct RHead {
 #[serde(default)]
 struct RWord {
     word: String,
+}
+
+/// Which kaikki dump is being read.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Flavor {
+    English,
+    Vietnamese,
+}
+
+impl Flavor {
+    fn source(self) -> &'static str {
+        match self {
+            Flavor::English => "Wiktionary (kaikki.org wiktextract), CC BY-SA 4.0",
+            Flavor::Vietnamese => "Vietnamese Wiktionary, English entries (kaikki.org wiktextract), CC BY-SA 4.0",
+        }
+    }
+}
+
+/// The accent a Vietnamese Wiktionary pronunciation label names, in the tags the UI knows.
+fn accent(label: &str) -> Option<&'static str> {
+    match label {
+        "Mỹ" => Some("US"),
+        "Anh" => Some("UK"),
+        _ => None,
+    }
 }
 
 const MAX_EXAMPLES: usize = 3;
@@ -130,7 +163,7 @@ fn etymology(raw: &str) -> Option<String> {
     (!text.is_empty()).then(|| text.to_string())
 }
 
-fn block(l: Line) -> Block {
+fn block(l: Line, flavor: Flavor) -> Block {
     let mut seen_ipa = HashSet::new();
     let mut sounds: Vec<Sound> = Vec::new();
     for s in &l.sounds {
@@ -142,7 +175,11 @@ fn block(l: Line) -> Block {
             _ => {}
         }
         if sounds.len() < 8 {
-            sounds.push(Sound { ipa, audio, tags: s.tags.iter().take(3).cloned().collect() });
+            let tags: Vec<String> = match flavor {
+                Flavor::English => s.tags.iter().take(3).cloned().collect(),
+                Flavor::Vietnamese => s.tags.iter().cloned().chain(s.raw_tags.iter().filter_map(|t| accent(t).map(String::from))).take(3).collect(),
+            };
+            sounds.push(Sound { ipa, audio, tags });
         }
     }
     let senses = l
@@ -157,13 +194,13 @@ fn block(l: Line) -> Block {
             Some(Sense {
                 gloss,
                 parents,
-                tags: s.tags,
+                tags: if flavor == Flavor::Vietnamese { s.tags.into_iter().chain(s.raw_tags).collect() } else { s.tags },
                 examples: s
                     .examples
                     .into_iter()
                     .filter(|e| !e.text.trim().is_empty())
                     .take(MAX_EXAMPLES)
-                    .map(|e| Example { text: clip(&e.text), by: (!e.r#ref.is_empty()).then(|| clip(&e.r#ref)) })
+                    .map(|e| Example { text: clip(&e.text), by: (!e.r#ref.is_empty()).then(|| clip(&e.r#ref)), tr: (!e.translation.trim().is_empty()).then(|| clip(&e.translation)) })
                     .collect(),
                 synonyms: words(&s.synonyms),
                 antonyms: words(&s.antonyms),
@@ -180,20 +217,44 @@ fn block(l: Line) -> Block {
         head: l.head_templates.into_iter().map(|h| h.expansion).find(|h| !h.is_empty()),
         etymology: etymology(&l.etymology_text),
         sounds,
-        forms: l
-            .forms
-            .into_iter()
-            .filter(|f| !f.form.is_empty() && f.form != "no-table-tags" && !f.tags.iter().any(|t| t == "table-tags"))
-            .take(MAX_FORMS)
-            .map(|f| Form { form: f.form, tags: f.tags })
-            .collect(),
+        forms: kept_forms(l.forms, flavor),
         senses,
         synonyms: words(&l.synonyms),
         antonyms: words(&l.antonyms),
     }
 }
 
+/// The forms worth keeping, the ones that fill the main slots first: a verb like "be" lists dozens of
+/// person-by-person forms before its participles, and the cap would cut those.
+fn kept_forms(forms: Vec<RForm>, flavor: Flavor) -> Vec<Form> {
+    let minor = |f: &RForm| f.tags.iter().any(|t| matches!(t.as_str(), "first-person" | "second-person" | "subjunctive" | "imperative" | "alternative"));
+    let mut forms: Vec<RForm> = forms
+        .into_iter()
+        .filter(|f| !f.form.is_empty() && f.form != "no-table-tags" && !f.tags.iter().any(|t| t == "table-tags" || t == "inflection-template"))
+        .collect();
+    forms.sort_by_key(minor);
+    forms
+        .into_iter()
+        .take(MAX_FORMS)
+        .map(|f| Form { form: f.form, tags: if f.tags.is_empty() && flavor == Flavor::Vietnamese { f.raw_tags } else { f.tags } })
+        .collect()
+}
+
+/// The dump as lines, whether it is gzipped (the English one) or plain JSONL (the Vietnamese one).
+fn open_lines(input: &Path) -> Result<Box<dyn BufRead>> {
+    let file = File::open(input).with_context(|| input.display().to_string())?;
+    let mut magic = [0u8; 2];
+    let mut head = BufReader::new(file);
+    let gz = head.read(&mut magic)? == 2 && magic == [0x1f, 0x8b];
+    let file = File::open(input)?;
+    Ok(if gz { Box::new(BufReader::with_capacity(1 << 20, MultiGzDecoder::new(file))) } else { Box::new(BufReader::with_capacity(1 << 20, file)) })
+}
+
 pub fn build(input: &Path, out: &Path, limit: Option<usize>) -> Result<()> {
+    build_flavor(input, out, limit, Flavor::English)
+}
+
+pub fn build_flavor(input: &Path, out: &Path, limit: Option<usize>, flavor: Flavor) -> Result<()> {
     for p in [out.to_path_buf(), out.with_extension("stage")] {
         if p.exists() {
             std::fs::remove_file(p)?;
@@ -211,7 +272,7 @@ pub fn build(input: &Path, out: &Path, limit: Option<usize>) -> Result<()> {
     stage.pragma_update(None, "journal_mode", "OFF")?;
     stage.pragma_update(None, "synchronous", "OFF")?;
     stage.execute_batch("CREATE TABLE stage(key TEXT NOT NULL, word TEXT NOT NULL, json TEXT NOT NULL); BEGIN")?;
-    let reader = BufReader::with_capacity(1 << 20, MultiGzDecoder::new(File::open(input).with_context(|| input.display().to_string())?));
+    let reader = open_lines(input)?;
     let (mut lines, mut skipped, mut staged) = (0usize, 0usize, 0usize);
     {
         let mut ins = stage.prepare("INSERT INTO stage VALUES (?,?,?)")?;
@@ -236,7 +297,7 @@ pub fn build(input: &Path, out: &Path, limit: Option<usize>) -> Result<()> {
                 continue;
             }
             let word = l.word.clone();
-            let b = block(l);
+            let b = block(l, flavor);
             if b.senses.is_empty() {
                 skipped += 1;
                 continue;
@@ -318,7 +379,7 @@ pub fn build(input: &Path, out: &Path, limit: Option<usize>) -> Result<()> {
     for (k, e) in std::mem::take(&mut pending) {
         put(&None, &k, &e)?;
     }
-    conn.execute("INSERT INTO meta VALUES('source', 'Wiktionary (kaikki.org wiktextract), CC BY-SA 4.0')", [])?;
+    conn.execute("INSERT INTO meta VALUES('source', ?)", [flavor.source()])?;
     conn.execute("INSERT INTO meta VALUES('entries', ?)", [entries.to_string()])?;
     conn.execute_batch("COMMIT; VACUUM;")?;
     drop(rows);
@@ -327,4 +388,49 @@ pub fn build(input: &Path, out: &Path, limit: Option<usize>) -> Result<()> {
     std::fs::remove_file(&stage_path)?;
     eprintln!("{lines} lines -> {staged} blocks -> {entries} entries ({skipped} skipped)");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn vietnamese_edition_keeps_glosses_translations_and_labels() {
+        let dir = std::env::temp_dir().join(format!("envi-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (input, out) = (dir.join("in.jsonl"), dir.join("envi.pack"));
+        let lines = [
+            r#"{"word":"quokka","lang_code":"en","pos":"noun","sounds":[{"ipa":"/ˈkwɒkə/","raw_tags":["Anh"]}],"forms":[{"form":"quokkas","raw_tags":["số nhiều"]}],"senses":[{"glosses":["Một loài thú nhỏ."],"raw_tags":["động vật học"],"examples":[{"text":"A quokka smiled.","translation":"Một con quokka mỉm cười."}]}]}"#,
+            r#"{"word":"quokka","lang_code":"vi","pos":"noun","senses":[{"glosses":["không phải tiếng Anh"]}]}"#,
+            r#"{"word":"empty","lang_code":"en","pos":"adj","senses":[{}]}"#,
+        ];
+        std::fs::write(&input, lines.join("\n")).unwrap();
+        build_flavor(&input, &out, None, Flavor::Vietnamese).unwrap();
+        let pack = gredict_core::pack::Pack::open(&out).unwrap();
+        assert_eq!(pack.len().unwrap(), 1);
+        let e = pack.get("quokka").unwrap().unwrap();
+        let b = &e.blocks[0];
+        assert_eq!(b.sounds[0].tags, ["UK"]);
+        assert_eq!(b.forms[0].tags, ["số nhiều"]);
+        let s = &b.senses[0];
+        assert_eq!(s.gloss, "Một loài thú nhỏ.");
+        assert_eq!(s.tags, ["động vật học"]);
+        assert_eq!(s.examples[0].tr.as_deref(), Some("Một con quokka mỉm cười."));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn the_main_forms_survive_the_cap_and_template_junk_is_dropped() {
+        let f = |form: &str, tags: &[&str]| RForm { form: form.into(), tags: tags.iter().map(|t| t.to_string()).collect(), raw_tags: vec![] };
+        let mut forms = vec![f("glossary", &["inflection-template"]), f("be", &["infinitive"])];
+        for i in 0..14 {
+            forms.push(f(&format!("p{i}"), &["first-person", "present", "singular"]));
+        }
+        forms.push(f("is", &["present", "singular", "third-person"]));
+        forms.push(f("been", &["participle", "past"]));
+        let kept = kept_forms(forms, Flavor::English);
+        assert_eq!(kept.len(), MAX_FORMS);
+        assert_eq!(kept.iter().map(|k| k.form.as_str()).take(3).collect::<Vec<_>>(), ["be", "is", "been"]);
+        assert!(kept.iter().all(|k| k.form != "glossary"));
+    }
 }

@@ -626,6 +626,7 @@ dependencies = [
  "tiny_http",
  "ureq",
  "uuid",
+ "zstd",
 ]
 
 [[package]]

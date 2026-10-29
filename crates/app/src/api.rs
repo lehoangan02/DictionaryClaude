@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use anyhow::{anyhow, bail, Result};
 use gredict_core::entry::Entry;
+use gredict_core::forms;
 use gredict_core::notes::{self, Graph};
 use gredict_core::pack::Pack;
 use gredict_core::thesaurus::Thesaurus;
@@ -47,6 +48,7 @@ const SOURCES: &[(&str, &str, &str)] = &[
     ("wordnet", "WordNet", "wordnet.pack"),
     ("gcide", "Webster 1913", "gcide.pack"),
     ("oald", "OALD", "oald.pack"),
+    ("envi", "English → Vietnamese", "envi.pack"),
 ];
 
 fn open_cache(dir: &std::path::Path) -> Result<Connection> {
@@ -235,6 +237,7 @@ impl Api {
             "audio_get" => self.audio_get(&req("url")?),
             "audio_oald" => Ok(json!({"url": self.oald_recording(&req("word")?, &a("accent").unwrap_or_default())})),
             "audio_prefetch" => self.audio_prefetch(n("limit", 20) as usize),
+            "forms" => self.forms(&req("word")?),
             "thesaurus" => {
                 let word = req("word")?;
                 let key = lemma::key(&word);
@@ -621,6 +624,44 @@ impl Api {
         let m = Arc::new(m);
         *self.barrons_syn.write().unwrap() = Some(m.clone());
         m
+    }
+
+    /// Every inflected form of a word as paradigm tables. An inflected word ("went") shows the tables
+    /// of the lemma it belongs to ("go"); a word that is both ("saw") shows both.
+    fn forms(&self, word: &str) -> Result<Value> {
+        let key = lemma::key(word);
+        let Some(src) = self.sources.iter().find(|s| s.id == "wiktionary") else {
+            bail!("Word forms come from the Wiktionary dictionary; download it in Settings → Downloads.");
+        };
+        let mut groups: Vec<Value> = Vec::new();
+        let mut shown = word.trim().to_string();
+        {
+            let pack = src.pack.lock().unwrap();
+            if let Some(e) = pack.get(&key)? {
+                shown = e.word.clone();
+                // "went" first shows the lemma it is a form of; its own tables (if it has any) follow.
+                for l in forms::lemmas_of(&e) {
+                    let lk = lemma::key(&l);
+                    if lk == key {
+                        continue;
+                    }
+                    if let Some(le) = pack.get(&lk)? {
+                        let tables = forms::paradigms(&le.word, &le.blocks);
+                        // Senses like "abbreviation of X" also point at a lemma; only a table that lists this word is its inflection.
+                        let lists_it = tables.iter().any(|t| t.rows.iter().any(|r| r.forms.iter().any(|c| lemma::key(&c.form) == key)));
+                        if lists_it {
+                            groups.push(json!({"lemma": le.word, "via": e.word, "tables": tables}));
+                        }
+                    }
+                }
+                let own = forms::paradigms(&e.word, &e.blocks);
+                if !own.is_empty() {
+                    groups.push(json!({"lemma": e.word, "via": null, "tables": own}));
+                }
+            }
+        }
+        let did_you_mean = if groups.is_empty() { self.fuzzy(&key)? } else { Vec::new() };
+        Ok(json!({"key": key, "word": shown, "groups": groups, "did_you_mean": did_you_mean}))
     }
 
     fn thesaurus(&self, key: &str) -> Result<Value> {

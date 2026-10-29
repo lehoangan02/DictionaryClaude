@@ -21,6 +21,7 @@ const KNOWN: &[(&str, &str, &str, &str, &[&str])] = &[
     ("gcide", "Webster 1913", "The classic unabridged Webster, rich in literary words (GCIDE).", "GPL / public domain", &["gcide.pack"]),
     ("moby", "Moby Thesaurus", "Broad synonym lists that feed the GRE thesaurus.", "Public domain", &["moby.pack"]),
     ("ai", "Meaning search (AI model)", "A small language model (bge-small) that lets search find quiz sessions by meaning. It runs on this device, on the Neural Engine or phone NPU when there is one.", "MIT", &["bge-small-en-v1.5-q.onnx", "bge-small-en-v1.5-tokenizer.json"]),
+    ("envi", "English → Vietnamese", "Vietnamese meanings of 119 000 English words (Vietnamese Wiktionary), with Vietnamese translations of some examples. Downloaded from your server; not bundled.", "CC BY-SA 4.0", &["envi.pack"]),
     ("cmudict", "Pronunciations (CMU)", "IPA for words the dictionaries give none for.", "BSD", &["cmudict.pack"]),
     ("oald", "OALD", "Oxford Advanced Learner's Dictionary: 57 000 entries with definitions, examples and IPA (personal extraction from the owner's Premium app). Downloaded from your server on request, never bundled.", "Personal use", &["oald.pack"]),
     ("oald-audio", "OALD recordings", "The Oxford voices: a UK and a US recording of every OALD headword, as in the Oxford app (large; without it OALD reads words with the system voice).", "Personal use", &["oald-audio.pack"]),
@@ -30,7 +31,7 @@ const KNOWN: &[(&str, &str, &str, &str, &[&str])] = &[
 /// OALD is Oxford's content, so it is never bundled into a build either, and its recordings are large.
 const MANUAL: &[&str] = &["oald", "oald-audio"];
 
-const SOURCES_FILES: &[(&str, &str)] = &[("wiktionary", "wiktionary.pack"), ("wordnet", "wordnet.pack"), ("gcide", "gcide.pack"), ("oald", "oald.pack")];
+const SOURCES_FILES: &[(&str, &str)] = &[("wiktionary", "wiktionary.pack"), ("wordnet", "wordnet.pack"), ("gcide", "gcide.pack"), ("oald", "oald.pack"), ("envi", "envi.pack")];
 
 /// Where a pack file is read from: a downloaded copy wins over a bundled one.
 pub(crate) fn locate(data_dir: &Path, bundled: &Path, file: &str) -> PathBuf {

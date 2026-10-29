@@ -60,7 +60,7 @@
   const shownId = $derived<string>(waiting ? app.source : (data?.source?.id ?? app.source));
 
   // Short, modern sentences first; dated quotations stay one click away.
-  type Ex = { text: string; by?: string };
+  type Ex = { text: string; by?: string; tr?: string };
   // A quotation Wiktionary cut short (ends in an ellipsis) or that no longer contains the word is dropped.
   const usable = (e: Ex, word: string) =>
     !/(…|\.\.\.)\s*$/.test(e.text) && (!e.by || highlight(e.text, word).some((p) => p.hit));
@@ -193,13 +193,13 @@
                 {#if s.examples?.length && split(s.examples, entry.word).shown.length}
                   {@const ex = split(s.examples, entry.word)}
                   <ul class="exs">
-                    {#each ex.shown as e}<li>{@render hl(e.text, entry.word)}{#if e.by}<span class="by"> — {e.by}</span>{/if}</li>{/each}
+                    {#each ex.shown as e}<li>{@render hl(e.text, entry.word)}{#if e.by}<span class="by"> — {e.by}</span>{/if}{#if e.tr}<span class="tr">{e.tr}</span>{/if}</li>{/each}
                   </ul>
                   {#if ex.more.length}
                     <div class="quotes">
                       <Disclosure label="{ex.more.length} more example{ex.more.length > 1 ? 's' : ''}">
                         <ul class="exs">
-                          {#each ex.more as e}<li>{@render hl(e.text, entry.word)}{#if e.by}<span class="by"> — {e.by}</span>{/if}</li>{/each}
+                          {#each ex.more as e}<li>{@render hl(e.text, entry.word)}{#if e.by}<span class="by"> — {e.by}</span>{/if}{#if e.tr}<span class="tr">{e.tr}</span>{/if}</li>{/each}
                         </ul>
                       </Disclosure>
                     </div>
@@ -320,6 +320,7 @@
   .exs li { position: relative; padding-left: 20px; margin: 5px 0; font-style: italic; color: var(--text); font-size: 18px; }
   .exs li::before { content: ''; position: absolute; left: 6px; top: 0.7em; width: 6px; height: 6px; border-radius: 50%; background: var(--muted); }
   .by { font-style: normal; font-size: 13px; color: var(--muted); }
+  .tr { display: block; font-style: normal; font-size: 14px; color: var(--muted); }
   .quotes { margin: 2px 0 0 0; font-size: 14px; }
   .forms { color: var(--muted); font-size: 14px; display: flex; flex-wrap: wrap; gap: 4px 16px; }
   .forms em { font-style: normal; font-size: 12px; }

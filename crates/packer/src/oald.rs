@@ -192,7 +192,7 @@ pub fn build(dir: &Path, out: &Path) -> Result<()> {
                     examples: s
                         .examples
                         .iter()
-                        .map(|t| Example { text: t.clone(), by: None })
+                        .map(|t| Example { text: t.clone(), by: None, tr: None })
                         .collect(),
                     ..Default::default()
                 }

@@ -154,7 +154,7 @@ pub fn build(input: &Path, out: &Path) -> Result<()> {
                     gloss: syn.definition.trim().to_string(),
                     synonyms: syns,
                     antonyms: ants,
-                    examples: syn.examples.iter().map(|t| Example { text: t.trim().trim_matches('"').to_string(), by: None }).collect(),
+                    examples: syn.examples.iter().map(|t| Example { text: t.trim().trim_matches('"').to_string(), by: None, tr: None }).collect(),
                     ..Default::default()
                 })
             })
