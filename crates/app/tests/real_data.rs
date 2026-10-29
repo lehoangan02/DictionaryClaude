@@ -316,3 +316,27 @@ fn headwords_come_with_syllables_from_whichever_dictionary_has_them() {
     // No source knows a made-up word: no syllables, no entry.
     assert!(api.call("entry", json!({"word": "zzqxv", "record": false})).unwrap()["syl"].is_null());
 }
+
+#[test]
+fn word_families_link_a_gre_word_to_its_relatives() {
+    let Some(api) = api() else { return };
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    if !root.join("data/packs/family.pack").exists() {
+        return;
+    }
+    let family = |w: &str| -> Value { api.call("forms", json!({"word": w})).unwrap()["family"].clone() };
+    let names = |v: &Value| -> Vec<String> { v.as_array().unwrap().iter().map(|m| m["word"].as_str().unwrap().to_string()).collect() };
+    // Etymology notes put "loquaciously" under "loquacious" under "loquacity".
+    let f = family("loquaciously");
+    let tree = names(&f["members"]);
+    for w in ["loquacity", "loquacious", "loquaciously"] {
+        assert!(tree.contains(&w.to_string()), "{w} missing from {tree:?}");
+    }
+    // Wiktionary has no link between these three; the shared stem finds the others.
+    let f = family("malefaction");
+    let guess = names(&f["stem"]);
+    assert!(guess.contains(&"malefactor".to_string()) && guess.contains(&"malefactress".to_string()), "{guess:?}");
+    // An inflected word shows the family of its lemma.
+    assert_eq!(family("abated")["word"], "abate");
+    assert!(names(&family("abate")["members"]).contains(&"abatement".to_string()));
+}
