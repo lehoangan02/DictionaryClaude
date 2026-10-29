@@ -100,6 +100,8 @@
   let pwOld = $state('');
   let pwMsg = $state('');
   let pwBusy = $state(false);
+  let pwShow = $state(false);
+  const PW_MIN = 6;
   async function loadWho() { who = status.paired ? await call('owner_status') : null; }
   $effect(() => { void app.version; void status.paired; loadWho().catch(() => { who = null; }); });
   async function enterPassword() {
@@ -227,6 +229,11 @@
 {#if status.paired && who}
   <section class="card rise" style="--i:4">
     <h3>Owner password</h3>
+    <p class="status small" class:ok={who.role === 'owner' && who.password_set}>
+      {#if who.role === 'guest'}Not verified: this device is a guest.
+      {:else if who.password_set}✓ Verified: this device is yours, and the owner password is set.
+      {:else}This device is yours, but no owner password is set yet.{/if}
+    </p>
     {#if who.role === 'owner'}
       <p class="muted small">This is the owner's device: it syncs your notes, history and chats, and chats use the server's own Claude. Other people who pair a device are guests: they see none of this.</p>
       <details class="alt">
@@ -235,16 +242,19 @@
           ? 'Your other devices will ask for the new password once.'
           : 'A new device of yours asks for this password once, in Settings, to be recognised as yours. Until you set one, a new device stays a guest.'}</p>
         {#if who.password_set}<label class="f">Current password
-          <input type="password" bind:value={pwOld} autocomplete="current-password" /></label>{/if}
-        <label class="f">{who.password_set ? 'New password' : 'Password'} (at least 6 characters)
-          <input type="password" bind:value={pw} autocomplete="new-password" /></label>
-        <button class="btn" disabled={pwBusy || pw.length < 8 || (who.password_set && !pwOld)} onclick={savePassword}>{who.password_set ? 'Change password' : 'Set password'}</button>
+          <input type={pwShow ? 'text' : 'password'} bind:value={pwOld} autocomplete="current-password" autocapitalize="none" spellcheck="false" /></label>{/if}
+        <label class="f">{who.password_set ? 'New password' : 'Password'} (at least {PW_MIN} characters)
+          <input type={pwShow ? 'text' : 'password'} bind:value={pw} autocomplete="new-password" autocapitalize="none" spellcheck="false" /></label>
+        <label class="show small"><input type="checkbox" bind:checked={pwShow} /> Show what I type ({pw.length} characters)</label>
+        <button class="btn" disabled={pwBusy || pw.length < PW_MIN || (who.password_set && !pwOld)} onclick={savePassword}>{pwBusy ? 'Saving…' : who.password_set ? 'Change password' : 'Set password'}</button>
+        {#if pw.length > 0 && pw.length < PW_MIN}<p class="muted small">{PW_MIN - pw.length} more character{PW_MIN - pw.length === 1 ? '' : 's'} needed.</p>{/if}
       </details>
     {:else}
       <p class="muted small">This device is a <b>guest</b>: the owner's notes, history and Barron's never reach it, and your own notes stay on this device. If it is the owner's, enter the owner password once.</p>
       {#if who.password_set}
         <label class="f">Owner password
-          <input type="password" bind:value={pw} autocomplete="current-password" onkeydown={(e) => { if (e.key === 'Enter' && pw) enterPassword(); }} /></label>
+          <input type={pwShow ? 'text' : 'password'} bind:value={pw} autocomplete="current-password" autocapitalize="none" spellcheck="false" onkeydown={(e) => { if (e.key === 'Enter' && pw) enterPassword(); }} /></label>
+        <label class="show small"><input type="checkbox" bind:checked={pwShow} /> Show what I type</label>
         <button class="btn primary" disabled={pwBusy || !pw} onclick={enterPassword}>{pwBusy ? 'Checking…' : 'This is my device'}</button>
       {:else}
         <p class="muted small">The owner has not set a password yet (they do it from their own device).</p>
@@ -356,6 +366,9 @@
   .seg button { background: var(--bg); border: 0; padding: 8px 18px; text-transform: capitalize; }
   .seg button.on { background: var(--blue); color: #fff; }
   .small { font-size: 13px; }
+  .status { margin: 8px 0; font-weight: 600; color: var(--muted); }
+  .status.ok { color: #1a7f37; }
+  .show { display: flex; align-items: center; gap: 6px; margin: 0 0 12px; color: var(--muted); }
   .devs { list-style: none; margin: 8px 0 0; padding: 0; }
   .devs li { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-top: 1px solid var(--line); }
   .devs .nm { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow-wrap: anywhere; }
