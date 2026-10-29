@@ -1,6 +1,6 @@
 import { call } from './api';
 
-export type Tab = 'search' | 'history' | 'quiz' | 'notes' | 'thesaurus' | 'claude';
+export type Tab = 'search' | 'history' | 'quiz' | 'notes' | 'thesaurus' | 'forms' | 'claude';
 
 export const app = $state({
   tab: 'search' as Tab,

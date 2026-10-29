@@ -18,3 +18,4 @@ regex.workspace = true
 
 [dev-dependencies]
 tiny_http.workspace = true
+zstd.workspace = true

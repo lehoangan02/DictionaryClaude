@@ -217,17 +217,27 @@ fn block(l: Line, flavor: Flavor) -> Block {
         head: l.head_templates.into_iter().map(|h| h.expansion).find(|h| !h.is_empty()),
         etymology: etymology(&l.etymology_text),
         sounds,
-        forms: l
-            .forms
-            .into_iter()
-            .filter(|f| !f.form.is_empty() && f.form != "no-table-tags" && !f.tags.iter().any(|t| t == "table-tags"))
-            .take(MAX_FORMS)
-            .map(|f| Form { form: f.form, tags: if f.tags.is_empty() && flavor == Flavor::Vietnamese { f.raw_tags } else { f.tags } })
-            .collect(),
+        forms: kept_forms(l.forms, flavor),
         senses,
         synonyms: words(&l.synonyms),
         antonyms: words(&l.antonyms),
     }
+}
+
+/// The forms worth keeping, the ones that fill the main slots first: a verb like "be" lists dozens of
+/// person-by-person forms before its participles, and the cap would cut those.
+fn kept_forms(forms: Vec<RForm>, flavor: Flavor) -> Vec<Form> {
+    let minor = |f: &RForm| f.tags.iter().any(|t| matches!(t.as_str(), "first-person" | "second-person" | "subjunctive" | "imperative" | "alternative"));
+    let mut forms: Vec<RForm> = forms
+        .into_iter()
+        .filter(|f| !f.form.is_empty() && f.form != "no-table-tags" && !f.tags.iter().any(|t| t == "table-tags" || t == "inflection-template"))
+        .collect();
+    forms.sort_by_key(minor);
+    forms
+        .into_iter()
+        .take(MAX_FORMS)
+        .map(|f| Form { form: f.form, tags: if f.tags.is_empty() && flavor == Flavor::Vietnamese { f.raw_tags } else { f.tags } })
+        .collect()
 }
 
 /// The dump as lines, whether it is gzipped (the English one) or plain JSONL (the Vietnamese one).
@@ -407,5 +417,20 @@ mod tests {
         assert_eq!(s.tags, ["động vật học"]);
         assert_eq!(s.examples[0].tr.as_deref(), Some("Một con quokka mỉm cười."));
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn the_main_forms_survive_the_cap_and_template_junk_is_dropped() {
+        let f = |form: &str, tags: &[&str]| RForm { form: form.into(), tags: tags.iter().map(|t| t.to_string()).collect(), raw_tags: vec![] };
+        let mut forms = vec![f("glossary", &["inflection-template"]), f("be", &["infinitive"])];
+        for i in 0..14 {
+            forms.push(f(&format!("p{i}"), &["first-person", "present", "singular"]));
+        }
+        forms.push(f("is", &["present", "singular", "third-person"]));
+        forms.push(f("been", &["participle", "past"]));
+        let kept = kept_forms(forms, Flavor::English);
+        assert_eq!(kept.len(), MAX_FORMS);
+        assert_eq!(kept.iter().map(|k| k.form.as_str()).take(3).collect::<Vec<_>>(), ["be", "is", "been"]);
+        assert!(kept.iter().all(|k| k.form != "glossary"));
     }
 }

@@ -7,6 +7,7 @@
   import Quiz from './Quiz.svelte';
   import Notes from './Notes.svelte';
   import ThesaurusSearch from './ThesaurusSearch.svelte';
+  import Forms from './Forms.svelte';
   import Settings from './Settings.svelte';
   import Claude from './Claude.svelte';
   import ServerPill from './ServerPill.svelte';
@@ -56,6 +57,7 @@
     { id: 'quiz', label: 'Quizzes', icon: 'quiz' },
     { id: 'notes', label: 'Notes', icon: 'notes' },
     { id: 'thesaurus', label: 'Thesaurus', icon: 'swap' },
+    { id: 'forms', label: 'Forms', icon: 'grid' },
     { id: 'claude', label: 'Claude', icon: 'chat' },
   ];
 
@@ -149,6 +151,8 @@
           <Notes />
         {:else if app.tab === 'thesaurus'}
           <ThesaurusSearch />
+        {:else if app.tab === 'forms'}
+          <Forms />
         {:else}
           <Claude />
         {/if}
@@ -215,7 +219,7 @@
     .desk { display: none; }
     /* Floating pill navigation at the bottom. */
     .tabbar {
-      display: grid; grid-template-columns: repeat(6, 1fr); position: fixed; z-index: 20;
+      display: grid; grid-template-columns: repeat(7, 1fr); position: fixed; z-index: 20;
       left: 12px; right: 12px; bottom: calc(10px + env(safe-area-inset-bottom));
       background: var(--surface); border: 1px solid var(--line); border-radius: 24px; box-shadow: var(--shadow); padding: 4px;
     }
