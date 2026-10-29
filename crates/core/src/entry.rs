@@ -85,4 +85,7 @@ pub struct Example {
     pub text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub by: Option<String>,
+    /// The example translated (English-to-Vietnamese pack).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tr: Option<String>,
 }

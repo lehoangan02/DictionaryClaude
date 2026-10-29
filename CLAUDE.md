@@ -53,6 +53,7 @@ cargo build --release                  # packer, gredict-server, gredict-syncd
 ./target/release/packer wiktionary data/raw/kaikki.org-dictionary-English.jsonl.gz data/packs/wiktionary.pack
 ./target/release/packer wordnet data/raw/english-wordnet-2024.xml.gz data/packs/wordnet.pack
 ./target/release/packer moby data/raw/mthesaur.txt data/packs/moby.pack
+./target/release/packer viwiktionary data/raw/viwiktionary-english.jsonl data/packs/envi.pack          # English -> Vietnamese (kaikki.org Vietnamese Wiktionary, English entries)
 ./target/release/packer fst data/packs/wiktionary.pack data/packs/wiktionary.fst
 ./target/release/packer barrons private/barrons-essential-words-4e.pdf --out private/barrons.sqlite   # validates every unit/key; refuses to write on any problem
 ./target/release/packer oald ../OALData data/packs/oald.pack                                           # OALD dictionary (adds oald:<name> recording references when OALData/json/oald_audio.json exists)

@@ -138,7 +138,7 @@ pub fn parse_file(text: &str, out: &mut BTreeMap<String, Entry>) {
             let body = &d[1];
             let mut tags: Vec<String> = MARK.captures_iter(para).map(|m| clean(&m[1]).trim_matches(['[', ']']).to_string()).filter(|t| !t.is_empty()).collect();
             tags.dedup();
-            let usage: Vec<Example> = AS.captures_iter(body).map(|a| Example { text: clean(&a[1]).trim_start_matches("as, ").to_string(), by: None }).filter(|e| !e.text.is_empty()).collect();
+            let usage: Vec<Example> = AS.captures_iter(body).map(|a| Example { text: clean(&a[1]).trim_start_matches("as, ").to_string(), by: None, tr: None }).filter(|e| !e.text.is_empty()).collect();
             // The gloss without the embedded "as, ..." usage.
             let gloss = clean(&AS.replace_all(body, ""));
             let gloss = gloss.trim_end_matches([';', ' ']).to_string();
@@ -154,7 +154,7 @@ pub fn parse_file(text: &str, out: &mut BTreeMap<String, Entry>) {
             for q in QUOTE.captures_iter(para) {
                 let text = clean(&q[1]);
                 if !text.is_empty() && last.examples.len() < 3 {
-                    last.examples.push(Example { text, by: by.clone() });
+                    last.examples.push(Example { text, by: by.clone(), tr: None });
                 }
             }
         }

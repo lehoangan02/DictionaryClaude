@@ -60,6 +60,14 @@ enum Cmd {
         #[arg(long)]
         limit: Option<usize>,
     },
+    /// Build the English-to-Vietnamese pack from the kaikki.org Vietnamese Wiktionary dump of the English words (plain or gzipped JSONL).
+    Viwiktionary {
+        input: PathBuf,
+        out: PathBuf,
+        /// Stop after this many input lines (for quick experiments).
+        #[arg(long)]
+        limit: Option<usize>,
+    },
     /// Parse the Barron's PDF and print per-unit statistics (no files written yet).
     Barrons {
         pdf: PathBuf,
@@ -106,6 +114,7 @@ fn main() -> Result<()> {
             }
         }
         Cmd::Wiktionary { input, out, limit } => wiktionary::build(&input, &out, limit)?,
+        Cmd::Viwiktionary { input, out, limit } => wiktionary::build_flavor(&input, &out, limit, wiktionary::Flavor::Vietnamese)?,
         Cmd::Barrons { pdf, out } => {
             let lines = barrons::text::lines(&pdf_text(&pdf)?);
             let units = barrons::split_units(&lines);

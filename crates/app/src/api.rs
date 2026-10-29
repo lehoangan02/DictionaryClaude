@@ -47,6 +47,7 @@ const SOURCES: &[(&str, &str, &str)] = &[
     ("wordnet", "WordNet", "wordnet.pack"),
     ("gcide", "Webster 1913", "gcide.pack"),
     ("oald", "OALD", "oald.pack"),
+    ("envi", "English → Vietnamese", "envi.pack"),
 ];
 
 fn open_cache(dir: &std::path::Path) -> Result<Connection> {
