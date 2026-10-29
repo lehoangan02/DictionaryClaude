@@ -1,6 +1,6 @@
 [package]
 name = "ladybird"
-version = "0.17.24"
+version = "0.17.25"
 edition = "2021"
 description = "LadyBird: an offline GRE dictionary"
 
