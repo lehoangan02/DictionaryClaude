@@ -11,7 +11,7 @@ use gredict_core::family::{self, FamilyPack};
 use gredict_core::forms;
 use gredict_core::notes::{self, Graph};
 use gredict_core::pack::Pack;
-use gredict_core::thesaurus::Thesaurus;
+use gredict_core::thesaurus::{ThesSense, Thesaurus};
 use gredict_core::fuzzy::Fuzzy;
 use gredict_core::ipa::Pronunciations;
 use gredict_core::lemma;
@@ -66,6 +66,8 @@ pub struct Api {
     /// Set when a pack was added or removed: the shell should reopen the Api.
     pub(crate) reload: std::sync::atomic::AtomicBool,
     pub(crate) moby: Option<Mutex<Thesaurus>>,
+    /// WordNet's related words grouped by meaning (`wnthes.pack`).
+    pub(crate) wnthes: Option<Mutex<Thesaurus>>,
     /// Which words are built from which (`family.pack`), for the Forms tab.
     family: Option<Mutex<FamilyPack>>,
     /// Hot-swappable: a paired device receives the parsed book from the server.
@@ -109,7 +111,7 @@ impl Api {
         let db = userdb::open(&data_dir.join("user.sqlite"))?;
         let device = Self::device_id(&db)?;
         let fuzzy_paths = [data_dir.join("none.fst"), data_dir.join("none.fst")];
-        Ok(Api { sources: Vec::new(), packs_dir: packs_dir.to_path_buf(), pack_progress: Default::default(), reload: Default::default(), moby: None, family: None, barrons: RwLock::new(None), private_dir: None, db: Mutex::new(db), device, guest: false, rng: Mutex::new(now_ms() as u64 | 1), data_dir: data_dir.to_path_buf(), cache: Mutex::new(open_cache(data_dir)?), pron: None, dirty: Default::default(), fuzzy: OnceLock::new(), ai: OnceLock::new(), fuzzy_paths, barrons_syn: RwLock::new(None) })
+        Ok(Api { sources: Vec::new(), packs_dir: packs_dir.to_path_buf(), pack_progress: Default::default(), reload: Default::default(), moby: None, wnthes: None, family: None, barrons: RwLock::new(None), private_dir: None, db: Mutex::new(db), device, guest: false, rng: Mutex::new(now_ms() as u64 | 1), data_dir: data_dir.to_path_buf(), cache: Mutex::new(open_cache(data_dir)?), pron: None, dirty: Default::default(), fuzzy: OnceLock::new(), ai: OnceLock::new(), fuzzy_paths, barrons_syn: RwLock::new(None) })
     }
 
     /// A guest's own store on the sync server: no dictionaries and none of the owner's data.
@@ -147,6 +149,8 @@ impl Api {
         // No packs is allowed: a fresh phone starts empty and downloads them.
         let moby = find("moby.pack");
         let moby = moby.exists().then(|| Thesaurus::open(&moby)).transpose()?.map(Mutex::new);
+        let wnthes = find("wnthes.pack");
+        let wnthes = wnthes.exists().then(|| Thesaurus::open(&wnthes)).transpose()?.map(Mutex::new);
         let family = find("family.pack");
         let family = family.exists().then(|| FamilyPack::open(&family)).transpose()?.map(Mutex::new);
         let barrons = match cfg.private_dir.as_ref().map(|d| d.join("barrons.sqlite")) {
@@ -158,7 +162,7 @@ impl Api {
             p.exists().then(|| Pronunciations::open(&p)).transpose()?.map(Mutex::new)
         };
         let fuzzy_paths = [find("wiktionary.fst"), cfg.data_dir.join("wiktionary.fst")];
-        Ok(Api { sources, packs_dir: cfg.packs_dir.clone(), pack_progress: Default::default(), reload: Default::default(), moby, family, barrons: RwLock::new(barrons), private_dir: cfg.private_dir, db: Mutex::new(db), device, guest: false, rng: Mutex::new(now_ms() as u64 | 1), data_dir: cfg.data_dir.clone(), cache: Mutex::new(open_cache(&cfg.data_dir)?), pron, dirty: Default::default(), fuzzy: OnceLock::new(), ai: OnceLock::new(), fuzzy_paths, barrons_syn: RwLock::new(None) })
+        Ok(Api { sources, packs_dir: cfg.packs_dir.clone(), pack_progress: Default::default(), reload: Default::default(), moby, wnthes, family, barrons: RwLock::new(barrons), private_dir: cfg.private_dir, db: Mutex::new(db), device, guest: false, rng: Mutex::new(now_ms() as u64 | 1), data_dir: cfg.data_dir.clone(), cache: Mutex::new(open_cache(&cfg.data_dir)?), pron, dirty: Default::default(), fuzzy: OnceLock::new(), ai: OnceLock::new(), fuzzy_paths, barrons_syn: RwLock::new(None) })
     }
 
     pub fn call(&self, cmd: &str, args: Value) -> Result<Value> {
@@ -599,6 +603,12 @@ impl Api {
                 }
             }
         }
+        // WordNet's own groups: the words of the same meaning and the ones it calls similar.
+        if let Some(w) = &self.wnthes {
+            for t in w.lock().unwrap().senses(key)? {
+                precise.extend(t.synonyms.iter().chain(&t.similar).map(|w| lemma::key(w)));
+            }
+        }
         let mut broad = HashSet::new();
         if let Some(m) = &self.moby {
             broad.extend(m.lock().unwrap().get(key)?.into_iter().take(150).map(|w| lemma::key(&w)));
@@ -708,7 +718,52 @@ impl Api {
         Ok(json!({"word": word, "members": members, "related": related, "stem": stem}))
     }
 
+    /// The thesaurus of a word; for an inflected form that has no dictionary synonyms of its own ("disseminated"),
+    /// the thesaurus of the word it is a form of, with `via` saying so.
     fn thesaurus(&self, key: &str) -> Result<Value> {
+        let out = self.thesaurus_of(key)?;
+        if has_meanings(&out) {
+            return Ok(out);
+        }
+        let mut lemmas: Vec<String> = Vec::new();
+        for s in self.sources.iter().filter(|s| s.id == "wiktionary") {
+            if let Some(e) = s.pack.lock().unwrap().get(key)? {
+                lemmas.extend(forms::lemmas_of(&e).iter().map(|l| lemma::key(l)));
+            }
+        }
+        for lk in lemmas.into_iter().filter(|l| l != key) {
+            let mut o = self.thesaurus_of(&lk)?;
+            if has_meanings(&o) {
+                o["via"] = json!({"word": lk, "form": key});
+                return Ok(o);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Moby's synonyms of `key` best first. The list is alphabetical and long, so a plain cut keeps only the
+    /// A-to-G words: words WordNet agrees with come first, then words whose own Moby list names `key` back
+    /// (the strongest sign of a true synonym in Moby), then GRE words.
+    fn moby_ranked(&self, key: &str, wordnet: &HashSet<String>, limit: usize) -> Result<Vec<String>> {
+        let Some(m) = &self.moby else { return Ok(Vec::new()) };
+        let m = m.lock().unwrap();
+        let barrons = self.barrons();
+        let mut scored: Vec<(usize, String)> = Vec::new();
+        for (i, w) in m.get(key)?.into_iter().take(400).enumerate() {
+            let ck = lemma::key(&w);
+            if ck == key {
+                continue;
+            }
+            let mutual = m.get(&ck)?.iter().any(|x| x.eq_ignore_ascii_case(key));
+            let gre = barrons.as_ref().is_some_and(|b| b.contains(&ck));
+            let score = 4 * (wordnet.contains(&ck) as usize) + 3 * (mutual as usize) + gre as usize;
+            scored.push((score * 1000 + (999 - i.min(999)), w));
+        }
+        scored.sort_by(|a, b| b.0.cmp(&a.0));
+        Ok(scored.into_iter().take(limit).map(|(_, w)| w).collect())
+    }
+
+    fn thesaurus_of(&self, key: &str) -> Result<Value> {
         let notes = self.note_graph()?.related(key);
         let (mine, mine_broad) = self.synonym_tiers(key)?;
 
@@ -777,15 +832,18 @@ impl Api {
         ant.truncate(12);
         general["synonyms"] = json!(syn);
         general["antonyms"] = json!(ant);
-        let moby: Vec<String> = match &self.moby {
-            Some(m) => m.lock().unwrap().get(key)?.into_iter().take(30).collect(),
+        let senses: Vec<ThesSense> = match &self.wnthes {
+            Some(w) => w.lock().unwrap().senses(key)?,
             None => Vec::new(),
         };
+        let wordnet: HashSet<String> = mine.iter().cloned().collect();
+        let moby = self.moby_ranked(key, &wordnet, 40)?;
         // Every chip the UI shows that is itself a Barron's word gets a GRE dot.
         let mut gre_words: Vec<String> = Vec::new();
         if let Some(b) = &barrons {
             let mut note_words: Vec<String> = Vec::new();
             let mut chips: Vec<&str> = syn.iter().chain(&ant).chain(&moby).map(|w| w.as_str()).collect();
+            chips.extend(senses.iter().flat_map(|t| t.synonyms.iter().chain(&t.similar).chain(&t.broader).chain(&t.narrower).chain(&t.opposite)).map(|w| w.as_str()));
             let notes_json = serde_json::to_value(&notes)?;
             if let Some(o) = notes_json.as_object() {
                 note_words = o.values().filter_map(|v| v.as_array()).flatten().filter_map(|v| v.as_str().map(String::from)).collect();
@@ -797,8 +855,17 @@ impl Api {
                 }
             }
         }
-        Ok(json!({"notes": notes, "barrons": barrons_related, "general": general, "moby": moby, "gre_words": gre_words}))
+        let senses: Vec<Value> = senses
+            .iter()
+            .map(|t| json!({"pos": t.pos, "gloss": t.gloss, "synonyms": t.synonyms, "similar": t.similar, "broader": t.broader, "narrower": t.narrower, "opposite": t.opposite}))
+            .collect();
+        Ok(json!({"notes": notes, "barrons": barrons_related, "general": general, "senses": senses, "moby": moby, "gre_words": gre_words}))
     }
+}
+
+/// True when a thesaurus answer has dictionary-grade content (meanings or synonyms), not just Moby's loose list.
+fn has_meanings(t: &Value) -> bool {
+    t["senses"].as_array().is_some_and(|a| !a.is_empty()) || t["general"]["synonyms"].as_array().is_some_and(|a| !a.is_empty())
 }
 
 /// Levenshtein distance, or `None` once it must exceed `max`.

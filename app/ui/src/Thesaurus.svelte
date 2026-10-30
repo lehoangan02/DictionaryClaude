@@ -18,6 +18,19 @@
   const syn: string[] = $derived(data?.general?.synonyms ?? []);
   const ant: string[] = $derived(data?.general?.antonyms ?? []);
   const moby: string[] = $derived(data?.moby ?? []);
+  type Sense = { pos: string; gloss: string; synonyms: string[]; similar: string[]; broader: string[]; narrower: string[]; opposite: string[] };
+  const senses: Sense[] = $derived(data?.senses ?? []);
+  const GROUPS = [
+    ['synonyms', 'Same meaning'],
+    ['similar', 'Similar'],
+    ['opposite', 'Opposite'],
+    ['broader', 'Broader'],
+    ['narrower', 'Narrower'],
+  ] as const;
+  // Dictionary synonyms the meanings above do not already list.
+  const inSenses = $derived(new Set(senses.flatMap((s) => [...s.synonyms, ...s.similar])));
+  const moreSyn = $derived(syn.filter((w) => !inSenses.has(w)));
+  const via: { word: string; form: string } | null = $derived(data?.via ?? null);
   const greSet = $derived(new Set<string>(data?.gre_words ?? []));
   let showMoby = $state(false);
 </script>
@@ -28,9 +41,10 @@
   </span>
 {/snippet}
 
-{#if hasNotes || gre.length || syn.length || ant.length || moby.length}
+{#if hasNotes || gre.length || senses.length || syn.length || ant.length || moby.length}
   <section class="th rise" class:alone style="--i:2">
     <h2>{alone ? word : 'GRE thesaurus'} <span class="muted">· {alone ? 'GRE thesaurus' : word}</span></h2>
+    {#if via}<p class="muted via">“{via.form}” is a form of <button class="lnk" onclick={() => pick(via.word)}>{via.word}</button>; this is its thesaurus.</p>{/if}
 
     {#if hasNotes}
       <div class="box mine rise" style="--i:0">
@@ -60,11 +74,27 @@
       </div>
     {/if}
 
-    {#if syn.length || ant.length}
+    {#if senses.length}
       <div class="box rise" style="--i:2">
-        <h3>Dictionary synonyms</h3>
-        {#if syn.length}<p class="row"><span class="sym" title="Synonyms">≈</span>
-          {#each syn as w (w)}{@render wordChip(w)}{/each}</p>{/if}
+        <h3>By meaning <span class="muted">· WordNet</span></h3>
+        {#each senses as s, i (i)}
+          <div class="sense">
+            <p class="gloss"><span class="pos">{s.pos}</span> {s.gloss}</p>
+            {#each GROUPS as [k, label] (k)}
+              {#if s[k].length}
+                <p class="row"><span class="lab">{label}</span>{#each s[k] as w (w)}{@render wordChip(w)}{/each}</p>
+              {/if}
+            {/each}
+          </div>
+        {/each}
+      </div>
+    {/if}
+
+    {#if moreSyn.length || ant.length}
+      <div class="box rise" style="--i:2">
+        <h3>{senses.length ? 'More from the dictionary' : 'Dictionary synonyms'}</h3>
+        {#if moreSyn.length}<p class="row"><span class="sym" title="Synonyms">≈</span>
+          {#each moreSyn as w (w)}{@render wordChip(w)}{/each}</p>{/if}
         {#if ant.length}<p class="row"><span class="sym" title="Opposite">&gt;&lt;</span>
           {#each ant as w (w)}{@render wordChip(w)}{/each}</p>{/if}
       </div>
@@ -72,7 +102,7 @@
 
     {#if moby.length}
       <div class="box rise" style="--i:3">
-        <h3>More words <span class="muted">· Moby thesaurus</span></h3>
+        <h3>Loosely related <span class="muted">· Moby thesaurus, best matches first</span></h3>
         <p class="row">
           {#each showMoby ? moby : moby.slice(0, 12) as w (w)}{@render wordChip(w)}{/each}
           {#if !showMoby && moby.length > 12}<button class="btn small" onclick={() => (showMoby = true)}>+{moby.length - 12}</button>{/if}
@@ -96,6 +126,13 @@
     display: inline-grid; place-items: center; min-width: 34px; height: 28px; margin-right: 8px; border-radius: 6px;
     background: var(--navy); color: #fff; font-weight: 700; font-size: 14px;
   }
+  .sense { padding: 6px 0; border-top: 1px solid var(--line); }
+  .sense:first-of-type { border-top: 0; }
+  .gloss { margin: 0 0 2px; font-size: 14px; }
+  .pos { font-size: 12px; font-style: italic; color: var(--muted); margin-right: 4px; }
+  .lab { min-width: 78px; margin-right: 8px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .via { margin: 0 0 6px; font-size: 14px; }
+  .lnk { background: none; border: 0; padding: 0; font: inherit; font-weight: 700; color: var(--blue); }
   .gdot { display: inline-block; width: 7px; height: 7px; margin-left: 6px; border-radius: 50%; background: var(--accent); vertical-align: middle; }
   .pair { display: inline-flex; align-items: center; margin: 2px 4px 2px 0; }
   .pair .chip { margin: 0; }

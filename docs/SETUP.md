@@ -91,6 +91,7 @@ P=./target/release/packer
 $P wiktionary data/raw/kaikki.org-dictionary-English.jsonl.gz data/packs/wiktionary.pack
 $P wordnet data/raw/english-wordnet-2024.xml.gz data/packs/wordnet.pack
 $P moby data/raw/mthesaur.txt data/packs/moby.pack
+$P wnthes data/raw/english-wordnet-2024.xml.gz data/packs/wnthes.pack
 (cd data/raw && mkdir -p gcide && tar -xJf gcide-0.53.tar.xz -C gcide) && $P gcide data/raw/gcide/gcide-0.53 data/packs/gcide.pack
 $P cmudict data/raw/cmudict.dict data/packs/cmudict.pack
 $P fst data/packs/wiktionary.pack data/packs/wiktionary.fst
