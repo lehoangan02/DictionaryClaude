@@ -18,6 +18,7 @@ use crate::api::Api;
 const KNOWN: &[(&str, &str, &str, &str, &[&str])] = &[
     ("wiktionary", "Wiktionary", "The main dictionary: definitions, examples, IPA, etymology, synonyms, word forms and typo-tolerant search.", "CC BY-SA 4.0", &["wiktionary.pack", "wiktionary.fst"]),
     ("wordnet", "WordNet", "Princeton-style word senses with synonym groups. Open English WordNet 2024.", "CC BY 4.0", &["wordnet.pack"]),
+    ("wnthes", "WordNet thesaurus", "Related words grouped by meaning (same, similar, broader, narrower, opposite) for the Thesaurus tab. Open English WordNet 2024. Downloaded from your server; not bundled.", "CC BY 4.0", &["wnthes.pack"]),
     ("gcide", "Webster 1913", "The classic unabridged Webster, rich in literary words (GCIDE).", "GPL / public domain", &["gcide.pack"]),
     ("moby", "Moby Thesaurus", "Broad synonym lists that feed the GRE thesaurus.", "Public domain", &["moby.pack"]),
     ("ai", "Meaning search (AI model)", "A small language model (bge-small) that lets search find quiz sessions by meaning. It runs on this device, on the Neural Engine or phone NPU when there is one.", "MIT", &["bge-small-en-v1.5-q.onnx", "bge-small-en-v1.5-tokenizer.json"]),

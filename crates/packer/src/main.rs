@@ -6,6 +6,7 @@ mod moby;
 mod oald;
 mod oald_audio;
 mod wiktionary;
+mod wnthes;
 mod wordnet;
 
 use std::path::PathBuf;
@@ -31,6 +32,8 @@ enum Cmd {
     Fst { pack: PathBuf, out: PathBuf },
     /// Build the WordNet pack from english-wordnet-*.xml.gz.
     Wordnet { input: PathBuf, out: PathBuf },
+    /// Build the WordNet thesaurus pack (related words grouped by meaning) from the Open English WordNet XML.
+    Wnthes { input: PathBuf, out: PathBuf },
     /// Build the Moby thesaurus pack from mthesaur.txt.
     Moby { input: PathBuf, out: PathBuf },
     /// Build the OALD pack from the extracted OALData directory.
@@ -99,6 +102,7 @@ fn main() -> Result<()> {
         Cmd::Gcide { dir, out } => gcide::build(&dir, &out)?,
         Cmd::Fst { pack, out } => println!("{} keys", gredict_core::fuzzy::Fuzzy::build(&pack, &out)?),
         Cmd::Wordnet { input, out } => wordnet::build(&input, &out)?,
+        Cmd::Wnthes { input, out } => wnthes::build(&input, &out)?,
         Cmd::Moby { input, out } => moby::build(&input, &out)?,
         Cmd::Oald { dir, out } => oald::build(&dir, &out)?,
         Cmd::OaldAudio { dir, out } => oald_audio::build(&dir, &out)?,
