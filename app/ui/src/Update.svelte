@@ -1,6 +1,8 @@
 <script lang="ts" module>
   // One check per few minutes, shared by the banner and the Settings card.
   let cache: { at: number; p: Promise<any> } | null = null;
+  // The banner the person swiped away: stays gone across pages until the notice itself changes.
+  let dismissedKey = '';
   export function checkUpdate(current: string, force = false) {
     if (!force && cache && Date.now() - cache.at < 10 * 60_000) return cache.p;
     const p = import('./lib/api').then(({ call }) => call('update_check', { current }));
@@ -23,6 +25,22 @@
   let progress = $state({ done: 0, total: 0, stage: 'idle' });
   const mb = (n: number) => (n / 1048576).toFixed(1);
   const isAndroid = /Android/i.test(navigator.userAgent);
+
+  let dismissed = $state(dismissedKey);
+  // Swiping the banner sideways far enough sets it aside; a shorter swipe springs back.
+  let drag = $state<{ x0: number; dx: number } | null>(null);
+  const FAR = 80;
+  function down(e: PointerEvent) {
+    if ((e.target as HTMLElement).closest('button') || busy) return;
+    drag = { x0: e.clientX, dx: 0 };
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+  }
+  function move(e: PointerEvent) { if (drag) drag.dx = e.clientX - drag.x0; }
+  function up(key: string) {
+    if (drag && Math.abs(drag.dx) > FAR) { dismissed = dismissedKey = key; }
+    drag = null;
+  }
+  const dragStyle = $derived(drag ? `transform:translateX(${drag.dx}px);opacity:${Math.max(0.3, 1 - Math.abs(drag.dx) / 300)};transition:none` : '');
 
   async function check(force = false) {
     if (!version) return;
@@ -98,8 +116,9 @@
 <svelte:window onfocus={back} />
 
 {#if banner}
-  {#if info?.newer && info.asset}
-    <div class="ban card fadein">
+  {#if info?.newer && info.asset && dismissed !== `v${info.latest}`}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="ban card fadein" style={dragStyle} onpointerdown={down} onpointermove={move} onpointerup={() => up(`v${info.latest}`)} onpointercancel={() => (drag = null)}>
       <div class="txt">
         <span><b>Version {info.latest}</b> is available (you have {version}).</span>
         {#if status}<span class="small" class:bad={msg.startsWith('Update failed')}>{status}</span>{/if}
@@ -107,8 +126,9 @@
       </div>
       <button class="btn small primary" disabled={busy} onclick={() => install()}>{label}</button>
     </div>
-  {:else if msg.startsWith('Could not check')}
-    <div class="ban card fadein"><span class="small bad">{msg}</span></div>
+  {:else if msg.startsWith('Could not check') && dismissed !== msg}
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div class="ban card fadein" style={dragStyle} onpointerdown={down} onpointermove={move} onpointerup={() => up(msg)} onpointercancel={() => (drag = null)}><span class="small bad">{msg}</span></div>
   {/if}
 {:else if version}
   {#if info?.newer}
@@ -123,7 +143,7 @@
 {/if}
 
 <style>
-  .ban { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 14px; padding: 10px 14px; background: var(--blue-soft); }
+  .ban { touch-action: pan-y; transition: transform 0.2s, opacity 0.2s; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 14px; padding: 10px 14px; background: var(--blue-soft); }
   .notes { white-space: pre-line; max-height: 9em; overflow: auto; }
   .small { font-size: 13px; }
   .txt { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
