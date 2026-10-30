@@ -61,7 +61,7 @@
     { id: 'claude', label: 'Claude', icon: 'chat', hint: 'Ask about the app or ask for a change' },
   ];
   // A phone's bottom bar holds four screens with their names, plus More for the rest (seven do not fit).
-  const bar = (['search', 'thesaurus', 'quiz', 'notes'] as Tab[]).map((id) => tabs.find((t) => t.id === id)!);
+  const bar = (['search', 'thesaurus', 'quiz', 'history'] as Tab[]).map((id) => tabs.find((t) => t.id === id)!);
   const extra = tabs.filter((t) => !bar.includes(t));
 
   // Keys that are text editing, or have their own meaning inside a control, are left alone.
