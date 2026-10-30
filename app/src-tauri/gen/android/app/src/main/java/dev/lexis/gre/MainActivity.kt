@@ -1,6 +1,7 @@
 package dev.lexis.gre
 
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -19,9 +20,17 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : TauriActivity() {
+  private companion object {
+    const val LOCAL_NETWORK = "android.permission.ACCESS_LOCAL_NETWORK"
+  }
+
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
+    // Android 17 asks before an app may reach devices on the home network, such as the sync server.
+    if (Build.VERSION.SDK_INT >= 37 && checkSelfPermission(LOCAL_NETWORK) != PackageManager.PERMISSION_GRANTED) {
+      requestPermissions(arrayOf(LOCAL_NETWORK), 7)
+    }
     // Keep the page clear of the status bar, notch and gesture bar.
     val content = findViewById<View>(android.R.id.content)
     ViewCompat.setOnApplyWindowInsetsListener(content) { v, insets ->
