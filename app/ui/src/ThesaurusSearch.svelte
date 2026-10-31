@@ -87,7 +87,7 @@
 {#if error}<p class="err">{error}</p>{/if}
 {#if data}
   <Thesaurus {data} {word} alone pick={go} lookup={open} />
-  <p><button class="btn small ghost" onclick={() => open(word)}>Open “{word}” in the dictionary</button></p>
+  <p><button class="btn small primary" onclick={() => open(word)}>Open “{word}” in the dictionary</button></p>
 {/if}
 
 <ThesaurusHistory pick={go} seen={visits} />
