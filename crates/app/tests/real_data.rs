@@ -340,3 +340,35 @@ fn word_families_link_a_gre_word_to_its_relatives() {
     assert_eq!(family("abated")["word"], "abate");
     assert!(names(&family("abate")["members"]).contains(&"abatement".to_string()));
 }
+
+#[test]
+fn history_words_become_quiz_questions() {
+    let Some(api) = api() else { return };
+    let none = api.call("quiz_start", json!({"kind": "history"})).unwrap_err().to_string();
+    assert!(none.contains("History"), "{none}");
+    for w in ["abate", "lucid", "loquacious", "obdurate", "ephemeral", "candid"] {
+        api.call("entry", json!({"word": w})).unwrap();
+    }
+    // Thesaurus visits are a separate history and never become questions.
+    api.call("thesaurus", json!({"word": "zealous", "record": true})).unwrap();
+    assert_eq!(api.call("quiz_catalog", json!({})).unwrap()["history"]["words"], 6);
+    for mode in ["def_to_word", "word_to_def", "cloze"] {
+        let s = match api.call("quiz_start", json!({"kind": "history", "mode": mode, "count": 4})) {
+            Ok(s) => s,
+            Err(e) => {
+                // Not every word has an example sentence to blank out.
+                assert_eq!(mode, "cloze", "{e}");
+                continue;
+            }
+        };
+        assert!(s["title"].as_str().unwrap().starts_with("My history"));
+        for it in s["items"].as_array().unwrap() {
+            assert!(it["choices"][0].as_array().unwrap().len() >= 4, "{it}");
+            assert!(!it["prompt"].as_str().unwrap().contains("zealous"));
+        }
+    }
+    api.call("history_star", json!({"id": api.call("history_list", json!({}))
+        .unwrap()[0]["id"], "starred": 1})).unwrap();
+    let e = api.call("quiz_start", json!({"kind": "history", "starred": true})).unwrap_err().to_string();
+    assert!(e.contains("at least 4"), "{e}");
+}

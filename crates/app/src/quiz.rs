@@ -102,8 +102,13 @@ impl Api {
             let rows = st.query_map([], |r| r.get(0))?.collect::<std::result::Result<_, _>>()?;
             rows
         };
+        let history: i64 = self.db.lock().unwrap().query_row(
+            "SELECT count(DISTINCT key) FROM lookups WHERE deleted=0 AND source<>?1 AND key<>''",
+            params![crate::api::THESAURUS_SOURCE],
+            |r| r.get(0),
+        )?;
         let Some(b) = self.barrons() else {
-            return Ok(json!({"barrons": false, "units": [], "notes": {"relations": relations, "dates": dates}}));
+            return Ok(json!({"barrons": false, "units": [], "notes": {"relations": relations, "dates": dates}, "history": {"words": history}}));
         };
         let conn = b.conn.lock().unwrap();
         let mut st = conn.prepare(
@@ -129,7 +134,7 @@ impl Api {
                 list.push(json!({"id": id, "kind": kind, "title": title, "count": count}));
             }
         }
-        Ok(json!({"barrons": true, "units": units, "extras": groups, "words": b.entries.values().map(Vec::len).sum::<usize>(), "notes": {"relations": relations, "dates": dates}}))
+        Ok(json!({"barrons": true, "units": units, "extras": groups, "words": b.entries.values().map(Vec::len).sum::<usize>(), "notes": {"relations": relations, "dates": dates}, "history": {"words": history}}))
     }
 
     // ---- building items -----------------------------------------------------
@@ -289,6 +294,79 @@ impl Api {
         Ok(out)
     }
 
+    /// Items from the words the owner looked up in the Dictionary (its History): meaning/word/cloze
+    /// questions built from their dictionary entries, distractors from the other looked-up words.
+    fn history_items(&self, mode: &str, starred: bool, days: Option<u64>, count: usize) -> Result<Vec<Item>> {
+        let since = days.map_or(0, |d| now_ms() - d as i64 * 86_400_000);
+        let words: Vec<(String, String)> = {
+            let db = self.db.lock().unwrap();
+            let mut st = db.prepare(
+                "SELECT key, word FROM lookups WHERE deleted=0 AND source<>?1 AND ts>=?2 AND (?3=0 OR starred=1) AND key<>''
+                 GROUP BY key ORDER BY MAX(ts) DESC LIMIT 400",
+            )?;
+            let rows = st.query_map(params![crate::api::THESAURUS_SOURCE, since, starred as i64], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<std::result::Result<_, _>>()?;
+            rows
+        };
+        if words.is_empty() {
+            bail!("{}", if starred { "no starred words in your History yet" } else { "your History has no words yet; look some up first" });
+        }
+        // (key, word, short meaning, one example sentence)
+        let mut cards: Vec<(String, String, String, Option<String>)> = Vec::new();
+        for (key, word) in words {
+            let lower = key.to_lowercase();
+            let mut found: Option<(String, Option<String>)> = None;
+            for src in self.sources.iter().filter(|s| s.id != "envi") {
+                let Some(e) = src.pack.lock().unwrap().get(&key)? else { continue };
+                let senses = e.blocks.iter().flat_map(|b| &b.senses).filter(|x| x.form_of.is_none() && !x.gloss.trim().is_empty() && !x.gloss.to_lowercase().contains(&lower));
+                if let Some(sense) = senses.clone().next() {
+                    let example = senses.flat_map(|x| &x.examples).map(|x| x.text.as_str()).find_map(|t| blank_word(t, &word).filter(|_| t.chars().count() <= 200));
+                    found = Some((sense.gloss.trim().to_string(), example));
+                    break;
+                }
+            }
+            if let Some((gloss, example)) = found {
+                cards.push((key, word, gloss, example));
+            }
+        }
+        if cards.len() < 4 {
+            bail!("need at least 4 words with a definition in your History (found {}); look up more words first", cards.len());
+        }
+        let mut rng = self.rng();
+        let mut order: Vec<usize> = (0..cards.len()).collect();
+        rng.shuffle(&mut order);
+        let mut out = Vec::new();
+        for i in order {
+            if out.len() >= count {
+                break;
+            }
+            let (key, word, gloss, example) = &cards[i];
+            let others: Vec<&(String, String, String, Option<String>)> = cards.iter().filter(|c| c.0 != *key).collect();
+            let item = match mode {
+                "word_to_def" => {
+                    let pool: Vec<String> = others.iter().map(|c| c.2.clone()).collect();
+                    let d = rng.pick(&pool, &HashSet::new(), 3);
+                    Item { id: format!("hw2d-{key}"), kind: "word_to_def".into(), prompt: word.clone(), choices: vec![mcq(&mut rng, gloss, d)], expected: vec![gloss.clone()], explanation: None, words: vec![key.clone()], group: Some("Word → meaning".into()), passage: None }
+                }
+                "cloze" => {
+                    let Some(sentence) = example else { continue };
+                    let pool: Vec<String> = others.iter().map(|c| c.1.clone()).collect();
+                    let d = rng.pick(&pool, &HashSet::new(), 3);
+                    Item { id: format!("hcz-{key}"), kind: "cloze".into(), prompt: sentence.clone(), choices: vec![mcq(&mut rng, word, d)], expected: vec![word.clone()], explanation: Some(format!("{word}: {gloss}")), words: vec![key.clone()], group: Some("Fill the blank".into()), passage: None }
+                }
+                _ => {
+                    let pool: Vec<String> = others.iter().map(|c| c.1.clone()).collect();
+                    let d = rng.pick(&pool, &HashSet::new(), 3);
+                    Item { id: format!("hd2w-{key}"), kind: "def_to_word".into(), prompt: gloss.clone(), choices: vec![mcq(&mut rng, word, d)], expected: vec![word.clone()], explanation: None, words: vec![key.clone()], group: Some("Meaning → word".into()), passage: None }
+                }
+            };
+            out.push(item);
+        }
+        if out.is_empty() {
+            bail!("none of your History words has an example sentence to blank out; try another style");
+        }
+        Ok(out)
+    }
+
     // ---- sessions -----------------------------------------------------------
 
     pub(crate) fn quiz_start(&self, req: &Value) -> Result<Value> {
@@ -324,6 +402,14 @@ impl Api {
                 let date = s("session_date").filter(|d| !d.is_empty());
                 let items = self.note_items(date, s("tag").filter(|t| !t.is_empty()), n("count", 15))?;
                 (format!("My notes{}", date.map_or(String::new(), |d| format!(" · {d}"))), items)
+            }
+            "history" => {
+                let mode = s("mode").unwrap_or("def_to_word");
+                let starred = req.get("starred").and_then(Value::as_bool).unwrap_or(false);
+                let days = req.get("days").and_then(Value::as_u64).filter(|d| *d > 0);
+                let label = match mode { "word_to_def" => "Word → meaning", "cloze" => "Fill the blank", _ => "Meaning → word" };
+                let scope = if starred { " (starred)".to_string() } else { days.map_or(String::new(), |d| format!(" (last {d} days)")) };
+                (format!("My history · {label}{scope}"), self.history_items(mode, starred, days, n("count", 15))?)
             }
             "retry" => {
                 let id = s("session_id").ok_or_else(|| anyhow!("missing `session_id`"))?;
