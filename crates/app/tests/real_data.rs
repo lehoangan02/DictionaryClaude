@@ -372,3 +372,15 @@ fn history_words_become_quiz_questions() {
     let e = api.call("quiz_start", json!({"kind": "history", "starred": true})).unwrap_err().to_string();
     assert!(e.contains("at least 4"), "{e}");
 }
+
+#[test]
+fn history_quiz_takes_the_meaning_from_wordnet() {
+    let Some(api) = api() else { return };
+    for w in ["buffer", "abate", "lucid", "loquacious"] {
+        api.call("entry", json!({"word": w})).unwrap();
+    }
+    let s = api.call("quiz_start", json!({"kind": "history", "mode": "def_to_word", "count": 4})).unwrap();
+    let prompts: Vec<&str> = s["items"].as_array().unwrap().iter().map(|it| it["prompt"].as_str().unwrap()).collect();
+    assert!(prompts.iter().any(|p| p.starts_with("a neutral zone between two rival powers")), "{prompts:?}");
+    assert!(!prompts.iter().any(|p| p.contains("polish") || p.starts_with('(')), "{prompts:?}");
+}

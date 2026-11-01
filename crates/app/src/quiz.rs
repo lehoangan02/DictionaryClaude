@@ -314,17 +314,26 @@ impl Api {
         let mut cards: Vec<(String, String, String, Option<String>)> = Vec::new();
         for (key, word) in words {
             let lower = key.to_lowercase();
-            let mut found: Option<(String, Option<String>)> = None;
-            for src in self.sources.iter().filter(|s| s.id != "envi") {
+            // WordNet first: Wiktionary lists senses by word origin, so its first one can be a rare meaning.
+            let mut sources: Vec<_> = self.sources.iter().filter(|s| s.id != "envi").collect();
+            sources.sort_by_key(|s| s.id != "wordnet");
+            let (mut gloss, mut example): (Option<String>, Option<String>) = (None, None);
+            for src in sources {
                 let Some(e) = src.pack.lock().unwrap().get(&key)? else { continue };
-                let senses = e.blocks.iter().flat_map(|b| &b.senses).filter(|x| x.form_of.is_none() && !x.gloss.trim().is_empty() && !x.gloss.to_lowercase().contains(&lower));
-                if let Some(sense) = senses.clone().next() {
-                    let example = senses.flat_map(|x| &x.examples).map(|x| x.text.as_str()).find_map(|t| blank_word(t, &word).filter(|_| t.chars().count() <= 200));
-                    found = Some((sense.gloss.trim().to_string(), example));
+                let senses: Vec<_> = e.blocks.iter().flat_map(|b| &b.senses).filter(|x| x.form_of.is_none() && !x.gloss.trim().is_empty() && !x.gloss.to_lowercase().contains(&lower)).collect();
+                if gloss.is_none() {
+                    // A sense with a field label, like "(chemistry) ...", only when the word has no general one.
+                    let sense = senses.iter().find(|x| !x.gloss.trim_start().starts_with('(')).or(senses.first());
+                    gloss = sense.map(|x| x.gloss.trim().to_string());
+                }
+                if example.is_none() {
+                    example = senses.iter().flat_map(|x| &x.examples).map(|x| x.text.as_str()).find_map(|t| blank_word(t, &word).filter(|_| t.chars().count() <= 200));
+                }
+                if gloss.is_some() && example.is_some() {
                     break;
                 }
             }
-            if let Some((gloss, example)) = found {
+            if let Some(gloss) = gloss {
                 cards.push((key, word, gloss, example));
             }
         }
