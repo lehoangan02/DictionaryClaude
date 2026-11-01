@@ -29,6 +29,11 @@
   let noteDate = $state('');
   let noteCount = $state(12);
 
+  // History form
+  let hMode = $state('def_to_word');
+  let hScope = $state('all');
+  let hCount = $state(15);
+
   async function loadCat() { cat = await call('quiz_catalog'); }
   async function loadSessions() { sessions = await call('sessions_list', { q: q.trim() || undefined, limit: 40 }); }
   $effect(() => { void app.version; loadCat().catch((e) => (error = e.message)); });
@@ -46,6 +51,10 @@
     ...(scope === 'high' ? { high_freq: true } : scope === 'range' ? { unit_from: uFrom, unit_to: uTo } : {}),
   });
   const startNotes = () => start({ kind: 'notes', count: noteCount, session_date: noteDate || undefined });
+  const startHistory = () => start({
+    kind: 'history', mode: hMode, count: hCount,
+    ...(hScope === 'starred' ? { starred: true } : hScope === 'all' ? {} : { days: Number(hScope) }),
+  });
   const startUnit = (ids: string[]) => start({ kind: 'barrons', quiz_ids: ids });
   async function resume(id: string) {
     busy = true; error = '';
@@ -137,6 +146,33 @@
         <label>Questions <input type="number" min="5" max="100" bind:value={count} /></label>
       </div>
       <button class="btn primary" onclick={startWords} disabled={busy}>Start</button>
+    {/if}
+  </section>
+
+  <section class="card rise" style="--i:2">
+    <h3>My history</h3>
+    {#if (cat?.history?.words ?? 0) < 4}
+      <p class="muted">Look up at least 4 words in the Dictionary and they become quiz questions here.</p>
+    {:else}
+      <p class="muted">{cat.history.words} words you looked up in the Dictionary.</p>
+      <div class="grid">
+        <label>Style
+          <select bind:value={hMode}>
+            <option value="def_to_word">Meaning → word</option>
+            <option value="word_to_def">Word → meaning</option>
+            <option value="cloze">Fill the blank (sentences)</option>
+          </select></label>
+        <label>Words
+          <select bind:value={hScope}>
+            <option value="all">Everything I looked up</option>
+            <option value="1">Last 24 hours</option>
+            <option value="7">Last 7 days</option>
+            <option value="30">Last 30 days</option>
+            <option value="starred">Starred only</option>
+          </select></label>
+        <label>Questions <input type="number" min="4" max="100" bind:value={hCount} /></label>
+      </div>
+      <button class="btn primary" onclick={startHistory} disabled={busy}>Quiz my history</button>
     {/if}
   </section>
 

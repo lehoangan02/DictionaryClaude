@@ -42,7 +42,7 @@ pub(crate) struct Source {
 
 /// Known pack files in display order.
 /// The `source` of a History row made in the Thesaurus tab; the Dictionary History never lists these.
-const THESAURUS_SOURCE: &str = "thesaurus";
+pub(crate) const THESAURUS_SOURCE: &str = "thesaurus";
 
 const SOURCES: &[(&str, &str, &str)] = &[
     ("wiktionary", "Wiktionary", "wiktionary.pack"),
