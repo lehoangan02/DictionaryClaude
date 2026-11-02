@@ -87,8 +87,8 @@
     <section class="grp">
       <div class="gh">
         <h2>{g.lemma}</h2>
+        <button class="btn small primary" onclick={() => open(g.lemma)}>Dictionary</button>
         {#if g.via}<span class="muted">“{g.via}” is a form of “{g.lemma}”</span>{/if}
-        <button class="btn small ghost" onclick={() => open(g.lemma)}>Dictionary</button>
       </div>
       {#each g.tables as t}
         <div class="box">
@@ -193,7 +193,7 @@
   .grp { margin-top: 24px; }
   .gh { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 14px; }
   .gh h2 { margin: 0; }
-  .gh .btn { margin-left: auto; align-self: center; }
+  .gh .btn { align-self: center; }
   h3 { margin: 0 0 4px; font-size: 14px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
   .box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; margin: 10px 0; }
   .head { margin: 0 0 8px; font-size: 13px; }
