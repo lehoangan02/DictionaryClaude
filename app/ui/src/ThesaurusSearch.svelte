@@ -86,14 +86,15 @@
 
 {#if error}<p class="err">{error}</p>{/if}
 {#if data}
+  <p class="opendict"><button class="btn small primary" onclick={() => open(word)}>Open “{word}” in the dictionary</button></p>
   <Thesaurus {data} {word} alone pick={go} lookup={open} />
-  <p><button class="btn small primary" onclick={() => open(word)}>Open “{word}” in the dictionary</button></p>
 {/if}
 
 <ThesaurusHistory pick={go} seen={visits} />
 
 <style>
   .sb { position: relative; margin: 14px 0 4px; }
+  .opendict { margin: 10px 0 0; }
   .lens { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); color: var(--muted); display: flex; pointer-events: none; }
   input {
     background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 999px;
